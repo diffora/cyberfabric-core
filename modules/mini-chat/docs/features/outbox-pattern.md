@@ -79,11 +79,33 @@ Outbox events are stored in a shared infrastructure table owned by `modkit-db`:
 The `tenant_id` column and the `dedupe_key` field serve different roles and MUST NOT be conflated:
 
 - **`tenant_id` column** — used for routing, filtering, and downstream partitioning. The dispatcher MAY use it to scope claim queries to a specific tenant. Downstream consumers MAY use it for partition-aware processing. It is nullable to accommodate system-level events that are not tenant-scoped.
-- **`dedupe_key`** — a producer-defined idempotency key whose structure is domain-specific. The partial unique index on `(namespace, topic, dedupe_key)` enforces at-most-once enqueue at the database level. **Mini-Chat-specific (not general-purpose):** In the Mini Chat domain, the canonical format is `"{tenant_id}/{turn_id}/{request_id}"` (see DESIGN.md section 5.6). Mini Chat downstream consumers MUST use the same canonical tuple `(tenant_id, turn_id, request_id)` — extracted from the `dedupe_key` or from the payload — for idempotent processing. Other modules define their own `dedupe_key` format and idempotency extraction rules in their respective feature specs.
+- **`dedupe_key`** — a producer-defined idempotency key whose structure is domain-specific. The partial unique index on `(namespace, topic, dedupe_key)` enforces at-most-once enqueue at the database level. The generic outbox library treats `dedupe_key` as an opaque string and performs NO validation on its structure.
 
-The presence of `tenant_id` as a table column does not replace domain-level idempotency semantics embedded in `dedupe_key`. The two serve different purposes and MUST remain consistent: when both are populated, the `tenant_id` value in the column MUST match the tenant component of the `dedupe_key`.
+**Dedupe key requiredness by event type (normative):**
 
-**Enforcement**: The `enqueue` function (section 1.7) MUST validate this consistency at enqueue time. If `tenant_id` is `Some` and `dedupe_key` is `Some`, the function MUST verify that the `dedupe_key` string begins with the hex representation of `tenant_id` followed by `"/"`. On mismatch, `enqueue` MUST return an error; the row MUST NOT be inserted.
+The generic outbox library allows `dedupe_key` to be NULL (the partial unique index only applies when `dedupe_key IS NOT NULL`). However, modules MUST follow these rules when enqueuing events:
+
+1. **Quota-bearing / billing events** — MUST have non-null `dedupe_key`
+   - Events that result in quota debit, credit, or billing charges
+   - Events that participate in financial reconciliation
+   - Examples: Mini-Chat usage snapshots, subscription charges, refunds
+   - Rationale: At-least-once delivery semantics require idempotent deduplication to prevent double-charging
+
+2. **Critical state transitions** — SHOULD have non-null `dedupe_key`
+   - Events that trigger irreversible downstream actions
+   - Events used for audit trails or compliance logging
+   - Examples: user deletion notifications, access revocations
+   - Rationale: Prevents duplicate side effects in distributed systems
+
+3. **Informational telemetry** — MAY have NULL `dedupe_key`
+   - Non-critical metrics, analytics, or monitoring events
+   - Events where duplicate delivery is acceptable
+   - Examples: page view counters, system health heartbeats
+   - Rationale: Reduces storage overhead when idempotency is not required
+
+**Mini-Chat-specific convention (not enforced by generic library):** In the Mini Chat domain, the canonical format is `"{tenant_id}/{turn_id}/{request_id}"` (see DESIGN.md section 5.6). Mini Chat domain code MUST validate this format and enforce non-null `dedupe_key` for all quota-bearing events before calling `enqueue`. The validation is the caller's responsibility, not the outbox library's. Mini Chat downstream consumers MUST use the same canonical tuple `(tenant_id, turn_id, request_id)` — extracted from the `dedupe_key` or from the payload — for idempotent processing. Other modules define their own `dedupe_key` format and idempotency extraction rules in their respective feature specs.
+
+The presence of `tenant_id` as a table column does not replace domain-level idempotency semantics embedded in `dedupe_key`. The two serve different purposes. When both are populated, modules SHOULD ensure consistency (tenant_id column matches the tenant component of dedupe_key), but this is a module-level convention, not a database constraint.
 
 ### 1.7 Proposed `modkit_db::outbox` v1 API (sketch)
 

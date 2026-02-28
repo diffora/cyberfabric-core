@@ -1348,7 +1348,7 @@
           "request_id": {
             "type": "string",
             "format": "uuid",
-            "description": "Turn correlation key (doubles as idempotency key). Within a normal turn the user message and the assistant response share the same request_id. Client-generated, or server-generated UUID v4 when the client omits it. System/background messages (e.g. doc_summary) carry an independently server-generated UUID v4. Always present and non-null."
+            "description": "Turn correlation key (doubles as idempotency key). Within a normal turn the user message and the assistant response share the same request_id. Client-generated, or server-generated UUID v4 when the client omits it. System/background messages (e.g. doc_summary) carry an independently server-generated UUID v4. Always non-null in API responses. Note: The database schema permits NULL for internal use cases, but all messages exposed through this API are guaranteed to have a request_id."
           },
           "role": {
             "type": "string",
