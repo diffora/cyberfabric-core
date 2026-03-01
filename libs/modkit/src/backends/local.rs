@@ -140,8 +140,15 @@ async fn stop_child_with_grace(
 
 /// Wait for a log forwarder task to finish with timeout.
 async fn wait_forwarder(handle: Option<JoinHandle<()>>) {
-    if let Some(h) = handle {
-        _ = tokio::time::timeout(FORWARDER_DRAIN_TIMEOUT, h).await;
+    let Some(h) = handle else { return };
+    match tokio::time::timeout(FORWARDER_DRAIN_TIMEOUT, h).await {
+        Ok(Ok(())) => {}
+        Ok(Err(e)) => {
+            tracing::warn!(error = %e, "log forwarder task panicked");
+        }
+        Err(_) => {
+            tracing::warn!("log forwarder did not finish within drain timeout");
+        }
     }
 }
 
