@@ -114,7 +114,7 @@ Hierarchical multi-tenancy with tenant forest topology (see [`TENANT_MODEL.md`](
 
 ### GTS-Based Attribute Access Control (ABAC)
 
-> Source: [`.gts-spec/`](../../.gts-spec/) · [`dylint_lints/de09_gts_layer/`](../../dylint_lints/de09_gts_layer/) · [`modules/system/types-registry/`](../../modules/system/types-registry/)
+> Source: [gts-spec](https://github.com/globalTypeSystem/gts-spec/) · [`dylint_lints/de09_gts_layer/`](../../dylint_lints/de09_gts_layer/) · [`modules/system/types-registry/`](../../modules/system/types-registry/)
 
 Cyber Fabric uses the **Global Type System (GTS)** as the foundation for attribute-based access control. GTS defines a hierarchical identifier scheme for data types and instances:
 
