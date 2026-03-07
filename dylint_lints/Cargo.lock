@@ -527,7 +527,7 @@ dependencies = [
 
 [[package]]
 name = "cf-modkit"
-version = "0.2.14"
+version = "0.3.2"
 dependencies = [
  "anyhow",
  "arc-swap",
@@ -572,7 +572,7 @@ dependencies = [
 
 [[package]]
 name = "cf-modkit-db"
-version = "0.2.14"
+version = "0.3.2"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -603,7 +603,7 @@ dependencies = [
 
 [[package]]
 name = "cf-modkit-db-macros"
-version = "0.2.14"
+version = "0.3.2"
 dependencies = [
  "heck 0.5.0",
  "proc-macro-error2",
@@ -614,7 +614,7 @@ dependencies = [
 
 [[package]]
 name = "cf-modkit-errors"
-version = "0.2.14"
+version = "0.3.2"
 dependencies = [
  "axum 0.8.8",
  "http",
@@ -625,7 +625,7 @@ dependencies = [
 
 [[package]]
 name = "cf-modkit-errors-macro"
-version = "0.2.14"
+version = "0.3.2"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -636,7 +636,7 @@ dependencies = [
 
 [[package]]
 name = "cf-modkit-macros"
-version = "0.2.14"
+version = "0.3.2"
 dependencies = [
  "heck 0.5.0",
  "proc-macro2",
@@ -647,7 +647,7 @@ dependencies = [
 
 [[package]]
 name = "cf-modkit-odata"
-version = "0.2.14"
+version = "0.3.2"
 dependencies = [
  "base64",
  "bigdecimal",
@@ -666,7 +666,7 @@ dependencies = [
 
 [[package]]
 name = "cf-modkit-sdk"
-version = "0.2.14"
+version = "0.3.2"
 dependencies = [
  "cf-modkit-odata",
  "cf-modkit-security",
@@ -676,7 +676,7 @@ dependencies = [
 
 [[package]]
 name = "cf-modkit-security"
-version = "0.2.14"
+version = "0.3.2"
 dependencies = [
  "anyhow",
  "postcard",
@@ -688,7 +688,7 @@ dependencies = [
 
 [[package]]
 name = "cf-modkit-utils"
-version = "0.2.14"
+version = "0.3.2"
 dependencies = [
  "humantime",
  "serde",
@@ -697,7 +697,7 @@ dependencies = [
 
 [[package]]
 name = "cf-system-sdk-directory"
-version = "0.1.15"
+version = "0.1.18"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -705,7 +705,7 @@ dependencies = [
 
 [[package]]
 name = "cf-system-sdks"
-version = "0.1.15"
+version = "0.1.18"
 dependencies = [
  "cf-system-sdk-directory",
 ]
@@ -3452,20 +3452,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "ring"
-version = "0.17.14"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a4689e6c2294d81e88dc6261c768b63bc4fcdb852be6d1352498b114f61383b7"
-dependencies = [
- "cc",
- "cfg-if",
- "getrandom 0.2.17",
- "libc",
- "untrusted",
- "windows-sys 0.52.0",
-]
-
-[[package]]
 name = "rkyv"
 version = "0.7.46"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4153,7 +4139,6 @@ dependencies = [
  "once_cell",
  "percent-encoding",
  "rust_decimal",
- "rustls",
  "serde",
  "serde_json",
  "sha2",
@@ -4165,7 +4150,6 @@ dependencies = [
  "tracing",
  "url",
  "uuid",
- "webpki-roots 0.26.11",
 ]
 
 [[package]]
@@ -4926,12 +4910,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "673aac59facbab8a9007c7f6108d11f63b603f7cabff99fabf650fea5c32b861"
 
 [[package]]
-name = "untrusted"
-version = "0.9.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8ecb6da28b8a351d773b68d5825ac39017e680750f980f3a1a85cd8dd28a47c1"
-
-[[package]]
 name = "url"
 version = "2.5.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5192,24 +5170,6 @@ checksum = "5a6580f308b1fad9207618087a65c04e7a10bc77e02c8e84e9b00dd4b12fa0bb"
 dependencies = [
  "js-sys",
  "wasm-bindgen",
-]
-
-[[package]]
-name = "webpki-roots"
-version = "0.26.11"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "521bc38abb08001b01866da9f51eb7c5d647a19260e00054a8c7fd5f9e57f7a9"
-dependencies = [
- "webpki-roots 1.0.6",
-]
-
-[[package]]
-name = "webpki-roots"
-version = "1.0.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "22cfaf3c063993ff62e73cb4311efde4db1efb31ab78a3e5c457939ad5cc0bed"
-dependencies = [
- "rustls-pki-types",
 ]
 
 [[package]]

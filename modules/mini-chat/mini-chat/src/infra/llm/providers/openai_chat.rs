@@ -8,9 +8,10 @@ use std::sync::Arc;
 
 use bytes::Bytes;
 use futures::StreamExt;
+use modkit_security::SecurityContext;
 use oagw_sdk::error::StreamingError;
 use oagw_sdk::sse::{FromServerEvent, ServerEvent, ServerEventsResponse, ServerEventsStream};
-use oagw_sdk::{Body, SecurityContext, ServiceGatewayClientV1};
+use oagw_sdk::{Body, ServiceGatewayClientV1};
 use serde::Deserialize;
 use tokio_util::sync::CancellationToken;
 use tracing::debug;
@@ -527,19 +528,18 @@ fn body_to_bytes(body: &serde_json::Value) -> Body {
 // ════════════════════════════════════════════════════════════════════════════
 
 /// `OpenAI` Chat Completions API adapter. Routes all calls through OAGW.
+///
+/// The upstream alias is not stored — it is passed per-request to allow
+/// different tenants to route to different OAGW upstreams.
 #[derive(Clone)]
 pub struct OpenAiChatProvider {
     gateway: Arc<dyn ServiceGatewayClientV1>,
-    upstream_alias: String,
 }
 
 impl OpenAiChatProvider {
     #[must_use]
-    pub fn new(gateway: Arc<dyn ServiceGatewayClientV1>, upstream_alias: String) -> Self {
-        Self {
-            gateway,
-            upstream_alias,
-        }
+    pub fn new(gateway: Arc<dyn ServiceGatewayClientV1>) -> Self {
+        Self { gateway }
     }
 }
 
@@ -584,17 +584,18 @@ struct ChatResponseMessage {
 #[async_trait::async_trait]
 impl crate::infra::llm::LlmProvider for OpenAiChatProvider {
     #[tracing::instrument(
-        skip(self, ctx, request, cancel),
-        fields(model = %request.model())
+        skip(self, ctx, request, upstream_alias, cancel),
+        fields(model = %request.model(), upstream = %upstream_alias)
     )]
     async fn stream(
         &self,
         ctx: SecurityContext,
         request: LlmRequest<Streaming>,
+        upstream_alias: &str,
         cancel: CancellationToken,
     ) -> Result<ProviderStream, LlmProviderError> {
         let body = build_request_body(&request, true);
-        let uri = format!("/{}/v1/chat/completions", self.upstream_alias);
+        let uri = format!("/{upstream_alias}");
 
         let http_request = http::Request::builder()
             .method(http::Method::POST)
@@ -659,16 +660,17 @@ impl crate::infra::llm::LlmProvider for OpenAiChatProvider {
     }
 
     #[tracing::instrument(
-        skip(self, ctx, request),
-        fields(model = %request.model())
+        skip(self, ctx, request, upstream_alias),
+        fields(model = %request.model(), upstream = %upstream_alias)
     )]
     async fn complete(
         &self,
         ctx: SecurityContext,
         request: LlmRequest<NonStreaming>,
+        upstream_alias: &str,
     ) -> Result<ResponseResult, LlmProviderError> {
         let body = build_request_body(&request, false);
-        let uri = format!("/{}/v1/chat/completions", self.upstream_alias);
+        let uri = format!("/{upstream_alias}");
 
         let http_request = http::Request::builder()
             .method(http::Method::POST)

@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use async_trait::async_trait;
 use modkit_macros::domain_model;
 use modkit_security::SecurityContext;
 use oagw_sdk::api::ServiceGatewayClientV1;
@@ -25,7 +26,7 @@ impl ServiceGatewayClientV1Facade {
     }
 }
 
-#[async_trait::async_trait]
+#[async_trait]
 impl ServiceGatewayClientV1 for ServiceGatewayClientV1Facade {
     async fn create_upstream(
         &self,

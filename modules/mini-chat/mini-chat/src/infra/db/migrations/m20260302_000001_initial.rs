@@ -35,6 +35,7 @@ DROP TABLE IF EXISTS user_model_prefs;
 DROP TABLE IF EXISTS quota_usage;
 DROP TABLE IF EXISTS chat_vector_stores;
 DROP TABLE IF EXISTS thread_summaries;
+DROP TABLE IF EXISTS message_attachments;
 DROP TABLE IF EXISTS attachments;
 DROP TABLE IF EXISTS chat_turns;
 DROP TABLE IF EXISTS messages;
@@ -84,6 +85,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_chat_request_role
 CREATE INDEX IF NOT EXISTS idx_messages_chat_created
     ON messages (chat_id, created_at)
     WHERE deleted_at IS NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_id_chat_id
+    ON messages (id, chat_id);
 
 -- 3. chat_turns
 CREATE TABLE IF NOT EXISTS chat_turns (
@@ -154,6 +157,24 @@ CREATE INDEX IF NOT EXISTS idx_attachments_tenant_chat
 CREATE INDEX IF NOT EXISTS idx_attachments_cleanup
     ON attachments (cleanup_status)
     WHERE cleanup_status IS NOT NULL AND deleted_at IS NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_attachments_id_chat_id
+    ON attachments (id, chat_id);
+
+-- 4a. message_attachments
+CREATE TABLE IF NOT EXISTS message_attachments (
+    tenant_id       UUID NOT NULL,
+    chat_id         UUID NOT NULL,
+    message_id      UUID NOT NULL,
+    attachment_id   UUID NOT NULL,
+    created_at      TIMESTAMPTZ NOT NULL,
+    PRIMARY KEY (chat_id, message_id, attachment_id),
+    FOREIGN KEY (message_id, chat_id) REFERENCES messages(id, chat_id) ON DELETE CASCADE,
+    FOREIGN KEY (attachment_id, chat_id) REFERENCES attachments(id, chat_id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_message_attachments_tenant_chat
+    ON message_attachments (tenant_id, chat_id);
+CREATE INDEX IF NOT EXISTS idx_message_attachments_attachment_chat
+    ON message_attachments (attachment_id, chat_id);
 
 -- 5. thread_summaries
 CREATE TABLE IF NOT EXISTS thread_summaries (
@@ -271,6 +292,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_chat_request_role
 CREATE INDEX IF NOT EXISTS idx_messages_chat_created
     ON messages (chat_id, created_at)
     WHERE deleted_at IS NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_id_chat_id
+    ON messages (id, chat_id);
 
 -- 3. chat_turns
 CREATE TABLE IF NOT EXISTS chat_turns (
@@ -341,6 +364,24 @@ CREATE INDEX IF NOT EXISTS idx_attachments_tenant_chat
 CREATE INDEX IF NOT EXISTS idx_attachments_cleanup
     ON attachments (cleanup_status)
     WHERE cleanup_status IS NOT NULL AND deleted_at IS NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_attachments_id_chat_id
+    ON attachments (id, chat_id);
+
+-- 4a. message_attachments
+CREATE TABLE IF NOT EXISTS message_attachments (
+    tenant_id       TEXT NOT NULL,
+    chat_id         TEXT NOT NULL,
+    message_id      TEXT NOT NULL,
+    attachment_id   TEXT NOT NULL,
+    created_at      TEXT NOT NULL,
+    PRIMARY KEY (chat_id, message_id, attachment_id),
+    FOREIGN KEY (message_id, chat_id) REFERENCES messages(id, chat_id) ON DELETE CASCADE,
+    FOREIGN KEY (attachment_id, chat_id) REFERENCES attachments(id, chat_id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_message_attachments_tenant_chat
+    ON message_attachments (tenant_id, chat_id);
+CREATE INDEX IF NOT EXISTS idx_message_attachments_attachment_chat
+    ON message_attachments (attachment_id, chat_id);
 
 -- 5. thread_summaries
 CREATE TABLE IF NOT EXISTS thread_summaries (

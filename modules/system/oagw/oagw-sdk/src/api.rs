@@ -1,3 +1,4 @@
+use async_trait::async_trait;
 use modkit_security::SecurityContext;
 use uuid::Uuid;
 
@@ -42,7 +43,7 @@ impl ErrorSource {
 /// ```ignore
 /// let gw = hub.get::<dyn ServiceGatewayClientV1>()?;
 /// ```
-#[async_trait::async_trait]
+#[async_trait]
 pub trait ServiceGatewayClientV1: Send + Sync {
     // -- Upstream CRUD --
 

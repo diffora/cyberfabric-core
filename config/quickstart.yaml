@@ -90,7 +90,7 @@ modules:
       bind_addr: "127.0.0.1:8087"
       enable_docs: true
       cors_enabled: false
-
+      prefix_path: "/cf"
       # OpenAPI Documentation Configuration
       openapi:
         title: "HyperSpot API"
@@ -143,6 +143,50 @@ modules:
     database:
       server: "sqlite_users"
       file: "mini_chat.db"
+    config:
+      # Provider registry. Key = provider_id (matches ModelCatalogEntry.provider_id).
+      # `upstream_alias` is optional — defaults to `host` when omitted.
+      providers:
+        openai:
+          kind: openai_responses
+          host: "api.openai.com"
+          auth_plugin_type: "gts.x.core.oagw.auth_plugin.v1~x.core.oagw.apikey.v1"
+          auth_config:
+            header: "Authorization"
+            prefix: "Bearer "
+            secret_ref: "cred://openai-key"
+
+      # ── Azure OpenAI example (uncomment and set your endpoint) ──────────
+      #   azure_openai:
+      #     kind: openai_responses
+      #     host: "<your-resource>.openai.azure.com"       # Azure endpoint
+      #     # upstream_alias: "custom-alias"               # optional, defaults to host
+      #     api_path: "/openai/v1/responses"
+      #     auth_plugin_type: "gts.x.core.oagw.auth_plugin.v1~x.core.oagw.apikey.v1"
+      #     auth_config:
+      #       header: "api-key"
+      #       prefix: ""
+      #       secret_ref: "cred://azure-openai-key"
+      #
+      # ── Per-tenant Azure example (each tenant has its own endpoint) ─────
+      #   azure_openai_tenant_a:
+      #     kind: openai_responses
+      #     host: "tenant-a.openai.azure.com"
+      #     api_path: "/openai/v1/responses"
+      #     auth_plugin_type: "gts.x.core.oagw.auth_plugin.v1~x.core.oagw.apikey.v1"
+      #     auth_config:
+      #       header: "api-key"
+      #       prefix: ""
+      #       secret_ref: "cred://azure-openai-key-tenant-a"
+      #   azure_openai_tenant_b:
+      #     kind: openai_responses
+      #     host: "tenant-b.openai.azure.com"
+      #     api_path: "/openai/v1/responses"
+      #     auth_plugin_type: "gts.x.core.oagw.auth_plugin.v1~x.core.oagw.apikey.v1"
+      #     auth_config:
+      #       header: "api-key"
+      #       prefix: ""
+      #       secret_ref: "cred://azure-openai-key-tenant-b"
 
   simple-user-settings:
     # Module-specific database configuration
@@ -240,6 +284,10 @@ modules:
           owner_id: "00000000-df51-5b42-9538-d2b56b7ee953"
           key: "openai-key"
           value: "sk-test-e2e-fake-key"
+        - tenant_id: "00000000-df51-5b42-9538-d2b56b7ee953"
+          owner_id: "00000000-df51-5b42-9538-d2b56b7ee953"
+          key: "azure-openai-key"
+          value: "REPLACE_WITH_AZURE_KEY"
 
   # File parser module configuration (no database needed)
   file-parser:

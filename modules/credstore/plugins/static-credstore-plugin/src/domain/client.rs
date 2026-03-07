@@ -13,17 +13,28 @@ impl CredStorePluginClientV1 for Service {
         ctx: &SecurityContext,
         key: &SecretRef,
     ) -> Result<Option<SecretMetadata>, CredStoreError> {
-        let tenant_id = ctx.subject_tenant_id();
-
-        let Some(entry) = self.get(tenant_id, key) else {
+        let Some(entry) = self.get(ctx, key) else {
             return Ok(None);
+        };
+
+        // For Shared/Tenant entries the stored owner_id/owner_tenant_id are nil
+        // placeholders — resolve them from the caller's security context.
+        let owner_id = if entry.owner_id.is_nil() {
+            ctx.subject_id()
+        } else {
+            entry.owner_id
+        };
+        let owner_tenant_id = if entry.owner_tenant_id.is_nil() {
+            ctx.subject_tenant_id()
+        } else {
+            entry.owner_tenant_id
         };
 
         Ok(Some(SecretMetadata {
             value: SecretValue::new(entry.value.as_bytes().to_vec()),
-            owner_id: entry.owner_id,
+            owner_id,
             sharing: entry.sharing,
-            owner_tenant_id: entry.owner_tenant_id,
+            owner_tenant_id,
         }))
     }
 }
@@ -43,26 +54,31 @@ mod tests {
         Uuid::parse_str("22222222-2222-2222-2222-222222222222").unwrap()
     }
 
-    fn owner() -> Uuid {
+    fn owner_a() -> Uuid {
         Uuid::parse_str("33333333-3333-3333-3333-333333333333").unwrap()
     }
 
-    fn ctx_for_tenant(tenant_id: Uuid) -> SecurityContext {
+    fn owner_b() -> Uuid {
+        Uuid::parse_str("44444444-4444-4444-4444-444444444444").unwrap()
+    }
+
+    fn ctx(tenant_id: Uuid, subject_id: Uuid) -> SecurityContext {
         SecurityContext::builder()
-            .subject_id(owner())
+            .subject_id(subject_id)
             .subject_tenant_id(tenant_id)
             .build()
             .unwrap()
     }
 
+    /// Private secret: `tenant_a` + `owner_a`.
     fn service_with_single_secret() -> Service {
         let cfg = StaticCredStorePluginConfig {
             secrets: vec![SecretConfig {
-                tenant_id: tenant_a(),
-                owner_id: owner(),
+                tenant_id: Some(tenant_a()),
+                owner_id: Some(owner_a()),
                 key: "openai_api_key".to_owned(),
                 value: "sk-test-123".to_owned(),
-                sharing: credstore_sdk::SharingMode::Tenant,
+                sharing: None,
             }],
             ..StaticCredStorePluginConfig::default()
         };
@@ -71,19 +87,18 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn get_returns_metadata_for_matching_tenant_and_key() {
+    async fn get_returns_metadata_for_matching_tenant_and_owner() {
         let service = service_with_single_secret();
         let plugin: &dyn CredStorePluginClientV1 = &service;
         let key = SecretRef::new("openai_api_key").unwrap();
 
-        let result = plugin.get(&ctx_for_tenant(tenant_a()), &key).await;
-        assert!(result.is_ok());
-
-        let metadata = result.unwrap();
-        assert!(metadata.is_some());
-        let metadata = metadata.unwrap();
+        let metadata = plugin
+            .get(&ctx(tenant_a(), owner_a()), &key)
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(metadata.value.as_bytes(), b"sk-test-123");
-        assert_eq!(metadata.owner_id, owner());
+        assert_eq!(metadata.owner_id, owner_a());
         assert_eq!(metadata.owner_tenant_id, tenant_a());
     }
 
@@ -93,9 +108,18 @@ mod tests {
         let plugin: &dyn CredStorePluginClientV1 = &service;
         let key = SecretRef::new("openai_api_key").unwrap();
 
-        let result = plugin.get(&ctx_for_tenant(tenant_b()), &key).await;
-        assert!(result.is_ok());
-        assert!(result.unwrap().is_none());
+        let result = plugin.get(&ctx(tenant_b(), owner_a()), &key).await.unwrap();
+        assert!(result.is_none());
+    }
+
+    #[tokio::test]
+    async fn get_returns_none_for_other_owner() {
+        let service = service_with_single_secret();
+        let plugin: &dyn CredStorePluginClientV1 = &service;
+        let key = SecretRef::new("openai_api_key").unwrap();
+
+        let result = plugin.get(&ctx(tenant_a(), owner_b()), &key).await.unwrap();
+        assert!(result.is_none());
     }
 
     #[tokio::test]
@@ -104,9 +128,8 @@ mod tests {
         let plugin: &dyn CredStorePluginClientV1 = &service;
         let key = SecretRef::new("missing").unwrap();
 
-        let result = plugin.get(&ctx_for_tenant(tenant_a()), &key).await;
-        assert!(result.is_ok());
-        assert!(result.unwrap().is_none());
+        let result = plugin.get(&ctx(tenant_a(), owner_a()), &key).await.unwrap();
+        assert!(result.is_none());
     }
 
     #[tokio::test]
@@ -115,8 +138,127 @@ mod tests {
         let plugin: &dyn CredStorePluginClientV1 = &service;
         let key = SecretRef::new("openai_api_key").unwrap();
 
-        let result = plugin.get(&ctx_for_tenant(tenant_a()), &key).await;
-        assert!(result.is_ok());
-        assert!(result.unwrap().is_none());
+        let result = plugin.get(&ctx(tenant_a(), owner_a()), &key).await.unwrap();
+        assert!(result.is_none());
+    }
+
+    // --- Shared secret fills owner from SecurityContext ---
+
+    #[tokio::test]
+    async fn shared_secret_resolves_owner_from_context() {
+        let cfg = StaticCredStorePluginConfig {
+            secrets: vec![SecretConfig {
+                tenant_id: None,
+                owner_id: None,
+                key: "global_key".to_owned(),
+                value: "global-val".to_owned(),
+                sharing: None,
+            }],
+            ..StaticCredStorePluginConfig::default()
+        };
+        let service = Service::from_config(&cfg).unwrap();
+        let plugin: &dyn CredStorePluginClientV1 = &service;
+        let key = SecretRef::new("global_key").unwrap();
+
+        let metadata = plugin
+            .get(&ctx(tenant_a(), owner_b()), &key)
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(metadata.value.as_bytes(), b"global-val");
+        assert_eq!(metadata.owner_id, owner_b());
+        assert_eq!(metadata.owner_tenant_id, tenant_a());
+    }
+
+    // --- Tenant secret fills owner from SecurityContext ---
+
+    #[tokio::test]
+    async fn tenant_secret_resolves_owner_from_context() {
+        let cfg = StaticCredStorePluginConfig {
+            secrets: vec![SecretConfig {
+                tenant_id: Some(tenant_a()),
+                owner_id: None,
+                key: "scoped_key".to_owned(),
+                value: "scoped-val".to_owned(),
+                sharing: None,
+            }],
+            ..StaticCredStorePluginConfig::default()
+        };
+        let service = Service::from_config(&cfg).unwrap();
+        let plugin: &dyn CredStorePluginClientV1 = &service;
+        let key = SecretRef::new("scoped_key").unwrap();
+
+        let metadata = plugin
+            .get(&ctx(tenant_a(), owner_b()), &key)
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(metadata.owner_id, owner_b());
+        assert_eq!(metadata.owner_tenant_id, tenant_a());
+    }
+
+    // --- Lookup precedence via plugin ---
+
+    #[tokio::test]
+    async fn private_takes_precedence_over_tenant_and_shared_via_plugin() {
+        let cfg = StaticCredStorePluginConfig {
+            secrets: vec![
+                SecretConfig {
+                    tenant_id: None,
+                    owner_id: None,
+                    key: "k".to_owned(),
+                    value: "shared-val".to_owned(),
+                    sharing: None,
+                },
+                SecretConfig {
+                    tenant_id: Some(tenant_a()),
+                    owner_id: None,
+                    key: "k".to_owned(),
+                    value: "tenant-val".to_owned(),
+                    sharing: None,
+                },
+                SecretConfig {
+                    tenant_id: Some(tenant_a()),
+                    owner_id: Some(owner_a()),
+                    key: "k".to_owned(),
+                    value: "private-val".to_owned(),
+                    sharing: None,
+                },
+            ],
+            ..StaticCredStorePluginConfig::default()
+        };
+        let service = Service::from_config(&cfg).unwrap();
+        let plugin: &dyn CredStorePluginClientV1 = &service;
+        let key = SecretRef::new("k").unwrap();
+
+        // owner_a in tenant_a → Private
+        let meta = plugin
+            .get(&ctx(tenant_a(), owner_a()), &key)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(meta.value.as_bytes(), b"private-val");
+        assert_eq!(meta.owner_id, owner_a());
+
+        // owner_b in tenant_a → Tenant (owner resolved from ctx)
+        let meta = plugin
+            .get(&ctx(tenant_a(), owner_b()), &key)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(meta.value.as_bytes(), b"tenant-val");
+        assert_eq!(meta.owner_id, owner_b());
+
+        // tenant_b → Shared (owner resolved from ctx)
+        let meta = plugin
+            .get(&ctx(tenant_b(), owner_b()), &key)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(meta.value.as_bytes(), b"shared-val");
+        assert_eq!(meta.owner_id, owner_b());
+        assert_eq!(meta.owner_tenant_id, tenant_b());
     }
 }

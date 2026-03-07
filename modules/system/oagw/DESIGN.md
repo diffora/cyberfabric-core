@@ -283,7 +283,7 @@ modules/system/oagw/
         │   ├── repo.rs    # Repository traits (UpstreamRepository, RouteRepository)
         │   └── error.rs   # DomainError
         └── infra/         # Infrastructure implementations
-            ├── proxy/     # DataPlaneServiceImpl (reqwest HTTP client)
+            ├── proxy/     # DataPlaneServiceImpl (Pingora in-memory bridge)
             ├── storage/   # Repository impls (DashMap-based in-memory stores)
             ├── plugin/    # AuthPluginRegistry + built-in plugins (ApiKey, NoOp)
             └── type_provisioning.rs  # GTS type registration
@@ -308,7 +308,7 @@ For module structure decisions and trade-offs, see [ADR: Component Architecture]
 - **DNS Resolution**: IP pinning rules, allowed segments matching are out of scope for this document.
 - **Plugin Versioning**: Plugin versioning and lifecycle management are out of scope for this document.
 - **Response Caching**: OAGW does not cache responses. Caching is client/upstream responsibility.
-- **Automatic Retries**: OAGW does not retry failed requests. Retry logic is client responsibility.
+- **Automatic Retries**: OAGW does not retry failed requests. The upstream observes exactly one request attempt per inbound call. Stale pooled-connection reconnects (where no request data was sent) are permitted — these are transport-level recovery, not request retries. Application-level retry logic is client responsibility.
 
 ### Security Considerations
 
@@ -333,7 +333,7 @@ OAGW uses adaptive per-host HTTP version detection:
 3. **Failure**: Fallback to HTTP/1.1, cache "HTTP/1.1 only" for this host/IP
 4. **Subsequent requests**: Use cached protocol version
 
-Cache entry TTL: 1 hour. OAGW does not retry failed requests.
+Cache entry TTL: 1 hour. OAGW does not retry failed requests (see [Retry Policy](#retry-policy)).
 
 HTTP/3 (QUIC) support is future work.
 
@@ -432,9 +432,13 @@ Handled by auth plugins. Token refresh/caching may occur as part of credential p
 
 API keys, OAuth2 credentials, and secrets stored in `cred_store`. Rotation, revocation, and expiration policies managed by `cred_store`, not OAGW.
 
-**Retry Policy**:
+### Retry Policy
 
-OAGW does not retry failed requests. Clients responsible for retry logic. Auth plugins handle token refresh on 401, but do not retry the original request.
+OAGW does not retry failed requests — each inbound call produces exactly one outbound request attempt. If the connection fails (refused, timed out), the error is returned to the client immediately without a second attempt.
+
+Stale pooled-connection reconnects are permitted: when Pingora detects that a reused connection was closed server-side before any request data was sent, it transparently opens a fresh socket and sends the request once. This is transport-level recovery, not a request retry, and is consistent with the single-attempt invariant.
+
+Clients are responsible for application-level retry logic. Auth plugins handle token refresh on 401, but do not retry the original request.
 
 ## Core Subsystems
 

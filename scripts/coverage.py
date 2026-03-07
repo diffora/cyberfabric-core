@@ -764,7 +764,7 @@ def start_instrumented_server(config_file, output_dir, port=None):
         log_fp.close()
         raise
 
-    return server_process, log_file, port, log_fp
+    return server_process, log_file, port
 
 
 def run_e2e_tests(base_url, test_filter=None):

@@ -55,12 +55,24 @@ pub trait QuotaUsageRepository: Send + Sync {
         params: SettleParams,
     ) -> Result<(), DomainError>;
 
-    /// SELECT all `quota_usage` rows for a user across periods and buckets.
+    /// `SELECT` all `quota_usage` rows for a user across periods and buckets.
     async fn find_bucket_rows<C: DBRunner>(
         &self,
         runner: &C,
         scope: &AccessScope,
         tenant_id: Uuid,
         user_id: Uuid,
+    ) -> Result<Vec<QuotaUsageModel>, DomainError>;
+
+    /// `SELECT` `quota_usage` rows with pessimistic locking (`FOR UPDATE` on Postgres,
+    /// plain `SELECT` on `SQLite`). Filters by `period_types` and `period_starts`.
+    async fn find_bucket_rows_for_update<C: DBRunner>(
+        &self,
+        runner: &C,
+        scope: &AccessScope,
+        tenant_id: Uuid,
+        user_id: Uuid,
+        period_types: &[PeriodType],
+        period_starts: &[time::Date],
     ) -> Result<Vec<QuotaUsageModel>, DomainError>;
 }

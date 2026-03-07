@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use async_trait::async_trait;
 use credstore_sdk::{CredStoreClientV1, SecretRef};
 use serde::Deserialize;
 
@@ -29,7 +30,7 @@ impl ApiKeyAuthPlugin {
     }
 }
 
-#[async_trait::async_trait]
+#[async_trait]
 impl AuthPlugin for ApiKeyAuthPlugin {
     async fn authenticate(&self, ctx: &mut AuthContext) -> Result<(), PluginError> {
         let config: ApiKeyConfig = serde_json::from_value(

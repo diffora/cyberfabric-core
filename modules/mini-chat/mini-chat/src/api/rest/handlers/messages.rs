@@ -9,6 +9,7 @@ use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{IntoResponse, Response};
 use axum::{Extension, Json};
 use futures::Stream;
+use modkit::api::odata::OData;
 use modkit::api::prelude::*;
 use modkit_security::SecurityContext;
 use tokio::sync::mpsc;
@@ -16,19 +17,24 @@ use tokio::time::{Interval, interval};
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, warn};
 
-use crate::api::rest::dto::{StreamEvent, StreamEventKind, StreamMessageRequest, StreamPhase};
-use crate::domain::service::StreamError;
+use crate::api::rest::dto::{MessageDto, StreamMessageRequest};
+use crate::api::rest::sse::{StreamEventKind, StreamPhase};
+use crate::domain::service::{StreamError, replay};
+use crate::domain::stream_events::StreamEvent;
+use crate::infra::db::entity::chat_turn::Model as TurnModel;
 use crate::module::AppServices;
 
-use super::not_implemented;
-
 /// GET /mini-chat/v1/chats/{id}/messages
+#[tracing::instrument(skip(svc, ctx, query))]
 pub(crate) async fn list_messages(
-    Extension(_ctx): Extension<SecurityContext>,
-    Extension(_svc): Extension<Arc<AppServices>>,
-    Path(_chat_id): Path<uuid::Uuid>,
-) -> ApiResult<StatusCode> {
-    Err(not_implemented())
+    Extension(ctx): Extension<SecurityContext>,
+    Extension(svc): Extension<Arc<AppServices>>,
+    Path(chat_id): Path<uuid::Uuid>,
+    OData(query): OData,
+) -> ApiResult<JsonPage<MessageDto>> {
+    let page = svc.messages.list_messages(&ctx, chat_id, &query).await?;
+    let page = page.map_items(MessageDto::from);
+    Ok(Json(page))
 }
 
 /// POST /mini-chat/v1/chats/{id}/messages/stream
@@ -51,8 +57,31 @@ pub(crate) async fn stream_message(
         .into_response();
     }
 
-    // TODO P1: AuthZ (PolicyEnforcer::evaluate with send_message action)
-    // TODO P1: Chat existence check via AccessScope
+    // ── Resolve model + provider from chat ─────────────────────────────
+    let chat = match svc.chats.get_chat(&ctx, chat_id).await {
+        Ok(c) => c,
+        Err(e) => {
+            let status = if e.to_string().contains("not found") {
+                StatusCode::NOT_FOUND
+            } else {
+                StatusCode::INTERNAL_SERVER_ERROR
+            };
+            return Problem::new(status, "Error", e.to_string()).into_response();
+        }
+    };
+
+    let selected_model = chat.model;
+    let resolved = match svc
+        .models
+        .resolve_model(ctx.subject_id(), Some(selected_model.clone()))
+        .await
+    {
+        Ok(r) => r,
+        Err(e) => {
+            return Problem::new(StatusCode::BAD_REQUEST, "Bad Request", e.to_string())
+                .into_response();
+        }
+    };
 
     // ── Wire up streaming pipeline ─────────────────────────────────────
     let capacity = svc.stream.channel_capacity();
@@ -60,11 +89,9 @@ pub(crate) async fn stream_message(
     let (tx, rx) = mpsc::channel::<StreamEvent>(capacity);
     let cancel = CancellationToken::new();
 
-    // TODO: model should come from user preferences / quota decision
-    let model = "gpt-4o".to_owned();
     let request_id = body.request_id.unwrap_or_else(uuid::Uuid::new_v4);
 
-    info!(chat_id = %chat_id, %request_id, model = %model, "starting SSE stream");
+    info!(chat_id = %chat_id, %request_id, model = %resolved.model_id, provider_id = %resolved.provider_id, "starting SSE stream");
 
     // Pre-stream checks + spawn the provider task
     let provider_handle = match svc
@@ -74,29 +101,17 @@ pub(crate) async fn stream_message(
             chat_id,
             request_id,
             body.content,
-            model,
+            resolved,
             cancel.clone(),
             tx,
         )
         .await
     {
         Ok(handle) => handle,
-        Err(StreamError::Replay { .. }) => {
-            return Problem::new(StatusCode::CONFLICT, "Conflict", "Duplicate request_id")
-                .into_response();
+        Err(StreamError::Replay { turn }) => {
+            return replay_response(&svc, &selected_model, &turn, ping_secs).await;
         }
-        Err(StreamError::Conflict { message, .. }) => {
-            return Problem::new(StatusCode::CONFLICT, "Conflict", &message).into_response();
-        }
-        Err(StreamError::TurnCreationFailed { source }) => {
-            warn!(error = %source, "pre-stream turn creation failed");
-            return Problem::new(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Internal Error",
-                "Failed to initialize turn",
-            )
-            .into_response();
-        }
+        Err(e) => return stream_error_response(e),
     };
 
     // Monitor provider task for panics
@@ -107,6 +122,90 @@ pub(crate) async fn stream_message(
     });
 
     // Build the SSE relay stream
+    let relay = SseRelay::new(rx, cancel, ping_secs);
+
+    Sse::new(relay)
+        .keep_alive(KeepAlive::new().interval(Duration::from_secs(30)))
+        .into_response()
+}
+
+/// Map a [`StreamError`] to an appropriate HTTP error response.
+fn stream_error_response(err: StreamError) -> Response {
+    match err {
+        StreamError::Replay { .. } => {
+            // Completed turns are handled by replay_response(); this arm covers
+            // the defensive case where Replay leaks through without interception.
+            Problem::new(StatusCode::CONFLICT, "Conflict", "Duplicate request_id").into_response()
+        }
+        StreamError::Conflict { message, .. } => {
+            Problem::new(StatusCode::CONFLICT, "Conflict", &message).into_response()
+        }
+        StreamError::ChatNotFound { .. } => {
+            Problem::new(StatusCode::NOT_FOUND, "Not Found", "Chat not found").into_response()
+        }
+        StreamError::AuthorizationFailed { ref source } => {
+            warn!(error = %source, "stream authorization failed");
+            Problem::new(StatusCode::FORBIDDEN, "Forbidden", "Access denied").into_response()
+        }
+        StreamError::TurnCreationFailed { ref source } => {
+            warn!(error = %source, "pre-stream turn creation failed");
+            Problem::new(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Internal Error",
+                "Failed to initialize turn",
+            )
+            .into_response()
+        }
+        StreamError::QuotaExhausted {
+            error_code,
+            http_status,
+        } => {
+            let status = StatusCode::from_u16(http_status).unwrap_or(StatusCode::TOO_MANY_REQUESTS);
+            Problem::new(status, "Quota Exhausted", &error_code).into_response()
+        }
+    }
+}
+
+/// Build an SSE replay response for a completed turn.
+///
+/// Fetches stored assistant content and emits `delta` + `done` events through
+/// the same `SseRelay` infrastructure as normal streaming.
+async fn replay_response(
+    svc: &AppServices,
+    selected_model: &str,
+    turn: &TurnModel,
+    ping_secs: u64,
+) -> Response {
+    let scope = modkit_security::AccessScope::allow_all().tenant_only();
+
+    let events = match replay::replay_turn(
+        &svc.db,
+        &*svc.message_repo,
+        &scope,
+        turn,
+        selected_model,
+    )
+    .await
+    {
+        Ok(ev) => ev,
+        Err(e) => {
+            warn!(error = %e, turn_id = %turn.id, "replay failed");
+            return Problem::new(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Internal Error",
+                "Failed to replay turn",
+            )
+            .into_response();
+        }
+    };
+
+    let (tx, rx) = mpsc::channel::<StreamEvent>(4);
+    tokio::spawn(async move {
+        drop(tx.send(events.delta).await);
+        drop(tx.send(events.done).await);
+    });
+
+    let cancel = CancellationToken::new();
     let relay = SseRelay::new(rx, cancel, ping_secs);
 
     Sse::new(relay)
@@ -220,7 +319,7 @@ impl Stream for SseRelay {
                 // If no terminal event was received, emit an error to honour
                 // the SSE contract (streams must end with done or error).
                 if !this.phase.is_terminal() {
-                    let error_event = StreamEvent::Error(crate::api::rest::dto::ErrorData {
+                    let error_event = StreamEvent::Error(crate::domain::stream_events::ErrorData {
                         code: "stream_interrupted".to_owned(),
                         message: "Provider stream ended unexpectedly".to_owned(),
                     });

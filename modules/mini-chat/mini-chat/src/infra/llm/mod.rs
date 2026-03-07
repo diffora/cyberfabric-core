@@ -12,6 +12,7 @@
 //!                                   ← TerminalOutcome (via into_outcome)
 //! ```
 
+pub mod provider_resolver;
 pub mod providers;
 pub mod request;
 
@@ -21,7 +22,7 @@ use std::task::{Context, Poll};
 
 use futures::Stream;
 use futures::StreamExt;
-use oagw_sdk::SecurityContext;
+use modkit_security::SecurityContext;
 use oagw_sdk::error::{ServiceGatewayError, StreamingError};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
@@ -35,7 +36,7 @@ pub use request::{
 };
 
 // Re-export provider factory types.
-pub use providers::{ProviderConfig, ProviderKind, create_provider};
+pub use providers::{ProviderKind, create_provider};
 
 // ════════════════════════════════════════════════════════════════════════════
 // Streaming mode markers
@@ -436,6 +437,10 @@ impl Stream for ProviderStream {
 // ════════════════════════════════════════════════════════════════════════════
 
 /// Provider-agnostic LLM trait. Each provider adapter implements this.
+///
+/// The `upstream_alias` parameter identifies the OAGW upstream to route
+/// through. It is resolved per-request by [`ProviderResolver`] based on
+/// the model's `provider_id` and the tenant's endpoint configuration.
 #[async_trait::async_trait]
 pub trait LlmProvider: Send + Sync {
     /// Send a streaming request. Returns a stream of SSE events.
@@ -443,6 +448,7 @@ pub trait LlmProvider: Send + Sync {
         &self,
         ctx: SecurityContext,
         request: LlmRequest<Streaming>,
+        upstream_alias: &str,
         cancel: CancellationToken,
     ) -> Result<ProviderStream, LlmProviderError>;
 
@@ -451,6 +457,7 @@ pub trait LlmProvider: Send + Sync {
         &self,
         ctx: SecurityContext,
         request: LlmRequest<NonStreaming>,
+        upstream_alias: &str,
     ) -> Result<ResponseResult, LlmProviderError>;
 }
 

@@ -1,0 +1,198 @@
+# Mini-Chat development configuration
+#
+# Minimal config for developing/testing the mini-chat module.
+# Based on quickstart.yaml but stripped to essentials.
+#
+# Usage:
+#   cargo run --bin hyperspot-server --features mini-chat -- --config config/mini-chat.yaml run
+
+server:
+  home_dir: "~/.hyperspot"
+
+database:
+  servers:
+    sqlite_users:
+      engine: "sqlite"
+      params:
+        WAL: "true"
+        synchronous: "NORMAL"
+        busy_timeout: "5000"
+      pool:
+        max_conns: 5
+        acquire_timeout: "30s"
+
+logging:
+  default:
+    console_level: info
+    file: "logs/hyperspot.log"
+    file_level: info
+  sqlx:
+    console_level: debug
+    file: "logs/sql.log"
+    file_level: debug
+  api-gateway:
+    console_level: debug
+    file: "logs/api.log"
+    file_level: debug
+
+modules:
+  api-gateway:
+    config:
+      bind_addr: "127.0.0.1:8087"
+      enable_docs: true
+      cors_enabled: false
+      openapi:
+        title: "Mini-Chat Dev API"
+        version: "0.1.0"
+        description: "Mini-Chat development server"
+      defaults:
+        body_limit_bytes: 64000000
+        rate_limit:
+          rps: 1000
+          burst: 200
+          in_flight: 64
+      auth_disabled: true
+
+  module-orchestrator:
+    config: {}
+
+  grpc-hub:
+    config:
+      listen_addr: "uds:///tmp/hyperspot-grpc"
+
+  authn-resolver:
+    config:
+      vendor: "hyperspot"
+
+  authz-resolver:
+    config:
+      vendor: "hyperspot"
+
+  static-authn-plugin:
+    config:
+      vendor: "hyperspot"
+      priority: 100
+      mode: accept_all
+
+  static-authz-plugin:
+    config:
+      vendor: "hyperspot"
+      priority: 100
+
+  tenant-resolver:
+    config:
+      vendor: "hyperspot"
+
+  single-tenant-tr-plugin:
+    config: {}
+
+  simple-user-settings:
+    database:
+      server: "sqlite_users"
+      file: "settings.db"
+    config:
+      max_field_length: 100
+
+  file-parser:
+    config:
+      allowed_local_base_dir: /tmp
+
+  mini-chat:
+    database:
+      server: "sqlite_users"
+      file: "mini_chat.db"
+    config:
+      # Provider registry. Key = provider_id (matches ModelCatalogEntry.provider_id).
+      # `upstream_alias` is optional — defaults to `host` when omitted.
+      providers:
+        openai:
+          kind: openai_responses
+          host: "api.openai.com"
+          auth_plugin_type: "gts.x.core.oagw.auth_plugin.v1~x.core.oagw.apikey.v1"
+          auth_config:
+            header: "Authorization"
+            prefix: "Bearer "
+            secret_ref: "cred://openai-key"
+
+      # ── Azure OpenAI example (uncomment and set your endpoint) ──────────
+      #   azure_openai:
+      #     kind: openai_responses
+      #     host: "<your-resource>.openai.azure.com"       # Azure endpoint
+      #     # upstream_alias: "custom-alias"               # optional, defaults to host
+      #     api_path: "/openai/v1/responses"
+      #     auth_plugin_type: "gts.x.core.oagw.auth_plugin.v1~x.core.oagw.apikey.v1"
+      #     auth_config:
+      #       header: "api-key"
+      #       prefix: ""
+      #       secret_ref: "cred://azure-openai-key"
+      #
+      # ── Per-tenant Azure example (each tenant has its own endpoint) ─────
+      #   azure_openai_tenant_a:
+      #     kind: openai_responses
+      #     host: "tenant-a.openai.azure.com"
+      #     api_path: "/openai/v1/responses"
+      #     auth_plugin_type: "gts.x.core.oagw.auth_plugin.v1~x.core.oagw.apikey.v1"
+      #     auth_config:
+      #       header: "api-key"
+      #       prefix: ""
+      #       secret_ref: "cred://azure-openai-key-tenant-a"
+      #   azure_openai_tenant_b:
+      #     kind: openai_responses
+      #     host: "tenant-b.openai.azure.com"
+      #     api_path: "/openai/v1/responses"
+      #     auth_plugin_type: "gts.x.core.oagw.auth_plugin.v1~x.core.oagw.apikey.v1"
+      #     auth_config:
+      #       header: "api-key"
+      #       prefix: ""
+      #       secret_ref: "cred://azure-openai-key-tenant-b"
+
+  static-mini-chat-model-policy-plugin:
+    config:
+      vendor: "hyperspot"
+      priority: 100
+      model_catalog:
+        - model_id: "gpt-5.2"
+          display_name: "GPT-5.2"
+          tier: Premium
+          global_enabled: true
+          is_default: true
+          input_tokens_credit_multiplier_micro: 3000000
+          output_tokens_credit_multiplier_micro: 15000000
+          multimodal_capabilities: ["VISION_INPUT"]
+          context_window: 128000
+          max_output_tokens: 8192
+          description: "Most capable model"
+          provider_display_name: "OpenAI"
+          multiplier_display: "3x"
+          provider_id: "openai"
+        - model_id: "gpt-5-mini"
+          display_name: "GPT-5 Mini"
+          tier: Standard
+          global_enabled: true
+          is_default: false
+          input_tokens_credit_multiplier_micro: 1000000
+          output_tokens_credit_multiplier_micro: 3000000
+          multimodal_capabilities: []
+          context_window: 128000
+          max_output_tokens: 4096
+          description: "Fast and efficient model"
+          provider_display_name: "OpenAI"
+          multiplier_display: "1x"
+          provider_id: "openai"
+        - model_id: "gpt-5-nano"
+          display_name: "GPT-5 Nano"
+          tier: Standard
+          global_enabled: true
+          is_default: false
+          input_tokens_credit_multiplier_micro: 500000
+          output_tokens_credit_multiplier_micro: 1500000
+          multimodal_capabilities: []
+          context_window: 64000
+          max_output_tokens: 4096
+          description: "Lightweight and fast model"
+          provider_display_name: "OpenAI"
+          multiplier_display: "0.5x"
+          provider_id: "openai"
+
+tracing:
+  enabled: false

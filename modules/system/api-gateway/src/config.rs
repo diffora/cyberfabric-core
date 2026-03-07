@@ -41,6 +41,12 @@ pub struct ApiGatewayConfig {
     /// If true, routes without explicit security requirement still require authentication (AuthN-only).
     #[serde(default = "default_require_auth_by_default")]
     pub require_auth_by_default: bool,
+
+    /// Optional URL path prefix prepended to every route (e.g. `"/cf"` → `/cf/users`).
+    /// Must start with a leading slash; trailing slashes are stripped automatically.
+    /// Empty string (the default) means no prefix.
+    #[serde(default)]
+    pub prefix_path: String,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]

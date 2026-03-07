@@ -5,23 +5,34 @@ use authz_resolver_sdk::{AuthZResolverClient, PolicyEnforcer};
 use modkit_db::DBProvider;
 use modkit_macros::domain_model;
 
-use crate::config::StreamingConfig;
+use crate::config::{EstimationBudgets, QuotaConfig, StreamingConfig};
 use crate::domain::repos::{
-    AttachmentRepository, ChatRepository, MessageRepository, ModelPrefRepository,
-    QuotaUsageRepository, ReactionRepository, ThreadSummaryRepository, TurnRepository,
-    VectorStoreRepository,
+    AttachmentRepository, ChatRepository, MessageRepository, ModelPrefRepository, ModelResolver,
+    PolicySnapshotProvider, QuotaUsageRepository, ReactionRepository, ThreadSummaryRepository,
+    TurnRepository, UserLimitsProvider, VectorStoreRepository,
 };
-use crate::infra::llm::LlmProvider;
+use crate::domain::service::quota_settler::QuotaSettler;
+use crate::infra::llm::provider_resolver::ProviderResolver;
 
 mod attachment_service;
 mod chat_service;
+pub(crate) mod credit_arithmetic;
+pub(crate) mod finalization_service;
+mod message_service;
 mod model_service;
 mod quota_service;
+pub(crate) mod quota_settler;
 mod reaction_service;
+pub(crate) mod replay;
 mod stream_service;
+#[cfg(test)]
+pub(crate) mod test_helpers;
+pub(crate) mod token_estimator;
 
 pub(crate) use attachment_service::AttachmentService;
 pub(crate) use chat_service::ChatService;
+pub(crate) use finalization_service::FinalizationService;
+pub(crate) use message_service::MessageService;
 pub(crate) use model_service::ModelService;
 pub(crate) use quota_service::QuotaService;
 pub(crate) use reaction_service::ReactionService;
@@ -41,7 +52,11 @@ pub(crate) mod resources {
 
     pub const CHAT: ResourceType = ResourceType {
         name: "gts.cf.core.ai_chat.chat.v1~cf.core.mini_chat.chat.v1",
-        supported_properties: &[pep_properties::OWNER_TENANT_ID, pep_properties::RESOURCE_ID],
+        supported_properties: &[
+            pep_properties::OWNER_TENANT_ID,
+            pep_properties::OWNER_ID,
+            pep_properties::RESOURCE_ID,
+        ],
     };
 }
 
@@ -58,9 +73,9 @@ pub(crate) mod actions {
     pub const RETRY_TURN: &str = "retry_turn";
     pub const EDIT_TURN: &str = "edit_turn";
     pub const DELETE_TURN: &str = "delete_turn";
-    pub const UPLOAD: &str = "upload";
+    pub const UPLOAD_ATTACHMENT: &str = "upload_attachment";
     pub const READ_ATTACHMENT: &str = "read_attachment";
-    pub const REACT: &str = "react";
+    pub const SET_REACTION: &str = "set_reaction";
     pub const DELETE_REACTION: &str = "delete_reaction";
 }
 
@@ -70,6 +85,7 @@ pub(crate) struct Repositories<
     TR: TurnRepository,
     MR: MessageRepository,
     QR: QuotaUsageRepository,
+    RR: ReactionRepository,
     CR: ChatRepository,
 > {
     pub(crate) chat: Arc<CR>,
@@ -77,7 +93,7 @@ pub(crate) struct Repositories<
     pub(crate) message: Arc<MR>,
     pub(crate) quota: Arc<QR>,
     pub(crate) turn: Arc<TR>,
-    pub(crate) reaction: Arc<dyn ReactionRepository>,
+    pub(crate) reaction: Arc<RR>,
     pub(crate) model_pref: Arc<dyn ModelPrefRepository>,
     pub(crate) thread_summary: Arc<dyn ThreadSummaryRepository>,
     pub(crate) vector_store: Arc<dyn VectorStoreRepository>,
@@ -94,38 +110,74 @@ pub(crate) struct AppServices<
     TR: TurnRepository + 'static,
     MR: MessageRepository + 'static,
     QR: QuotaUsageRepository + 'static,
+    RR: ReactionRepository + 'static,
     CR: ChatRepository + 'static,
 > {
-    pub(crate) chats: ChatService<MR, CR>,
-    pub(crate) stream: StreamService<TR, MR, CR>,
-    pub(crate) reactions: ReactionService<MR, CR>,
+    pub(crate) chats: ChatService<CR>,
+    pub(crate) messages: MessageService<MR, CR>,
+    pub(crate) stream: StreamService<TR, MR, QR, CR>,
+    pub(crate) reactions: ReactionService<RR, MR, CR>,
     pub(crate) attachments: AttachmentService<CR>,
     pub(crate) models: ModelService,
-    pub(crate) quota: QuotaService<QR>,
+    pub(crate) quota: Arc<QuotaService<QR>>,
+    pub(crate) finalization: Arc<FinalizationService<TR, MR>>,
+    pub(crate) db: Arc<DbProvider>,
+    pub(crate) message_repo: Arc<MR>,
 }
 
 impl<
     TR: TurnRepository + 'static,
     MR: MessageRepository + 'static,
     QR: QuotaUsageRepository + 'static,
+    RR: ReactionRepository + 'static,
     CR: ChatRepository + 'static,
-> AppServices<TR, MR, QR, CR>
+> AppServices<TR, MR, QR, RR, CR>
 {
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
-        repos: &Repositories<TR, MR, QR, CR>,
+        repos: &Repositories<TR, MR, QR, RR, CR>,
         db: Arc<DbProvider>,
         authz: Arc<dyn AuthZResolverClient>,
-        llm: Arc<dyn LlmProvider>,
+        model_resolver: &Arc<dyn ModelResolver>,
+        provider_resolver: Arc<ProviderResolver>,
         streaming_config: StreamingConfig,
+        policy_provider: Arc<dyn PolicySnapshotProvider>,
+        limits_provider: Arc<dyn UserLimitsProvider>,
+        estimation_budgets: EstimationBudgets,
+        quota_config: QuotaConfig,
     ) -> Self {
         let enforcer = PolicyEnforcer::new(authz);
+
+        // Shared QuotaService used by both StreamService (preflight) and
+        // FinalizationService (settlement via QuotaSettler trait).
+        let quota_svc = Arc::new(QuotaService::new(
+            Arc::clone(&db),
+            Arc::clone(&repos.quota),
+            policy_provider,
+            limits_provider,
+            estimation_budgets,
+            quota_config,
+        ));
+
+        let finalization = Arc::new(FinalizationService::new(
+            Arc::clone(&db),
+            Arc::clone(&repos.turn),
+            Arc::clone(&repos.message),
+            Arc::clone(&quota_svc) as Arc<dyn QuotaSettler>,
+        ));
 
         Self {
             chats: ChatService::new(
                 Arc::clone(&db),
                 Arc::clone(&repos.chat),
-                Arc::clone(&repos.message),
                 Arc::clone(&repos.thread_summary),
+                enforcer.clone(),
+                Arc::clone(model_resolver),
+            ),
+            messages: MessageService::new(
+                Arc::clone(&db),
+                Arc::clone(&repos.message),
+                Arc::clone(&repos.chat),
                 enforcer.clone(),
             ),
             stream: StreamService::new(
@@ -134,8 +186,10 @@ impl<
                 Arc::clone(&repos.message),
                 Arc::clone(&repos.chat),
                 enforcer.clone(),
-                llm,
+                provider_resolver,
                 streaming_config,
+                Arc::clone(&finalization),
+                Arc::clone(&quota_svc),
             ),
             reactions: ReactionService::new(
                 Arc::clone(&db),
@@ -154,9 +208,13 @@ impl<
             models: ModelService::new(
                 Arc::clone(&db),
                 Arc::clone(&repos.model_pref),
-                enforcer.clone(),
+                enforcer,
+                Arc::clone(model_resolver),
             ),
-            quota: QuotaService::new(db, Arc::clone(&repos.quota), enforcer),
+            quota: Arc::clone(&quota_svc),
+            finalization,
+            db,
+            message_repo: Arc::clone(&repos.message),
         }
     }
 }

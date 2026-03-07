@@ -16,12 +16,15 @@ use crate::module::AppServices;
 /// License feature required by all mini-chat endpoints.
 ///
 /// DESIGN constraint `cpt-cf-mini-chat-constraint-license-gate`:
-/// access requires the `ai_chat` feature on the tenant license.
+/// access requires the `gts.x.core.lic.feat.v1~x.core.global.base.v1` feature
+/// on the tenant license.
 pub(crate) struct AiChatLicense;
 
+// TODO: Replace the base license feature name with the actual one
+// once the license plugin can provide necessary information.
 impl AsRef<str> for AiChatLicense {
     fn as_ref(&self) -> &'static str {
-        "ai_chat"
+        "gts.x.core.lic.feat.v1~x.core.global.base.v1"
     }
 }
 

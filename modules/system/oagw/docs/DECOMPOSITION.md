@@ -218,7 +218,7 @@ The OAGW design is decomposed into eight features organized along functional bou
 
 - [ ] `p1` - **ID**: `cpt-cf-oagw-feature-proxy-engine`
 
-- **Purpose**: Implement the Data Plane proxy execution flow: resolve upstream by alias, match route, execute plugin chain (Auth→Guard→Transform), forward HTTP request via reqwest, transform response, and return with error source distinction.
+- **Purpose**: Implement the Data Plane proxy execution flow: resolve upstream by alias, match route, execute plugin chain (Auth→Guard→Transform), forward HTTP request via Pingora in-memory bridge, transform response, and return with error source distinction.
 
 - **Depends On**: `cpt-cf-oagw-feature-management-api`, `cpt-cf-oagw-feature-plugin-system`
 
@@ -232,7 +232,7 @@ The OAGW design is decomposed into eight features organized along functional bou
   - Guard rules: method allowlist, query allowlist, path suffix validation
   - Error source distinction: `X-OAGW-Error-Source: gateway|upstream` header
   - RFC 9457 Problem Details for all gateway errors
-  - reqwest HTTP client with connection pooling
+  - Pingora proxy engine with connection pooling and load balancing
   - Proxy endpoint: `{METHOD} /api/oagw/v1/proxy/{alias}[/{path}][?{query}]`
 
 - **Out of scope**:

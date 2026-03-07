@@ -1,0 +1,43 @@
+[package]
+name = "cf-static-mini-chat-model-policy-plugin"
+version.workspace = true
+publish = false
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "Static model-policy plugin for mini-chat with config-driven model catalog"
+
+[lib]
+name = "static_mini_chat_model_policy_plugin"
+
+[lints]
+workspace = true
+
+[dependencies]
+# Plugin SDK
+mini-chat-sdk = { package = "cf-mini-chat-sdk", path = "../../mini-chat-sdk" }
+types-registry-sdk = { package = "cf-types-registry-sdk", path = "../../../system/types-registry/types-registry-sdk" }
+
+# ModKit dependencies
+modkit = { workspace = true }
+modkit-macros = { workspace = true }
+
+# Async runtime
+async-trait = { workspace = true }
+
+# Data structures
+uuid = { workspace = true }
+time = { workspace = true }
+
+# Error handling
+anyhow = { workspace = true }
+
+# Serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# Logging
+tracing = { workspace = true }
+
+# Required by modkit::module macro
+inventory = { workspace = true }

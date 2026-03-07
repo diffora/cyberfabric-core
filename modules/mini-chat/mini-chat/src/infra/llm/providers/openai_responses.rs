@@ -8,9 +8,10 @@ use std::sync::Arc;
 
 use bytes::Bytes;
 use futures::StreamExt;
+use modkit_security::SecurityContext;
 use oagw_sdk::error::StreamingError;
 use oagw_sdk::sse::{FromServerEvent, ServerEvent, ServerEventsResponse, ServerEventsStream};
-use oagw_sdk::{Body, SecurityContext, ServiceGatewayClientV1};
+use oagw_sdk::{Body, ServiceGatewayClientV1};
 use serde::{Deserialize, Serialize};
 use tokio_util::sync::CancellationToken;
 use tracing::debug;
@@ -321,7 +322,10 @@ impl FromServerEvent for ProviderEvent {
             }
 
             other => {
-                debug!(event_name = other, data = %event.data, "unknown provider event, skipping");
+                debug!(
+                    event_name = other,
+                    "ignoring unhandled provider lifecycle event"
+                );
                 Ok(ProviderEvent::Unknown {
                     event_name: other.to_owned(),
                 })
@@ -579,36 +583,36 @@ fn body_to_bytes(body: &serde_json::Value) -> Body {
 // ════════════════════════════════════════════════════════════════════════════
 
 /// `OpenAI` Responses API adapter. Routes all calls through OAGW.
+///
+/// The upstream alias is not stored — it is passed per-request to allow
+/// different tenants to route to different OAGW upstreams.
 #[derive(Clone)]
 pub struct OpenAiResponsesProvider {
     gateway: Arc<dyn ServiceGatewayClientV1>,
-    upstream_alias: String,
 }
 
 impl OpenAiResponsesProvider {
     #[must_use]
-    pub fn new(gateway: Arc<dyn ServiceGatewayClientV1>, upstream_alias: String) -> Self {
-        Self {
-            gateway,
-            upstream_alias,
-        }
+    pub fn new(gateway: Arc<dyn ServiceGatewayClientV1>) -> Self {
+        Self { gateway }
     }
 }
 
 #[async_trait::async_trait]
 impl crate::infra::llm::LlmProvider for OpenAiResponsesProvider {
     #[tracing::instrument(
-        skip(self, ctx, request, cancel),
-        fields(model = %request.model())
+        skip(self, ctx, request, upstream_alias, cancel),
+        fields(model = %request.model(), upstream = %upstream_alias)
     )]
     async fn stream(
         &self,
         ctx: SecurityContext,
         request: LlmRequest<Streaming>,
+        upstream_alias: &str,
         cancel: CancellationToken,
     ) -> Result<ProviderStream, LlmProviderError> {
         let body = build_request_body(&request, true);
-        let uri = format!("/{}/v1/responses", self.upstream_alias);
+        let uri = format!("/{upstream_alias}");
 
         let http_request = http::Request::builder()
             .method(http::Method::POST)
@@ -669,16 +673,17 @@ impl crate::infra::llm::LlmProvider for OpenAiResponsesProvider {
     }
 
     #[tracing::instrument(
-        skip(self, ctx, request),
-        fields(model = %request.model())
+        skip(self, ctx, request, upstream_alias),
+        fields(model = %request.model(), upstream = %upstream_alias)
     )]
     async fn complete(
         &self,
         ctx: SecurityContext,
         request: LlmRequest<NonStreaming>,
+        upstream_alias: &str,
     ) -> Result<ResponseResult, LlmProviderError> {
         let body = build_request_body(&request, false);
-        let uri = format!("/{}/v1/responses", self.upstream_alias);
+        let uri = format!("/{upstream_alias}");
 
         let http_request = http::Request::builder()
             .method(http::Method::POST)
@@ -1554,7 +1559,7 @@ mod tests {
         ];
 
         let gw = MockGateway::returning_sse(events);
-        let provider = OpenAiResponsesProvider::new(gw.clone(), "openai".into());
+        let provider = OpenAiResponsesProvider::new(gw.clone());
 
         let request = llm_request("gpt-4o")
             .message(LlmMessage::user("Hello"))
@@ -1562,7 +1567,7 @@ mod tests {
 
         let cancel = CancellationToken::new();
         let stream = provider
-            .stream(test_security_context(), request, cancel)
+            .stream(test_security_context(), request, "openai", cancel)
             .await
             .unwrap();
         let outcome = stream.into_outcome().await;
@@ -1582,7 +1587,7 @@ mod tests {
             _ => panic!("expected Completed, got {outcome:?}"),
         }
 
-        assert_eq!(gw.last_request_uri().unwrap(), "/openai/v1/responses");
+        assert_eq!(gw.last_request_uri().unwrap(), "/openai");
     }
 
     #[tokio::test]
@@ -1600,12 +1605,12 @@ mod tests {
         ];
 
         let gw = MockGateway::returning_sse(events);
-        let provider = OpenAiResponsesProvider::new(gw, "openai".into());
+        let provider = OpenAiResponsesProvider::new(gw);
 
         let request = llm_request("gpt-4o").build_streaming();
         let cancel = CancellationToken::new();
         let stream = provider
-            .stream(test_security_context(), request, cancel)
+            .stream(test_security_context(), request, "openai", cancel)
             .await
             .unwrap();
         let outcome = stream.into_outcome().await;
@@ -1632,12 +1637,12 @@ mod tests {
         ];
 
         let gw = MockGateway::returning_sse(events);
-        let provider = OpenAiResponsesProvider::new(gw, "openai".into());
+        let provider = OpenAiResponsesProvider::new(gw);
 
         let request = llm_request("gpt-4o").build_streaming();
         let cancel = CancellationToken::new();
         let mut stream = provider
-            .stream(test_security_context(), request, cancel.clone())
+            .stream(test_security_context(), request, "openai", cancel.clone())
             .await
             .unwrap();
 
@@ -1662,12 +1667,12 @@ mod tests {
             instance: "/test".into(),
             retry_after_secs: Some(30),
         });
-        let provider = OpenAiResponsesProvider::new(gw, "openai".into());
+        let provider = OpenAiResponsesProvider::new(gw);
 
         let request = llm_request("gpt-4o").build_streaming();
         let cancel = CancellationToken::new();
         let result = provider
-            .stream(test_security_context(), request, cancel)
+            .stream(test_security_context(), request, "openai", cancel)
             .await;
 
         assert!(matches!(
@@ -1684,12 +1689,12 @@ mod tests {
             detail: "timed out".into(),
             instance: "/test".into(),
         });
-        let provider = OpenAiResponsesProvider::new(gw, "openai".into());
+        let provider = OpenAiResponsesProvider::new(gw);
 
         let request = llm_request("gpt-4o").build_streaming();
         let cancel = CancellationToken::new();
         let result = provider
-            .stream(test_security_context(), request, cancel)
+            .stream(test_security_context(), request, "openai", cancel)
             .await;
 
         assert!(matches!(result.unwrap_err(), LlmProviderError::Timeout));
@@ -1701,12 +1706,12 @@ mod tests {
             detail: "disabled".into(),
             instance: "/test".into(),
         });
-        let provider = OpenAiResponsesProvider::new(gw, "openai".into());
+        let provider = OpenAiResponsesProvider::new(gw);
 
         let request = llm_request("gpt-4o").build_streaming();
         let cancel = CancellationToken::new();
         let result = provider
-            .stream(test_security_context(), request, cancel)
+            .stream(test_security_context(), request, "openai", cancel)
             .await;
 
         assert!(matches!(
@@ -1723,12 +1728,12 @@ mod tests {
             "code": "invalid_request",
             "message": "Error in resp_xyz123: invalid model at https://api.openai.com/v1"
         }));
-        let provider = OpenAiResponsesProvider::new(gw, "openai".into());
+        let provider = OpenAiResponsesProvider::new(gw);
 
         let request = llm_request("bad-model").build_streaming();
         let cancel = CancellationToken::new();
         let result = provider
-            .stream(test_security_context(), request, cancel)
+            .stream(test_security_context(), request, "openai", cancel)
             .await;
 
         match result.unwrap_err() {
@@ -1772,7 +1777,7 @@ mod tests {
                 "output_tokens": 50
             }
         }));
-        let provider = OpenAiResponsesProvider::new(gw.clone(), "azure-openai".into());
+        let provider = OpenAiResponsesProvider::new(gw.clone());
 
         let request = llm_request("gpt-4o")
             .system_instructions("Summarize.")
@@ -1781,7 +1786,7 @@ mod tests {
             .build_non_streaming();
 
         let result = provider
-            .complete(test_security_context(), request)
+            .complete(test_security_context(), request, "azure-openai")
             .await
             .unwrap();
 
@@ -1792,7 +1797,7 @@ mod tests {
         assert_eq!(result.citations.len(), 1);
         assert!(matches!(result.citations[0].source, CitationSource::File));
 
-        assert_eq!(gw.last_request_uri().unwrap(), "/azure-openai/v1/responses");
+        assert_eq!(gw.last_request_uri().unwrap(), "/azure-openai");
     }
 
     // ── Integration test: fluent builder ───────────────────────────────────
@@ -1805,7 +1810,7 @@ mod tests {
         )];
 
         let gw = MockGateway::returning_sse(events);
-        let provider = OpenAiResponsesProvider::new(gw.clone(), "openai".into());
+        let provider = OpenAiResponsesProvider::new(gw.clone());
 
         let request = llm_request("gpt-4o")
             .system_instructions("You are helpful")
@@ -1829,7 +1834,7 @@ mod tests {
 
         let cancel = CancellationToken::new();
         let _stream = provider
-            .stream(test_security_context(), request, cancel)
+            .stream(test_security_context(), request, "openai", cancel)
             .await
             .unwrap();
 

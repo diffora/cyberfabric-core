@@ -55,6 +55,8 @@ pub struct AppHarnessBuilder {
     credentials: Vec<(String, String)>,
     request_timeout: Option<Duration>,
     authz_client: Option<Arc<dyn AuthZResolverClient>>,
+    max_body_size: Option<usize>,
+    skip_upstream_tls_verify: bool,
 }
 
 impl AppHarnessBuilder {
@@ -74,6 +76,18 @@ impl AppHarnessBuilder {
         self
     }
 
+    /// Override the maximum request body size (useful for body-limit tests).
+    pub fn with_max_body_size(mut self, size: usize) -> Self {
+        self.max_body_size = Some(size);
+        self
+    }
+
+    /// Skip upstream TLS certificate verification. **Test use only.**
+    pub fn with_skip_upstream_tls_verify(mut self, allow: bool) -> Self {
+        self.skip_upstream_tls_verify = allow;
+        self
+    }
+
     pub async fn build(self) -> AppHarness {
         let hub = ClientHub::new();
 
@@ -89,6 +103,12 @@ impl AppHarnessBuilder {
         if let Some(client) = self.authz_client {
             dp_builder = dp_builder.with_authz_client(client);
         }
+        if let Some(size) = self.max_body_size {
+            dp_builder = dp_builder.with_max_body_size(size);
+        }
+        dp_builder = dp_builder.with_skip_upstream_tls_verify(self.skip_upstream_tls_verify);
+        dp_builder =
+            dp_builder.with_token_http_config(modkit_http::HttpClientConfig::for_testing());
 
         let app_state = build_test_app_state(&hub, cp_builder, dp_builder);
 

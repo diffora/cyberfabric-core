@@ -289,23 +289,24 @@ Hard caps: token budgets (`max_input_tokens`, `max_output_tokens`) MUST remain c
 
 **Core Entities**:
 
-| Entity | Description |
-|--------|-------------|
-| Chat | A conversation belonging to a user within a tenant. Has title, **selected_model** (locked at creation from catalog; immutable), `message_count`, creation/update timestamps. Detail response returns metadata + message_count only; messages are loaded separately via `GET /v1/chats/{id}/messages`. Temporary flag reserved for P2. |
-| Message | A single turn in a chat (role: user/assistant/system). Stores content, token estimate, compression status. Always includes a required `attachment_ids` field — an always-present array of associated attachment UUIDs (empty array when none). Always includes a required `request_id` (UUID) — within a normal turn, user and assistant messages share the same value (turn correlation key); system/background messages use an independently server-generated UUID v4. Assistant messages record the **effective_model** (the model actually used after quota/policy evaluation). |
-| Attachment | File uploaded to a chat (document or image). Identified by internal `attachment_id` (UUID). Stores `provider_file_id` internally (never exposed via API). Documents are linked to the chat's vector store; images are not. Has processing status and `attachment_kind` (`document|image`). For image attachments, an optional `img_thumbnail` (server-generated preview, `image/webp`, fit inside configured WxH preserving aspect ratio; max decoded size 128 KiB by default, configurable via `thumbnail_max_bytes`) is produced on upload and stored in Mini Chat database only (never uploaded to provider); null for documents and when thumbnail generation is unavailable or failed. `doc_summary` is always null for images. |
-| ThreadSummary | Compressed representation of older messages in a chat. Replaces old history in the context window. |
-| ChatVectorStore | Mapping from `(tenant_id, chat_id)` to provider `vector_store_id` (OpenAI or Azure OpenAI Vector Stores API). One vector store per chat (created on first document upload). Physical and logical isolation are both per chat (see File Search Retrieval Scope). |
-| AuditEvent | Structured event emitted to platform `audit_service`: prompt, response, user/tenant, timestamps, policy decisions, usage. Not stored locally. |
-| QuotaUsage | Per-user usage counters for rate limiting and budget enforcement. Tracks daily and monthly periods per tier in credits. Credits are computed from provider-reported token usage using the model credit multipliers in the policy snapshot. Premium models have stricter limits; standard-tier models have separate, higher limits. |
-| MessageReaction | A binary like or dislike reaction on an assistant message. One reaction per user per message. Stored for analytics and feedback collection. |
-| ContextPlan | Transient object assembled per request: system prompt, summary, doc summaries, recent messages, user message, retrieval excerpts. |
+| Entity | Description                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+|--------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| Chat | A conversation belonging to a user within a tenant. Has title, **selected_model** (locked at creation from catalog; immutable), `message_count`, creation/update timestamps. Detail response returns metadata + message_count only; messages are loaded separately via `GET /v1/chats/{id}/messages`. Temporary flag reserved for P2.                                                                                                                                                                                                                                               |
+| Message | A single turn in a chat (role: user/assistant/system). Stores content, token estimate, compression status. Always includes a required `attachments` field — an always-present array of `AttachmentSummary` objects (empty array when none), derived from the `message_attachments` join table (not stored on the `messages` row). Each `AttachmentSummary` contains `attachment_id`, `kind`, `filename`, `status`, and `img_thumbnail` (for images). Always includes a required `request_id` (UUID) — within a normal turn, user and assistant messages share the same value (turn correlation key); system/background messages use an independently server-generated UUID v4. Assistant messages record the **effective_model** (the model actually used after quota/policy evaluation). |
+| Attachment | File uploaded to a chat (document or image). Identified by internal `attachment_id` (UUID). Stores `provider_file_id` internally (never exposed via API). Documents are linked to the chat's vector store; images are not. Has processing status and `attachment_kind (document|image)`. For image attachments, an optional `img_thumbnail` (server-generated preview, `image/webp`, fit inside configured WxH preserving aspect ratio; max decoded size 128 KiB by default, configurable via `thumbnail_max_bytes`) is produced on upload and stored in Mini Chat database only (never uploaded to provider); null for documents and when thumbnail generation is unavailable or failed. `doc_summary` is always null for images. |
+| ThreadSummary | Compressed representation of older messages in a chat. Replaces old history in the context window.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| ChatVectorStore | Mapping from `(tenant_id, chat_id)` to provider `vector_store_id` (OpenAI or Azure OpenAI Vector Stores API). One vector store per chat (created on first document upload). Physical and logical isolation are both per chat (see File Search Retrieval Scope).                                                                                                                                                                                                                                                                                                                 |
+| AuditEvent | Structured event emitted to platform `audit_service`: prompt, response, user/tenant, timestamps, policy decisions, usage. Not stored locally.                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| QuotaUsage | Per-user usage counters for rate limiting and budget enforcement. Tracks daily and monthly periods per tier in credits. Credits are computed from provider-reported token usage using the model credit multipliers in the policy snapshot. Premium models have stricter limits; standard-tier models have separate, higher limits.                                                                                                                                                                                                                                                  |
+| MessageReaction | A binary like or dislike reaction on an assistant message. One reaction per user per message. Stored for analytics and feedback collection.                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| ContextPlan | Transient object assembled per request: system prompt, summary, doc summaries, recent messages, user message, retrieval excerpts.                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 
 **Relationships**:
 - Chat -> Message: 1..\*
 - Chat -> Attachment: 0..\*
 - Chat -> ThreadSummary: 0..1
-- Attachment -> ChatVectorStore: belongs to (via chat_id)
+- Message -> Attachment: 0..\* (M:N via `message_attachments` join table; user messages reference attachments submitted on that turn)
+- Attachment -> ChatVectorStore: belongs to (via chat_id; documents only — images are not indexed)
 - Message -> AuditEvent: 1..1 (each turn emits an audit event to platform `audit_service`)
 - Message -> MessageReaction: 0..1 (per user)
 
@@ -361,9 +362,9 @@ graph TB
 
   - **Phase 1 - Preflight (reserve) estimate** (on request start, before any streaming begins and before outbound call): estimate token usage from `ContextPlan` size + `max_output_tokens` (persisted as `max_output_tokens_applied`), convert to reserved credits using model multipliers (section 5.4.1), and reserve credits for quota enforcement. Decision: allow at requested tier / downgrade to next tier / reject if all tiers exhausted.
     - Reserve MUST prevent parallel requests from overspending remaining tier quota.
-    - Reserve SHOULD be keyed by `(tenant_id, user_id, period_type, period_start, bucket)` and reconciled on terminal outcome. Reserves MUST be checked across all configured period types (`daily`, `monthly`) and all required buckets for the current tier; if any period or bucket is exhausted, the tier is considered exhausted and the cascade proceeds to the next tier.
+    - Reserve SHOULD be keyed by `(user_id, period_type, period_start, bucket)` and reconciled on terminal outcome. Reserves MUST be checked across all configured period types (`daily`, `monthly`) and all required buckets for the current tier; if any period or bucket is exhausted, the tier is considered exhausted and the cascade proceeds to the next tier.
   - **Phase 2 - Commit actual** (on `event: done`): reconcile the reserve to actual provider usage (`response.usage.input_tokens` + `response.usage.output_tokens`), compute actual credits via model multipliers, and commit actual credits to `quota_usage`. If actual exceeds estimate (overshoot), the completed response is never retroactively cancelled, but guardrails apply:
-    - Commit MUST be atomic per `(tenant_id, user_id, period_type, period_start, bucket)` row (avoid race conditions under parallel streams)
+    - Commit MUST be atomic per `(user_id, period_type, period_start, bucket)` row (avoid race conditions under parallel streams)
     - If the remaining quota for a tier is below a configured negative threshold, preflight MUST downgrade new requests to the next tier in the cascade. The negative threshold is a configurable absolute credit value defined in quota configuration.
     - `max_output_tokens` and an explicit input budget MUST bound the maximum cost per request
   - **Streaming constraint**: quota check is preflight-only. Mid-stream abort due to quota is NOT supported (would produce broken UX and partial content). Mid-stream abort is only triggered by: user cancel, provider error, or infrastructure limits.
@@ -398,7 +399,7 @@ Background/system tasks MUST NOT create `chat_turns` records. `chat_turns` idemp
 System tasks (thread summary update, document summary generation) MUST be isolated from user-turn billing and idempotency paths:
 
 1. System tasks MUST NOT participate in `chat_turns` idempotency and finalization CAS. They MUST NOT write to the `chat_turns` table and MUST NOT use `chat_turns.state` transitions.
-2. System tasks MUST NOT debit user quota tables (`quota_usage` rows keyed by `(tenant_id, user_id)`). They are not subject to per-user quota enforcement.
+2. System tasks MUST NOT debit user quota tables (`quota_usage` rows keyed by `(user_id)`). They are not subject to per-user quota enforcement.
 3. System tasks MUST emit `modkit_outbox_events` usage events with `requester_type=system` (or equivalent field in the payload) so CyberChatManager can attribute cost to the tenant operational bucket, not to an individual user.
 4. System tasks MUST follow the same provider-id sanitization rules as user turns (no provider identifiers in outbox payloads or audit events).
 5. System tasks MUST still obey global cost controls (tenant-level token budgets, kill switches) as defined in PRD section 5.6.
@@ -456,7 +457,7 @@ System tasks (thread summary update, document summary generation) MUST be isolat
 
 **Quota enforcement:**
 
-- System tasks MUST NOT debit `quota_usage` rows keyed by `(tenant_id, user_id)`
+- System tasks MUST NOT debit `quota_usage` rows keyed by `(user_id)`
 - System tasks MAY debit a tenant-level operational quota bucket (implementation-defined, P2+)
 - P1: System tasks do not participate in per-user quota enforcement but DO emit usage events for tenant billing
 
@@ -545,7 +546,39 @@ Request body:
 
 - `model`: If provided, MUST reference a valid `model_id` in the model catalog with `status: enabled`. If absent, the system uses the `is_default` premium model (see Model Catalog Configuration). The model is stored on the chat and locked for all subsequent messages (see `cpt-cf-mini-chat-constraint-model-locked-per-chat`). Returns HTTP 400 if the model_id is not in the catalog or is disabled.
 
-Response includes the resolved `model` in chat metadata. `tenant_id` and `user_id` are NOT included in API response bodies — identity is derived from the authentication context. These fields exist in the database schema for internal use only.
+Response includes the resolved `model` in chat metadata. `user_id` is NOT included in API response bodies — identity is derived from the authentication context. These fields exist in the database schema for internal use only.
+
+**List Chats** (`GET /v1/chats`):
+
+Returns paginated chats using cursor-based pagination. Default ordering is `updated_at desc` (most recently active first) with `id` as tiebreaker.
+
+Query parameters:
+- `limit` (integer, optional, default 20, max 100) — page size
+- `cursor` (string, optional) — opaque cursor for next/previous page
+
+Response:
+```json
+{
+  "items": [
+    {
+      "id": "uuid",
+      "model": "gpt-5.2",
+      "title": "Q3 Financial Analysis",
+      "is_temporary": false,
+      "message_count": 12,
+      "created_at": "2025-06-15T10:30:00Z",
+      "updated_at": "2025-06-15T10:36:30Z"
+    }
+  ],
+  "page_info": {
+    "limit": 20,
+    "next_cursor": "opaque-cursor-string",
+    "prev_cursor": null
+  }
+}
+```
+
+Each item has the same shape as `GET /v1/chats/{id}` (`ChatDetail`). Only non-deleted chats are returned. No `$filter`, `$orderby`, or `$select` support in P1 — sort is fixed to `updated_at DESC`.
 
 **Get Chat** (`GET /v1/chats/{id}`):
 
@@ -606,7 +639,7 @@ Returns paginated messages using cursor-based pagination with OData v4 query sup
 Query parameters:
 - `limit` (integer, optional, default 20, max 100)
 - `cursor` (string, optional) — opaque cursor for next/previous page
-- `$select` (string, optional) — OData v4 field projection (top-level fields including `attachment_ids`)
+- `$select` (string, optional) — OData v4 field projection (top-level fields including `attachments`)
 - `$orderby` (string, optional) — allowed: `created_at asc|desc`, `id asc|desc`
 - `$filter` (string, optional) — allowed fields and operators: `created_at` (eq, ne, gt, ge, lt, le), `role` (eq, ne, in), `id` (eq, ne, in)
 
@@ -622,7 +655,7 @@ Response follows the platform Page + PageInfo convention:
 }
 ```
 
-Each `Message` includes: a required `request_id` (UUID, always present and non-null — within a normal turn, user and assistant messages share the same value; system/background messages use a server-generated UUID v4) and a required `attachment_ids` field (always-present array of attachment UUIDs, empty array when none). Attachment details are fetched individually via `GET /v1/chats/{id}/attachments/{attachment_id}` if needed.
+Each `Message` includes: a required `request_id` (UUID, always present and non-null — within a normal turn, user and assistant messages share the same value; system/background messages use a server-generated UUID v4) and a required `attachments` field (always-present array of `AttachmentSummary` objects, empty array when none). Each `AttachmentSummary` contains `attachment_id`, `kind`, `filename`, `status`, and `img_thumbnail` (present only for images with `status=ready`). The `attachments` array is derived from the `message_attachments` join table via a lateral join in the `listMessages` query, joined with attachment metadata from the `attachments` table. Full attachment details (doc_summary, size_bytes, content_type, error_code) are available via `GET /v1/chats/{id}/attachments/{attachment_id}`.
 
 **Get Attachment** (`GET /v1/chats/{id}/attachments/{attachment_id}`):
 
@@ -690,9 +723,10 @@ impl MessageEntity {
 
 `web_search` is an optional object controlling web search for this turn. Defaults to `{ "enabled": false }` when omitted (backward compatible). When `web_search.enabled=true`, the backend includes the `web_search` tool in the provider Responses API request. The provider decides whether to invoke the tool. If the global `disable_web_search` kill switch is active, the request is rejected with HTTP 400 and error code `web_search_disabled` before opening an SSE stream.
 
-`attachment_ids` is an optional list of **attachment IDs** to include as input on the current turn. P1 supports image attachments only. Validation MUST ensure all of the following:
+`attachment_ids` is an optional list of **attachment IDs** to include as input on the current turn. P1 supports image attachments only. When the user message is persisted, the association between the message and each referenced attachment is recorded in the `message_attachments` join table (see section 3.7). This is the single source of truth for the `attachments` array returned in `GET /v1/chats/{id}/messages` (each entry is an `AttachmentSummary` with `attachment_id`, `kind`, `filename`, `status`, `img_thumbnail`). Validation MUST ensure all of the following:
 
 - `attachments.tenant_id` matches the request security context tenant
+- `attachments.uploaded_by_user_id` matches the user who uploads attachment
 - The owning chat's `user_id` matches the request security context user
 - `attachments.chat_id` matches the requested `chat_id`
 - `attachments.status == ready`
@@ -968,6 +1002,7 @@ Provider-specific streaming events are internal to `llm_provider` and the domain
 | Web search annotations in response | `event: citations` | Extracted from provider annotations, mapped to `items[]` with `source: "web"`, `url`, `title`, `snippet`. |
 | File search annotations in response | `event: citations` | Extracted from provider annotations, mapped to `items[]` schema. When provider annotations include ranges, `items[].span` SHOULD be populated as character offsets into the final assistant text. |
 | `response.completed` | `event: done` | `usage` from `response.usage`. Provider `response.id` is persisted internally (`chat_turns.provider_response_id`) but MUST NOT be included in the SSE payload. |
+| `response.incomplete` | `event: done` | A truncated but valid completion. `usage` is still taken from `response.usage`. The incomplete reason MUST be surfaced as a non-fatal completion signal (audit/outbox payload + metrics), and MUST NOT be written to `chat_turns.error_code`. Provider response ID may be absent depending on provider behavior. |
 | Provider HTTP error / disconnect | `event: error` (`code: "provider_error"` or `"provider_timeout"`) | Error details sanitized; provider internals not exposed. |
 | Provider 429 | `event: error` (`code: "rate_limited"`) | After OAGW retry exhaustion. |
 
@@ -1140,15 +1175,9 @@ The domain service computes model visibility for `(tenant_id, user_id)` as follo
 
 **Request body**: none
 
-**Response** (success): `200 OK` with:
-```json
-{
-  "message_id": "uuid",
-  "deleted": true
-}
-```
+**Response** (success): `204 No Content` (no body).
 
-If no reaction exists, return `200 OK` with `"deleted": true` (idempotent delete).
+Idempotent: returns `204` whether or not a reaction existed.
 
 **Errors**: same as Set Reaction (excluding `invalid_reaction_target`).
 
@@ -1261,7 +1290,11 @@ sequenceDiagram
         AG-->>UI: 400
     end
 
+    Note over CS, DB: Preflight transaction (must commit before provider call): persist `messages` (role='user'), persist `message_attachments`, insert `chat_turns` (state='running') + quota reserve.
+
     Note over CS, OAI: Single provider call per user turn. file_search is always enabled as a tool. web_search is included when web_search.enabled=true.
+
+    CS->>DB: Preflight commit: Persist user msg + message_attachments + chat_turns(running) + quota reserve
 
     CS->>OG: POST /outbound/llm/responses:stream (tools include file_search + optionally web_search, store=user_store, filtered to chat attachments)
     OG->>OAI: Responses API (streaming, tool calling enabled)
@@ -1270,8 +1303,8 @@ sequenceDiagram
     CS-->>AG: Token stream
     AG-->>UI: SSE tokens
 
-    CS->>DB: Persist user msg + assistant msg + usage
-    CS->>CS: Commit actual usage to quota_service (debit input_tokens + output_tokens)
+    Note over CS, DB: Finalization after provider terminal: persist assistant `messages` row + usage, CAS-finalize `chat_turns`, settle quota/outbox (commit), then emit terminal SSE.
+    CS->>DB: Finalize: Persist assistant msg + usage; update chat_turns terminal state; settle quota/outbox (commit)
 
     participant AS as audit_service
     CS->>AS: Emit audit event (selected_model, effective_model, usage, policy decisions)
@@ -1298,19 +1331,26 @@ sequenceDiagram
 
     UI->>AG: POST /v1/chats/{id}/attachments (multipart)
     AG->>CS: UploadAttachment(chat_id, file, security_ctx)
-    CS->>DB: Insert attachment metadata (status: pending)
+    CS->>DB: Insert attachment metadata (status: pending, attachment_kind derived from MIME)
     CS->>OG: POST /outbound/llm/files (upload)
     OG->>OAI: Files API upload
     OAI-->>OG: provider_file_id
     OG-->>CS: provider_file_id
-    CS->>OG: POST /outbound/llm/vector_stores/{chat_store}/files (add file)
-    OG->>OAI: Add file to vector store
-    OAI-->>OG: OK
-    OG-->>CS: OK
-    CS->>DB: Update attachment (status: ready, provider_file_id)
 
-    opt Generate doc summary (Variant 1, background)
-        CS->>CS: Enqueue doc summary task (requester_type=system)
+    alt attachment_kind = document
+        CS->>OG: POST /outbound/llm/vector_stores/{chat_store}/files (add file)
+        OG->>OAI: Add file to vector store
+        OAI-->>OG: OK
+        OG-->>CS: OK
+        CS->>DB: Update attachment (status: ready, provider_file_id)
+        opt Generate doc summary (background)
+            CS->>CS: Enqueue doc summary task (requester_type=system)
+        end
+    else attachment_kind = image
+        Note over CS: NOT added to vector store; NOT summarized
+        CS->>CS: Generate thumbnail (sync, best-effort)
+        CS->>DB: Update attachment (status: ready, provider_file_id, img_thumbnail)
+        Note over CS: Image will be included as multimodal content<br/>in Responses API calls via provider_file_id<br/>when referenced in attachments of a message
     end
 
     CS-->>AG: attachment_id, status
@@ -1347,7 +1387,7 @@ Attachment kind is derived from `content_type`: MIME types matching `image/png`,
 
 **UI rendering flow for chat history**:
 1. `GET /v1/chats/{id}` returns chat metadata + `message_count` (no embedded messages).
-2. `GET /v1/chats/{id}/messages?limit=...&cursor=...` loads paginated message history. Each message includes `attachment_ids` — a lightweight reference array; attachment details are fetched individually via `GET /v1/chats/{id}/attachments/{attachment_id}` if the UI needs to display file metadata or status.
+2. `GET /v1/chats/{id}/messages?limit=...&cursor=...` loads paginated message history. Each message includes `attachments` — an array of `AttachmentSummary` objects (`attachment_id`, `kind`, `filename`, `status`, `img_thumbnail`) derived from the `message_attachments` join table. This provides all metadata needed for inline rendering (file icon, name, image preview) without additional API calls. Full attachment details (doc_summary, size_bytes, content_type, error_code) are available via `GET /v1/chats/{id}/attachments/{attachment_id}` if needed.
 
 #### Streaming Cancellation
 
@@ -1436,6 +1476,76 @@ Observability (P2+):
 
 - Increment `mini_chat_summary_regen_total{reason}` for each regeneration attempt (`reason` from a bounded allowlist such as `too_short|low_entropy|provider_error|invalid_format`).
 - Increment `mini_chat_summary_fallback_total` when the fallback behavior above is used (replaces the P1 metric of the same name).
+
+#### Cleanup on Chat Deletion
+
+- [ ] `p1` - **ID**: `cpt-cf-mini-chat-seq-chat-deletion-cleanup`
+
+```mermaid
+sequenceDiagram
+    participant UI
+    participant AG as api_gateway
+    participant CS as mini-chat module
+    participant DB as Postgres
+    participant OG as outbound_gateway
+    participant OAI as OpenAI / Azure OpenAI
+
+    UI->>AG: DELETE /v1/chats/{id}
+    AG->>CS: DeleteChat(chat_id, security_ctx)
+    CS->>DB: Soft-delete chat (set deleted_at)
+    CS->>DB: Mark attachments for cleanup (cleanup_status = 'pending')
+    CS-->>AG: 204 No Content
+    AG-->>UI: 204 No Content
+
+    Note over CS: Background cleanup worker (async)
+
+    loop For each attachment with cleanup_status = 'pending'
+        CS->>DB: Claim attachment (cleanup_status = 'in_progress', SKIP LOCKED)
+        CS->>OG: DELETE /outbound/llm/files/{provider_file_id}
+        OG->>OAI: Files API delete
+        OAI-->>OG: OK (or 404 — already deleted)
+        OG-->>CS: OK
+        CS->>DB: Update attachment (cleanup_status = 'done')
+    end
+
+    opt Chat has a vector store
+        CS->>OG: DELETE /outbound/llm/vector_stores/{vector_store_id}
+        OG->>OAI: Vector Stores API delete
+        OAI-->>OG: OK (or 404 — already deleted)
+        OG-->>CS: OK
+        CS->>DB: Delete chat_vector_stores row
+    end
+```
+
+**Description**: Chat deletion is a two-phase operation: synchronous soft-delete (immediate 204 response) followed by asynchronous cleanup of external provider resources (files, vector stores). The cleanup worker runs as a periodic background task.
+
+**Cleanup lifecycle invariants (normative)**:
+
+1. **Idempotency**: every cleanup step MUST be idempotent. Provider `DELETE` calls that return `404 Not Found` (resource already deleted) MUST be treated as success, not failure. The cleanup worker MUST NOT fail or retry on `404` responses from the provider.
+
+2. **Retry with bounded backoff**: if a cleanup step fails (provider error, timeout, network failure), the worker MUST increment `attachments.cleanup_attempts`, record the error in `last_cleanup_error`, and reset `cleanup_status` back to `'pending'` for retry on the next cycle. Retry backoff: the worker SHOULD skip attachments where `cleanup_attempts >= max_cleanup_attempts` (default: 10, configurable) and mark them as `cleanup_status = 'failed'`. Failed cleanups are surfaced via the `mini_chat_cleanup_failed_total` metric for operational alerting.
+
+3. **Vector store lifecycle**: each chat has at most one vector store (created on first document upload). The `vector_store_id` is an opaque provider-assigned identifier stored in the `chat_vector_stores` table. Vector store cleanup MUST occur after all file deletions for that chat are complete (or have reached terminal `'done'`/`'failed'` status) to avoid provider errors from deleting a vector store that still references files. After successful vector store deletion, the `chat_vector_stores` row MUST be deleted.
+
+4. **No identifier reuse**: `vector_store_id` and `provider_file_id` are provider-assigned opaque identifiers. Mini Chat MUST NOT assume or rely on any reuse semantics — each provider resource has a unique lifecycle. Since chat IDs are UUIDs, the scenario of "chat recreated with the same ID" does not occur in practice; soft-deleted chat rows are retained for audit and are excluded from active queries by `deleted_at IS NOT NULL`.
+
+5. **Concurrency safety**: the cleanup worker MUST use `SELECT ... FOR UPDATE SKIP LOCKED` (or equivalent) when claiming attachments for cleanup, to prevent duplicate cleanup attempts across multiple worker instances. Leader election is NOT required for the cleanup worker — `SKIP LOCKED` provides distributed-safe work claiming.
+
+6. **Orphan resource tolerance**: if the cleanup worker is unavailable (deployment issue, leader election gap), provider resources remain allocated but are not accessible to users (the chat is soft-deleted). This is operationally acceptable — the resources are cleaned up when the worker resumes. The `mini_chat_cleanup_pending_total` gauge metric tracks the backlog.
+
+**Cleanup configuration knobs** (deployment config):
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `cleanup_poll_interval_seconds` | integer | 60 | Cleanup worker poll interval |
+| `max_cleanup_attempts` | integer | 10 | Max retry attempts per attachment before marking as `failed` |
+| `cleanup_batch_size` | integer | 50 | Max attachments claimed per poll cycle |
+
+**Observability (P1)**:
+
+- `mini_chat_cleanup_pending_total` (gauge) — attachments with `cleanup_status = 'pending'`
+- `mini_chat_cleanup_failed_total` (counter) — attachments that reached `max_cleanup_attempts`
+- `mini_chat_cleanup_completed_total` (counter) — successful cleanup operations
 
 ### 3.7 Database Schemas & Tables
 
@@ -1591,6 +1701,41 @@ Soft-delete rules:
 
 **Secure ORM**: No independent `#[secure]` — accessed through parent chat. Owner isolation inherited from chat-level scoping (`chat_id` obtained from a scoped chat query).
 
+#### Table: message_attachments
+
+- [ ] `p1` - **ID**: `cpt-cf-mini-chat-dbtable-message-attachments`
+
+M:N join table linking messages to the attachments referenced on that message. Populated when a user message is persisted (from `attachment_ids` in the `SendMessage` request body) and when a turn is retried or edited (attachment associations are copied to the new user message). This table is the **single source of truth** for the `attachments` array (`AttachmentSummary` objects) returned in `GET /v1/chats/{id}/messages` responses.
+
+Writers MUST populate `chat_id` from the parent message's `messages.chat_id` (not from user input), and the composite foreign keys enforce that both referenced rows belong to the same chat.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| chat_id | UUID | Owning chat (denormalized for integrity; MUST match both referenced rows) |
+| message_id | UUID | Parent message (FK → messages.id) |
+| attachment_id | UUID | Referenced attachment (FK → attachments.id) |
+| created_at | TIMESTAMPTZ | Association creation time |
+
+**PK**: `(chat_id, message_id, attachment_id)` (composite)
+
+**Constraints**:
+- NOT NULL on `chat_id`, `created_at`
+- Composite FK `(message_id, chat_id)` → `messages(id, chat_id)` ON DELETE CASCADE (enforces the message belongs to the same chat)
+- Composite FK `(attachment_id, chat_id)` → `attachments(id, chat_id)` ON DELETE CASCADE (enforces the attachment belongs to the same chat)
+  - **Implementation note**: this requires `messages` and `attachments` to expose a UNIQUE key on `(id, chat_id)` (in addition to the primary key on `id`) so the composite FKs are valid in Postgres/SQLite.
+
+**Indexes**:
+- `(chat_id)` for chat-scoped cleanup and audits
+- `(attachment_id, chat_id)` (or `(chat_id, attachment_id)`) for reverse lookups (e.g. "which messages in this chat reference this attachment")
+
+**Secure ORM**: No independent `#[secure]` — accessed through parent message/chat. Queries are filtered by `message_id` obtained from a chat-scoped message query.
+
+**Semantics**:
+- One attachment may be referenced by multiple messages (M:N). This occurs when a turn is retried or edited — the new user message re-links the same attachment(s).
+- Attachments remain owned by the **chat** (`attachments.chat_id`). This table adds per-message association for UI rendering without changing attachment lifecycle or vector store ownership.
+- The `attachments` array in the API `Message` object is derived via a lateral join from `message_attachments` to `attachments` in the `listMessages` query, projecting only the `AttachmentSummary` fields (`attachment_id`, `kind`, `filename`, `status`, `img_thumbnail`).
+- For assistant and system messages, the join table will have zero rows (empty `attachments` array in API response).
+
 #### Table: thread_summaries
 
 - [ ] `p1` - **ID**: `cpt-cf-mini-chat-dbtable-thread-summaries`
@@ -1727,13 +1872,13 @@ If the chat is soft-deleted before vector store creation completes, the creation
   - If the turn ran on premium tier (bucket `tier:premium`): `reserved_credits_micro -= turn_reserved_credits_micro; spent_credits_micro += turn_actual_credits_micro; calls += 1`.
   - Token telemetry counters (`input_tokens`, `output_tokens`) are updated only in bucket `total`.
 
-Both operations MUST target the correct `(tenant_id, user_id, period_type, period_start, bucket)` row(s) within the finalization transaction. Image accounting: on each turn that includes images, increment `image_inputs` by the number of images in the request on the `total` bucket row. On each image upload, increment `image_upload_bytes` by the uploaded file size on the `total` bucket row. Preflight checks MUST validate `image_upload_bytes` caps on upload requests and MUST validate `image_inputs` caps on send-message requests (plus any optional per-turn byte caps computed from attachment metadata).
+Both operations MUST target the correct `(user_id, period_type, period_start, bucket)` row(s) within the finalization transaction. Image accounting: on each turn that includes images, increment `image_inputs` by the number of images in the request on the `total` bucket row. On each image upload, increment `image_upload_bytes` by the uploaded file size on the `total` bucket row. Preflight checks MUST validate `image_upload_bytes` caps on upload requests and MUST validate `image_inputs` caps on send-message requests (plus any optional per-turn byte caps computed from attachment metadata).
 
 **PK**: `id`
 
-**Constraints**: UNIQUE on `(tenant_id, user_id, period_type, period_start, bucket)`.
+**Constraints**: UNIQUE on `(user_id, period_type, period_start, bucket)`.
 
-**Indexes**: `(tenant_id, user_id, period_type, period_start, bucket)` for quota lookups
+**Indexes**: `(user_id, period_type, period_start, bucket)` for quota lookups
 
 **Secure ORM**: `#[secure(tenant_col = "tenant_id", owner_col = "user_id", resource_col = "id", no_type)]`
 
@@ -1888,17 +2033,17 @@ The authorized resource is **Chat**. Sub-resources (Message, Attachment, ThreadS
 | `POST /v1/chats/{id}:temporary` (P2) | `update` | present | `true` | `eq(owner_tenant_id)` + `eq(user_id)` |
 | `GET /v1/chats/{id}/messages` | `list_messages` | present (chat_id) | `true` | `eq(owner_tenant_id)` + `eq(user_id)` |
 | `POST /v1/chats/{id}/messages:stream` | `send_message` | present (chat_id) | `true` | `eq(owner_tenant_id)` + `eq(user_id)` |
-| `POST /v1/chats/{id}/attachments` | `upload` | present (chat_id) | `true` | `eq(owner_tenant_id)` + `eq(user_id)` |
+| `POST /v1/chats/{id}/attachments` | `upload_attachment` | present (chat_id) | `true` | `eq(owner_tenant_id)` + `eq(user_id)` |
 | `GET /v1/chats/{id}/attachments/{attachment_id}` | `read_attachment` | present (chat_id) | `true` | `eq(owner_tenant_id)` + `eq(user_id)` |
 | `GET /v1/chats/{id}/turns/{request_id}` | `read_turn` | present (chat_id) | `true` | `eq(owner_tenant_id)` + `eq(user_id)` |
 | `POST /v1/chats/{id}/turns/{request_id}:retry` | `retry_turn` | present (chat_id) | `true` | `eq(owner_tenant_id)` + `eq(user_id)` |
 | `PATCH /v1/chats/{id}/turns/{request_id}` | `edit_turn` | present (chat_id) | `true` | `eq(owner_tenant_id)` + `eq(user_id)` |
 | `DELETE /v1/chats/{id}/turns/{request_id}` | `delete_turn` | present (chat_id) | `true` | `eq(owner_tenant_id)` + `eq(user_id)` |
-| `PUT /v1/chats/{id}/messages/{msg_id}/reaction` | `react` | present (chat_id) | `true` | `eq(owner_tenant_id)` + `eq(user_id)` |
+| `PUT /v1/chats/{id}/messages/{msg_id}/reaction` | `set_reaction` | present (chat_id) | `true` | `eq(owner_tenant_id)` + `eq(user_id)` |
 | `DELETE /v1/chats/{id}/messages/{msg_id}/reaction` | `delete_reaction` | present (chat_id) | `true` | `eq(owner_tenant_id)` + `eq(user_id)` |
 
 **Notes**:
-- `list_messages`, `send_message`, `upload`, `read_attachment`, `retry_turn`, `edit_turn`, `delete_turn`, `react`, and `delete_reaction` are actions on the Chat resource, not on Message or Turn sub-resources. The `resource.id` is the chat's ID.
+- `list_messages`, `send_message`, `upload_attachment`, `read_attachment`, `retry_turn`, `edit_turn`, `delete_turn`, `set_reaction`, and `delete_reaction` are actions on the Chat resource, not on Message or Turn sub-resources. The `resource.id` is the chat's ID.
 - For streaming (`send_message`, `retry_turn`, `edit_turn`), authorization is evaluated once at SSE connection establishment. The entire streaming session operates under the initial authorization decision. No per-message re-authorization.
 - For `create`, the PEP passes `resource.properties.owner_tenant_id` and `resource.properties.user_id` from the SecurityContext. The PDP validates permission without returning constraints.
 - Turn mutation endpoints (`retry_turn`, `edit_turn`, `delete_turn`) additionally enforce latest-turn and terminal-state checks in the domain service after authorization succeeds (see section 3.9).
@@ -2092,7 +2237,7 @@ Mini Chat recognizes the following token scopes for third-party application narr
 |-------|---------|
 | `ai:mini_chat` | All mini-chat operations (umbrella scope) |
 | `ai:mini_chat:read` | `list`, `read`, `list_messages`, `read_attachment`, `read_turn` actions only |
-| `ai:mini_chat:write` | `create`, `update`, `delete`, `send_message`, `upload`, `retry_turn`, `edit_turn`, `delete_turn`, `react`, `delete_reaction` actions |
+| `ai:mini_chat:write` | `create`, `update`, `delete`, `send_message`, `upload_attachment`, `retry_turn`, `edit_turn`, `delete_turn`, `set_reaction`, `delete_reaction` actions |
 
 First-party applications (UI) use `token_scopes: ["*"]`. Third-party integrations receive narrowed scopes. Scope enforcement is handled by the PDP - the PEP includes `token_scopes` in the evaluation request context.
 
@@ -2121,8 +2266,8 @@ A turn is a user-message + assistant-response pair identified by `request_id` in
 
 | Operation | Effect |
 |-----------|--------|
-| **Retry** | Soft-deletes the last turn (sets `deleted_at`, sets `replaced_by_request_id` to the new turn's `request_id`). Creates a new turn. The original user message content and attachment association (`attachment_ids`, if any) are re-submitted to the LLM for a new assistant response. |
-| **Edit** | Soft-deletes the last turn (sets `deleted_at`, sets `replaced_by_request_id` to the new turn's `request_id`). Creates a new turn with the updated user message content and generates a new assistant response, preserving the attachment association (`attachment_ids`, if any). |
+| **Retry** | Soft-deletes the last turn (sets `deleted_at`, sets `replaced_by_request_id` to the new turn's `request_id`). Creates a new turn. The original user message content and attachment association are re-submitted to the LLM for a new assistant response. Attachment associations are **copied** from the old user message to the new user message via new `message_attachments` rows (the old rows remain on the soft-deleted message for audit). |
+| **Edit** | Soft-deletes the last turn (sets `deleted_at`, sets `replaced_by_request_id` to the new turn's `request_id`). Creates a new turn with the updated user message content and generates a new assistant response. Attachment associations are **copied** from the old user message to the new user message via new `message_attachments` rows (preserving the same attachments). |
 | **Delete** | Soft-deletes the last turn (sets `deleted_at`). No new turn is created. |
 
 #### Rules
@@ -2487,14 +2632,14 @@ Retrieved file search excerpts are integrated into the prompt as follows:
 
 To prevent retrieval quality degradation on large document sets:
 
-| Control | Default | Description |
-|---------|---------|-------------|
-| `max_documents_per_chat` | 50 | Maximum document attachments per chat. Uploads beyond this limit are rejected. |
-| `max_total_upload_mb_per_chat` | 100 | Maximum total document file size (MB) per chat. |
-| `max_chunks_per_chat` | 10,000 | Maximum indexed chunks per chat. Indexing is blocked beyond this limit. |
-| `max_retrieved_chunks_per_turn` | 5 | Top-k chunks returned by similarity search per file_search call. |
+| Control | Default | Description                                                                                                 |
+|---------|---------|-------------------------------------------------------------------------------------------------------------|
+| `max_documents_per_chat` | 50 | Maximum document attachments per chat. Uploads beyond this limit are rejected.                              |
+| `max_total_upload_mb_per_chat` | 100 | Maximum total document file size (MB) per chat.                                                             |
+| `max_chunks_per_chat` | 10,000 | Maximum indexed chunks per chat. Indexing is blocked beyond this limit. NOT USED now                          |
+| `max_retrieved_chunks_per_turn` | 5 | Top-k chunks returned by similarity search per file_search call.                                            |
 | `max_retrieved_tokens_per_turn` | configurable | Hard limit on total tokens from retrieved chunks added to the prompt. Subject to Context Plan token budget. |
-| `retrieval_k` | 5 | Number of nearest-neighbor results requested from the vector store per search call. |
+| `retrieval_k` | 5 | Number of nearest-neighbor results requested from the vector store per search call. NOT USED now            |
 
 All values are configurable per deployment. The domain service enforces `max_documents_per_chat`, `max_total_upload_mb_per_chat`, and `max_chunks_per_chat` at upload time (reject with HTTP 400 if exceeded). Retrieval-time controls (`max_retrieved_chunks_per_turn`, `max_retrieved_tokens_per_turn`, `retrieval_k`) are enforced during context plan assembly.
 
@@ -2863,6 +3008,7 @@ The following metric series MUST be exposed (types and label sets shown). These 
 
 - `mini_chat_stream_started_total{provider,model}` (counter)
 - `mini_chat_stream_completed_total{provider,model}` (counter)
+- `mini_chat_stream_incomplete_total{provider,model,reason}` (counter; `reason` MUST be from the normative `CompletionSignalReason` enum; see §5.7 "Completion signal reason enum")
 - `mini_chat_stream_failed_total{provider,model,error_code}` (counter; `error_code` matches stable SSE `event: error` codes)
 - `mini_chat_stream_disconnected_total{stage}` (counter; `stage`: `before_first_token|mid_stream|after_done`)
 - `mini_chat_stream_replay_total{reason}` (counter; `reason`: `idempotent_completed`)
@@ -3115,7 +3261,7 @@ Every user-initiated streaming turn that reaches preflight reserve creation inse
 | State | Meaning | Terminal? |
 |-------|---------|-----------|
 | `running` | Generation in progress; SSE stream active | No |
-| `completed` | Provider returned terminal `response.completed`; assistant message persisted | Yes |
+| `completed` | Provider returned terminal `response.completed` **or** `response.incomplete`; assistant message persisted | Yes |
 | `failed` | Provider error, post-reserve preflight rejection, or orphan watchdog timeout | Yes |
 | `cancelled` | Client disconnected and cancellation propagated | Yes |
 
@@ -3127,7 +3273,7 @@ Allowed transitions: `running` → `completed` | `failed` | `cancelled`. No tran
 stateDiagram-v2
     [*] --> running: POST /messages:stream<br/>(creates chat_turns row)
 
-    running --> completed: Provider terminal done event<br/>(CAS: WHERE state='running')
+    running --> completed: Provider terminal done/incomplete event<br/>(response.completed or response.incomplete)<br/>(CAS: WHERE state='running')
     running --> failed: Provider terminal error<br/>(CAS: WHERE state='running')
     running --> cancelled: Client disconnect<br/>(CAS: WHERE state='running')
     running --> failed: Orphan watchdog timeout<br/>(error_code='orphan_timeout')<br/>(CAS: WHERE state='running')
@@ -3267,6 +3413,8 @@ When replaying a `completed` turn for an existing `(chat_id, request_id)`, the s
 
 Replay is a pure read-and-relay operation. Only the original CAS-winning finalizer writes settlement and outbox (section 5.7). Replays and CAS-losers MUST never perform quota settlement or outbox emission.
 
+**Replay `done` payload immutability invariant**: the replay SSE `done` event MUST contain the original `effective_model`, `selected_model`, `quota_decision` (and `downgrade_from`, `downgrade_reason` if present), and `usage` (`input_tokens`, `output_tokens`, `model`) values read from the stored `chat_turns` row and assistant `messages` row. These values MUST NOT be recomputed from the current policy snapshot, model catalog, or quota state. Even if the catalog or policy has changed since the original turn, replay returns the outcome exactly as it was originally finalized. This guarantees that replay is observationally identical to the original `done` event (modulo network-level differences).
+
 **Implementation requirement**: Replay MUST use a separate code path from normal turn execution. The replay handler MUST NOT have access to functions that perform quota reservation, settlement, or outbox enqueue. This separation prevents accidental side effects during replay.
 
 #### Parallel Turn Policy (P1)
@@ -3324,14 +3472,14 @@ When a chat is deleted:
 1. Soft-delete the chat record (`deleted_at` set)
 2. Mark all attachments for cleanup (`cleanup_status=pending`) and return immediately (no synchronous provider cleanup in the HTTP request)
 3. A background cleanup worker performs idempotent retries:
-  - Delete the chat's entire vector store via OAGW (single API call — simpler than per-file removal since the store is dedicated to the chat)
-  - For each document attachment: delete provider file via OAGW
-  - For image attachments: delete provider file via OAGW (no vector store involvement)
+  - For each attachment (documents and images): delete the provider file via OAGW using the internal `provider_file_id`, and update per-attachment cleanup state to a terminal status (`done` or `failed`) with retries/backoff
+  - Only after all attachments for the chat have reached a terminal cleanup status (`done`/`failed`), delete the chat's vector store via OAGW (single API call — simpler than per-file removal since the store is dedicated to the chat)
+  - After successful vector store deletion (or provider 404 "already deleted"), delete the `chat_vector_stores` row
   - Cleanup worker rules:
     - Cleanup worker MUST treat "not found" / "already deleted" for vector store deletion as success
     - Cleanup worker MUST treat "already deleted" / "not found" for provider file deletion as success
-    - Recommended order: delete vector store first, then delete individual provider files
-    - If vector store deletion fails, proceed to delete provider files individually (best-effort)
+    - Recommended order: delete provider files first, then delete the vector store, then delete the `chat_vector_stores` row
+    - If some attachments are marked `failed` after exhausting retries, they do not block vector store deletion; the vector store delete is still attempted once all attachments are terminal (`done`/`failed`)
 4. Partial failures are recorded per attachment (`cleanup_attempts`, `last_cleanup_error`) and retried with backoff
 5. (P2) Temporary chats will follow the same flow, triggered by a scheduled job after 24h
 
@@ -3462,9 +3610,9 @@ The usage payload MUST include the debited credits (`actual_credits_micro`) and 
 Push scheme:
 
 1. CCM publishes a new snapshot (version = V+1) in its storage.
-2. CCM calls mini-chat: `POST /internal/policy:notify { policy_version: V+1 }`
-3. mini-chat fetches that snapshot version (pull) and applies it atomically.
-4. mini-chat keeps `current_policy_version` in memory.
+2. CCM calls mini-chat: `POST /internal/policy:notify { tenant_id, policy_version: V+1 }`
+3. mini-chat schedules a refresh for that tenant. It SHOULD fetch that snapshot version (pull) and apply it atomically as soon as feasible. Because policy snapshots are tenant-wide, any `user_id` belonging to that tenant is acceptable for the user-keyed CCM pull APIs.
+4. mini-chat keeps `current_policy_version` per tenant in memory.
 
 A fallback reconcile job every N minutes is still useful, but it is not in the hot path.
 
@@ -3530,19 +3678,22 @@ Code MUST NOT conflate PolicySnapshot with UserLimits. References to "snapshot" 
 
 **Startup bootstrap**:
 
-1. On startup, Mini Chat MUST call `GetCurrentPolicyVersion(tenant_id)` via the `minichat-policy-plugin`.
-2. If a local PolicySnapshot for that version does not exist (neither in-memory nor in DB), Mini Chat MUST call `GetPolicySnapshot(policy_version)` and persist the result.
-3. Mini Chat MUST set `current_policy_version` in memory to the fetched version.
+1. On first request per user after cold start (or during background reconciliation), Mini Chat MUST call `GetCurrentPolicyVersion(user_id)` via the `minichat-policy-plugin`.
+2. If a local PolicySnapshot for that version does not exist (neither in-memory nor in DB), Mini Chat MUST call `GetPolicySnapshot(user_id, policy_version)` and persist the result.
+3. Mini Chat MUST set `current_policy_version` in memory for that tenant to the fetched version.
+
+`user_id` and `tenant_id` are obtained from the request security context. CCM API requests are keyed by `user_id`, while MiniChat persistence and caches remain tenant-scoped (`tenant_id`).
 
 **Push-based notification**:
 
-Mini Chat MUST support push-based policy notification via `POST /internal/policy:notify { policy_version }` (see section 5.2.3).
+Mini Chat MUST support push-based policy notification via `POST /internal/policy:notify { tenant_id, policy_version }` (see section 5.2.3).
 
-On receiving a notify with a `policy_version` newer than `current_policy_version`:
+On receiving a notify for a `tenant_id` with a `policy_version` newer than `current_policy_version` for that tenant:
 
-1. Mini Chat MUST fetch the PolicySnapshot for that version via `GetPolicySnapshot(policy_version)`.
-2. Mini Chat MUST persist the fetched snapshot in DB keyed by `policy_version`.
-3. Mini Chat MUST atomically switch `current_policy_version` in memory to the new version.
+1. Mini Chat MUST mark the tenant policy state as stale and schedule a refresh.
+2. Mini Chat SHOULD fetch the PolicySnapshot for that version via `GetPolicySnapshot(user_id, policy_version)` when a suitable `user_id` for that tenant is available (for example, on the next user request handled for that tenant).
+3. Mini Chat MUST persist the fetched snapshot in DB keyed by `(tenant_id, policy_version)`.
+4. Mini Chat MUST atomically switch `current_policy_version` in memory to the new version.
 
 **Hot-path invariant**:
 
@@ -3828,7 +3979,7 @@ The following terms are used throughout sections 5.4–5.9:
 >
 > **P2 Enhancement Option**: Add `chat_turns.provider_request_started_at TIMESTAMPTZ` column for perfect crash recovery if operational metrics show meaningful impact.
 
-- **Usage known**: the provider returned actual token counts (`usage.input_tokens`, `usage.output_tokens`) — either via a terminal `response.completed` event or via error metadata. Settlement uses `settlement_method = "actual"`.
+- **Usage known**: the provider returned actual token counts (`usage.input_tokens`, `usage.output_tokens`) — either via a terminal `response.completed` / `response.incomplete` event or via error metadata. Settlement uses `settlement_method = "actual"`.
 
 > **Canonical provider usage fields (normative)**: the authoritative usage metadata is read from the provider's terminal response event. The canonical field names are `usage.input_tokens` (integer, non-negative) and `usage.output_tokens` (integer, non-negative). These field names are part of the Mini-Chat ↔ OAGW contract. If a provider uses different field names (e.g., `prompt_tokens`, `completion_tokens`), OAGW MUST normalize them to `usage.input_tokens` / `usage.output_tokens` before returning the response to Mini-Chat. Mini-Chat MUST NOT implement provider-specific usage field mapping. If `usage` object is present but either field is missing, treat the missing field as `0`. If the `usage` object is absent entirely, usage is "unknown" (estimated settlement path).
 
@@ -4736,7 +4887,7 @@ Every turn MUST eventually settle into exactly one persisted finalization outcom
 
 | Outcome | Internal state | SSE terminal event | Description |
 |---------|---------------|-------------------|-------------|
-| `completed` | `completed` | `done` | Normal completion. Provider returned a full response and the full assistant message content is durably persisted (see content durability invariant below). |
+| `completed` | `completed` | `done` | Provider returned terminal `response.completed` or `response.incomplete`; assistant message content is durably persisted (see content durability invariant below). |
 | `failed` | `failed` | `error` | Terminal error (pre-provider or post-provider-start). |
 | `cancelled` | `cancelled` | _(none; stream already disconnected)_ | Server-side cancellation triggered by client disconnect or internal abort. |
 
@@ -4768,6 +4919,10 @@ Deterministic reconciliation for `ABORTED` and post-provider-start `FAILED` outc
 1. The CAS guard (conditional DB update)
 2. Quota settlement (actual or estimated)
 3. Outbox enqueue (in same transaction)
+
+**Clarification (normative):** “Single shared function” does NOT require a single DB update shape. The function MAY branch internally by terminal outcome:
+- For `completed` (including provider `response.incomplete`): finalize via the “completed” CAS path that sets `assistant_message_id` and MUST keep `chat_turns.error_code = NULL`. Any incomplete/truncation reason MUST be recorded only as `completion_signal` in audit/outbox payloads and the `mini_chat_stream_incomplete_total{reason}` metric.
+- For `failed` / `cancelled`: finalize via the “terminal state” CAS path that may set `error_code` / `error_detail` as specified elsewhere in this section.
 
 #### Dedupe Key Requirement for Quota-Bearing Events (Normative)
 
@@ -4853,7 +5008,7 @@ Exactly one finalizer may transition a turn from `IN_PROGRESS` (`running`) to a 
 
 **Covered terminal triggers** (exhaustive list — every trigger below MUST use the identical CAS pattern):
 
-1. **Provider done** — normal `response.completed` terminal event
+1. **Provider done** — terminal `response.completed` or `response.incomplete` event
 2. **Provider terminal error** — `provider_error`, `provider_timeout`, or any other terminal error from the provider
 3. **Client disconnect** — SSE stream closes before provider completes → abort path
 4. **Watchdog/orphan timeout** — turn remains `running` beyond the configured threshold (default: 5 minutes)
@@ -4943,6 +5098,18 @@ The following patterns are explicitly prohibited. Any implementation that matche
 2. **"Outbox insert outside the finalization transaction"** — FORBIDDEN. The outbox row MUST be inserted within the same DB transaction as the CAS state transition and quota settlement. A separate transaction risks duplicate or orphaned billing events.
 3. **"Watchdog finalizes without checking running state"** — FORBIDDEN. The watchdog MUST use the identical `WHERE state = 'running'` CAS guard. A watchdog that unconditionally overwrites terminal states corrupts already-settled turns.
 
+#### User message persistence invariant (preflight prerequisite)
+
+**INVARIANT: user message MUST be durably persisted before the `chat_turns` row enters `running` state and before any outbound provider call.**
+
+The user message (`messages` row with `role = 'user'`) and the `message_attachments` associations MUST be committed to the database as part of the preflight transaction — the same transaction that inserts the `chat_turns` row with `state = 'running'` and records the quota reserve. This ordering guarantees:
+
+- The user message is always available for ContextPlan assembly and replay, even after crash recovery.
+- If the preflight transaction fails (e.g. DB write error), neither the user message nor the turn record exists — the system is in a clean state and the client can retry with a new `request_id`.
+- The orphan watchdog can always reconstruct the conversation state (including the user message) when finalizing stuck turns.
+
+**Consequence**: it is impossible for a `chat_turns` row with `state = 'running'` to exist without the corresponding user message being durably persisted. Any code path that creates a `chat_turns` row before persisting the user message is a correctness violation.
+
 #### Content durability invariant (completed ⇒ replayable)
 
 **INVARIANT: `completed` ⟹ full assistant content is durably persisted in the same or preceding committed transaction.**
@@ -4962,15 +5129,32 @@ A turn MUST NOT transition to `completed` unless the full assistant message cont
 - Settle using actual provider usage (`response.usage.input_tokens` + `response.usage.output_tokens`).
 - Release unused reserve, commit actual usage to `quota_usage` bucket rows (bucket `total` always; bucket `tier:premium` if premium turn).
 - If actual exceeds estimate (overshoot), commit the overshoot; never retroactively cancel a completed response.
+- If the provider returns terminal `response.incomplete` (e.g. due to `max_tokens`), the turn is still treated as `completed` (assistant message persisted, settle on actual usage). The incomplete reason is a **non-fatal completion signal**: it MUST be recorded in the audit/outbox payload and metrics, and it MUST NOT be written to `chat_turns.error_code`.
 - Emit usage settlement outbox event with `payload_json` that MUST include:
   - `outcome`: `"completed"`
   - `settlement_method`: `"actual"`
   - `effective_model`, `selected_model`, `quota_decision` (and `downgrade_from`, `downgrade_reason` if present)
   - `policy_version_applied` (from `chat_turns.policy_version_applied`)
+  - `completion_signal` (nullable object): `null` for normal `response.completed`; for `response.incomplete`, set to `{ "kind": "incomplete", "reason": "<reason>" }` where `reason` is from the normative `CompletionSignalReason` enum (see "Completion signal reason enum" below)
+    - The corresponding turn audit event emitted to `audit_service` MUST include the same `completion_signal` object for correlation.
   - `usage`: `{ input_tokens, output_tokens }` (token-denominated; provider-reported actuals; telemetry)
   - `actual_credits_micro` (credit-denominated; **authoritative for CCM billing debit**; computed via `credits_micro()` formula in section 5.3 using the model multipliers from the policy snapshot identified by `policy_version_applied`)
   - `reserved_credits_micro` (credit-denominated; the preflight reserve from `chat_turns.reserved_credits_micro`; informational for delta/reconciliation)
   - `turn_id`, `request_id`, `chat_id`, `tenant_id`, `user_id`
+
+**Completion signal reason enum (normative)**:
+
+`completion_signal.reason` and the `reason` label on `mini_chat_stream_incomplete_total{reason}` MUST use this canonical allowlist:
+
+| `CompletionSignalReason` | Meaning | Provider mapping rule |
+|--------------------------|---------|------------------------|
+| `max_tokens` | Output truncated because the model hit the configured output token cap | Map provider finish reasons such as `max_tokens`, `length`, or equivalent “ran out of tokens” signals to `max_tokens` |
+| `content_filter` | Output truncated or stopped due to safety/content filtering | Map provider reasons indicating safety/content filtering to `content_filter` |
+| `other` | Any other incomplete reason not covered above | **Fallback**: any unknown/unmapped provider reason MUST be collapsed to `other` (no raw provider strings) |
+
+**Drift prevention rule (normative)**: implementations MUST NOT emit raw provider reason strings into audit/outbox payloads or metrics. The translation layer MUST normalize to the enum above.
+
+**Implementation note (non-normative):** service-internal stream summaries may still carry richer strings for logging/debugging (for example, an internal field like `StreamOutcome.error_code = "incomplete:<provider_reason>"`). These internal strings MUST NOT be persisted to `chat_turns.error_code` for `completed` turns and MUST NOT be used as the `reason` label value; only the normalized `CompletionSignalReason` enum may cross the audit/outbox and metrics boundaries.
 
 **Outbox payload unit convention (normative for all outcomes)**: every usage outbox event MUST include both `usage` (token-denominated, for telemetry and cost reporting) and `actual_credits_micro` (credit-denominated, authoritative for CCM debit). CCM MUST use `actual_credits_micro` as the amount to debit from the user's chat wallet. CCM MUST NOT independently recompute credits from token counts — `actual_credits_micro` is the source of truth.
 
@@ -5015,7 +5199,7 @@ When a provider request is issued (after preflight passes and before the first o
 
 | From | To | Trigger |
 |------|-----|---------|
-| `IN_PROGRESS` | `COMPLETED` | Provider returned terminal `response.completed` (`done` event) |
+| `IN_PROGRESS` | `COMPLETED` | Provider returned terminal `response.completed` **or** `response.incomplete` (both map to SSE `event: done`) |
 | `IN_PROGRESS` | `FAILED` | Provider returned a terminal error, or a pre-provider error occurred after reserve was taken |
 | `IN_PROGRESS` | `ABORTED` | Stream ended without `done` or `error`: client disconnect, pod crash, cancellation without terminal provider event, or orphan watchdog timeout |
 
@@ -5027,7 +5211,7 @@ Each turn MUST reach exactly one terminal billing state. Terminal states are imm
 stateDiagram-v2
     [*] --> IN_PROGRESS: Quota reserve taken<br/>(chat_turns.state = 'running')
 
-    IN_PROGRESS --> COMPLETED: Provider terminal done event<br/>(response.completed)
+    IN_PROGRESS --> COMPLETED: Provider terminal done/incomplete event<br/>(response.completed or response.incomplete)
     IN_PROGRESS --> FAILED: Provider terminal error<br/>OR pre-provider error after reserve
     IN_PROGRESS --> ABORTED: No provider terminal event<br/>(client disconnect, pod crash,<br/>orphan timeout, internal abort)
 
@@ -5642,7 +5826,9 @@ The system **MUST** finalize turns using CAS on `chat_turn.state` and MUST emit 
 
 # Appendix A — CCM Policy & Usage API Contract (P1)
 
-This appendix reproduces the CCM Policy & Usage API contract as defined in the official CCM specification (see referenced document). It is consumed by `mini-chat-policy-plugin` and governs policy distribution and usage ingestion for P1. This appendix does not redefine MiniChat internal algorithms.
+This appendix reproduces the CCM Policy & Usage API contract as defined in the official CCM specification (see referenced document). It is consumed by `minichat-policy-plugin` and governs policy distribution and usage ingestion for P1. This appendix does not redefine MiniChat internal algorithms.
+
+All CCM endpoints in this appendix are user-centric: request payloads are keyed by `user_id`.CCM derives `tenant_id` internally from the user's ownership/auth context. MiniChat retains `tenant_id` in its internal entities and persistence. The policy change notification endpoint is the only exception: it remains tenant-scoped.
 
 ## A.1 Policy Distribution API
 
@@ -5650,7 +5836,7 @@ This appendix reproduces the CCM Policy & Usage API contract as defined in the o
 
 A monotonic, strictly increasing integer that identifies a specific immutable policy snapshot.
 
-**Core Principle**: For a fixed `(tenant_id, policy_version)`, CCM must return exactly the same snapshot forever.
+**Core Principle**: For a fixed `(user_id, policy_version)`, CCM must return exactly the same snapshot forever.
 
 **Bump Triggers**:
 - Changes to model catalog
@@ -5662,8 +5848,8 @@ A monotonic, strictly increasing integer that identifies a specific immutable po
 **Note (P1)**: Estimation budgets (image_token_budget, tool_surcharge_tokens, web_search_surcharge_tokens, etc.) are configured **locally in MiniChat ConfigMap**, NOT in CCM PolicySnapshot. Changes to estimation budgets do NOT trigger CCM policy version bumps. See section 5.2.1 "Estimation Budgets Source (P1)" for details.
 
 **MiniChat Integration**:
-- MiniChat caches snapshots keyed by `(tenant_id, policy_version)`.
-- MiniChat caches user limits keyed by `(tenant_id, user_id, policy_version)`.
+- MiniChat caches snapshots keyed by `(user_id, policy_version)`.
+- MiniChat caches user limits keyed by `(user_id, policy_version)`.
 - CCM is NOT on the per-turn hot path.
 
 ### GetCurrentPolicyVersion
@@ -5673,14 +5859,13 @@ A monotonic, strictly increasing integer that identifies a specific immutable po
 **Request**:
 ```json
 {
-  "tenant_id": "uuid"
+  "user_id": "uuid"
 }
 ```
 
 **Response**:
 ```json
 {
-  "tenant_id": "uuid",
   "policy_version": 12345,
   "generated_at": "2026-02-27T13:00:00Z"
 }
@@ -5695,7 +5880,7 @@ A monotonic, strictly increasing integer that identifies a specific immutable po
 **Request**:
 ```json
 {
-  "tenant_id": "uuid",
+  "user_id": "uuid",
   "policy_version": 12345
 }
 ```
@@ -5703,7 +5888,6 @@ A monotonic, strictly increasing integer that identifies a specific immutable po
 **Response**:
 ```json
 {
-  "tenant_id": "uuid",
   "policy_version": 12345,
   "snapshot": {
     "model_catalog": [
@@ -5736,7 +5920,7 @@ A monotonic, strictly increasing integer that identifies a specific immutable po
 ```
 
 **Critical constraints**:
-- For a fixed `(tenant_id, policy_version)`, CCM must return exactly the same snapshot forever.
+- For a fixed `(user_id, policy_version)`, CCM must return exactly the same snapshot forever.
 - Multipliers represent micro-credits per 1,000 tokens and must be positive integers.
 - `provider_display_name` is UI-only and MUST NOT be a routing key, deployment handle, or internal provider identifier.
 
@@ -5764,7 +5948,6 @@ A monotonic, strictly increasing integer that identifies a specific immutable po
 **Request**:
 ```json
 {
-  "tenant_id": "uuid",
   "user_id": "uuid",
   "policy_version": 12345
 }
@@ -5773,7 +5956,6 @@ A monotonic, strictly increasing integer that identifies a specific immutable po
 **Response**:
 ```json
 {
-  "tenant_id": "uuid",
   "user_id": "uuid",
   "policy_version": 12345,
   "user_limits": {
@@ -5846,7 +6028,6 @@ This endpoint accepts usage settlement events from MiniChat for finalized turn o
 **Payload**:
 ```json
 {
-  "tenant_id": "uuid",
   "user_id": "uuid",
   "chat_id": "uuid",
   "turn_id": "uuid",
@@ -5855,7 +6036,8 @@ This endpoint accepts usage settlement events from MiniChat for finalized turn o
   "selected_model": "string",
   "effective_model": "string",
   "outcome": "completed | failed | aborted",
-  "settlement_method": "actual | estimated",
+  "settlement_method": "actual | estimated | released",
+  "completion_signal": null,
   "usage": {
     "input_tokens": 123,
     "output_tokens": 456
@@ -5866,9 +6048,11 @@ This endpoint accepts usage settlement events from MiniChat for finalized turn o
 }
 ```
 
+`completion_signal` is a nullable non-fatal completion signal. It MUST be `null` for normal completed turns and MUST be populated only when the provider returns `response.incomplete`, e.g. `{ "kind": "incomplete", "reason": "max_tokens" }` where `reason` is from the canonical `CompletionSignalReason` enum (see §5.7 "Completion signal reason enum"). It MUST NOT be used as an error indicator and MUST NOT imply `outcome != "completed"`.
+
 **Authority model**: MiniChat is the settlement authority: it computes `actual_credits_micro`. CCM is the ledger and balance authority.
 
-**Idempotency requirement**: CCM MUST ensure idempotency using the composite key `(tenant_id, turn_id, request_id)`.
+**Idempotency requirement**: CCM MUST ensure idempotency using the composite key `(user_id, turn_id, request_id)`.
 
 **Success Response**:
 ```json
@@ -5879,16 +6063,16 @@ This endpoint accepts usage settlement events from MiniChat for finalized turn o
 
 **MiniChat Delivery Guarantees**:
 - Delivery is at-least-once (due to outbox pattern).
-- CCM MUST implement idempotency on `(tenant_id, turn_id, request_id)`.
+- CCM MUST implement idempotency on `(user_id, turn_id, request_id)`.
 - 200 OK MUST be returned for idempotent duplicate events.
 
 ## A.4 Policy Version Retention
 
-CCM MUST retain immutable snapshots per `(tenant_id, policy_version)` for at least the billing/audit retention window. Snapshots must remain retrievable during that period. This preserves deterministic replay and auditability.
+CCM MUST retain immutable snapshots per `(user_id, policy_version)` for at least the billing/audit retention window. Snapshots must remain retrievable during that period. This preserves deterministic replay and auditability.
 
 **MiniChat caching strategy**:
-- Policy snapshots: Persist by `(tenant_id, policy_version)`; bounded LRU memory cache.
-- User limits: Bounded LRU cache with 60–300 second TTL; key by `(tenant_id, user_id, policy_version)`.
+- Policy snapshots: Persist by `(user_id, policy_version)`; bounded LRU memory cache.
+- User limits: Bounded LRU cache with 60–300 second TTL; key by `(user_id, policy_version)`.
 
 ## A.5 Separation of Concerns
 
@@ -5903,3 +6087,227 @@ CCM MUST retain immutable snapshots per `(tenant_id, policy_version)` for at lea
 
 **P1 Scope Exclusions**:
 The specification explicitly excludes per-user model multipliers, pricing overrides, provider interaction details, token estimation algorithms, and billing/payment processing from P1 scope.
+
+---
+
+# Appendix B — Mini Chat Parameter Source Map
+
+Legend:
+- **CCM API** — parameter is available from a CCM REST endpoint
+- **ConfigMap** — deployment-time configuration (Kubernetes ConfigMap / config file)
+- **Request** — per-request parameter (query param or body field)
+- **Hardcoded** — compile-time constant or framework default
+- **n/a** — no known external source; must be defined at deployment time or is not yet materialised
+
+## B.1 Module config (ModKit config)
+
+| Parameter | Type | Default | Source | Notes |
+|-----------|------|---------|--------|-------|
+| `mini-chat.url_prefix` | `string` | `/mini-chat` | ConfigMap | ModKit module config, no CCM API equivalent |
+
+## B.2 Policy / Models / Limits (via `minichat-policy-plugin`)
+
+### B.2.1 Policy version
+
+| Parameter | Type | Default | Source | Notes |
+|-----------|------|---------|--------|-------|
+| `policy_version` | `integer` | — | **CCM API**: `GET /policies/latest` | `PolicyLatestResponse.policy_version`; monotonic, used for snapshot binding |
+
+### B.2.2 `PolicySnapshot.model_catalog`
+
+All fields below are per-model entries inside the catalog.
+
+| Parameter | Type | Source | CCM API field |
+|-----------|------|--------|---------------|
+| `model_id` | `string` | **CCM API**: `GET /policies/{v}` | `snapshot.model_catalog[].model_id` |
+| `display_name` | `string` | **CCM API**: `GET /policies/{v}` | `snapshot.model_catalog[].display_name` |
+| `provider` | `string` | **CCM API**: `GET /policies/{v}` | `snapshot.model_catalog[].provider_id` + `provider_display_name` |
+| `tier` | `string` | **CCM API**: `GET /policies/{v}` | `snapshot.model_catalog[].tier` |
+| `status` (enabled/disabled) | `string` | **CCM API**: `GET /policies/{v}` | `snapshot.model_catalog[].global_enabled` (boolean, not enum) |
+| `description` | `string` | **CCM API**: `GET /policies/{v}` | `snapshot.model_catalog[].description` |
+| `capabilities` | `string[]` | **CCM API**: `GET /policies/{v}` | `snapshot.model_catalog[].multimodal_capabilities` |
+| `context_window` | `integer` | **CCM API**: `GET /policies/{v}` | `snapshot.model_catalog[].context_window` |
+| `max_output` | `integer` | **CCM API**: `GET /policies/{v}` | `snapshot.model_catalog[].max_output_tokens` |
+| `is_default` | `bool` | **CCM API**: `GET /policies/{v}` | `snapshot.model_catalog[].preference.is_default` |
+| `input_tokens_credit_multiplier` | `number` | **CCM API**: `GET /policies/{v}` | `snapshot.model_catalog[].general_config.token_policy.input_tokens_credit_multiplier` and `input_tokens_credit_multiplier_micro` |
+| `output_tokens_credit_multiplier` | `number` | **CCM API**: `GET /policies/{v}` | `snapshot.model_catalog[].general_config.token_policy.output_tokens_credit_multiplier` and `output_tokens_credit_multiplier_micro` |
+| `api_params.*` | object | **CCM API**: `GET /policies/{v}` | `snapshot.model_catalog[].general_config.api_params` |
+| `features.*` | object | **CCM API**: `GET /policies/{v}` | `snapshot.model_catalog[].general_config.features` |
+| `input_type.*` | object | **CCM API**: `GET /policies/{v}` | `snapshot.model_catalog[].general_config.input_type` |
+| `tool_support.*` | object | **CCM API**: `GET /policies/{v}` | `snapshot.model_catalog[].general_config.tool_support` |
+| `supported_endpoints.*` | object | **CCM API**: `GET /policies/{v}` | `snapshot.model_catalog[].general_config.supported_endpoints` |
+| `model_credential_id` | `string` | **CCM API**: `GET /policies/{v}` | `snapshot.model_catalog[].general_config.model_credential_id` |
+| `sort_order` | `integer` | **CCM API**: `GET /policies/{v}` | `snapshot.model_catalog[].preference.sort_order` |
+
+### B.2.3 Kill switches / emergency flags
+
+| Parameter | Type | Default | Source | CCM API field |
+|-----------|------|---------|--------|---------------|
+| `disable_web_search` | `bool` | — | **CCM API**: `GET /policies/{v}` | `snapshot.kill_switches.disable_web_search` |
+| `disable_file_search` | `bool` | — | **CCM API**: `GET /policies/{v}` | `snapshot.kill_switches.disable_file_search` |
+| `disable_premium_tier` | `bool` | — | **n/a** | Not present in current CCM API; design-only |
+| `force_standard_tier` | `bool` | — | **n/a** | Not present in current CCM API; design-only |
+
+### B.2.4 `UserLimits` (per-tier credit allocations)
+
+| Parameter | Type | Source | CCM API field |
+|-----------|------|--------|---------------|
+| `user_limits.standard.limit_daily_credits_micro` | `integer` | **CCM API**: `GET /users/{userId}/limits` or `GET /policies/{v}` | `user_limits[].limit_daily_credits_micro` (tier_id = `...standard...`) |
+| `user_limits.standard.limit_monthly_credits_micro` | `integer` | **CCM API**: `GET /users/{userId}/limits` or `GET /policies/{v}` | `user_limits[].limit_monthly_credits_micro` (tier_id = `...standard...`) |
+| `user_limits.premium.limit_daily_credits_micro` | `integer` | **CCM API**: `GET /users/{userId}/limits` or `GET /policies/{v}` | `user_limits[].limit_daily_credits_micro` (tier_id = `...premium...`) |
+| `user_limits.premium.limit_monthly_credits_micro` | `integer` | **CCM API**: `GET /users/{userId}/limits` or `GET /policies/{v}` | `user_limits[].limit_monthly_credits_micro` (tier_id = `...premium...`) |
+
+### B.2.5 Model tiers
+
+| Parameter | Type | Source | CCM API field |
+|-----------|------|--------|---------------|
+| Tier definitions (`id`, `name`, `description`, `downgrade_to`) | object | **CCM API**: `GET /tiers` | `ModelTier[]` |
+
+## B.3 Local caching (snapshots + limits)
+
+| Parameter | Type | Default | Source | Notes |
+|-----------|------|---------|--------|-------|
+| PolicySnapshot memory cache capacity | — | — | **ConfigMap** | n/a in CCM API |
+| UserLimits memory cache capacity | — | — | **ConfigMap** | n/a in CCM API |
+| UserLimits cache TTL | — | `60–300s` | **ConfigMap** | n/a in CCM API |
+| Cache invalidation trigger | — | — | **CCM API**: `GET /policies/latest` | Compare `policy_version`; if changed, invalidate stale entries |
+
+## B.4 Streaming (SSE)
+
+| Parameter | Type | Default | Valid range | Source |
+|-----------|------|---------|-------------|--------|
+| `sse_ping_interval_seconds` | `integer` | `15` | `5..=60` | **ConfigMap** |
+| Internal mpsc channel capacity | `integer` | — | `16–64` | **ConfigMap** |
+
+## B.5 Token budgets / quota knobs
+
+### B.5.1 Hard caps
+
+| Parameter | Type | Default | Source | Notes |
+|-----------|------|---------|--------|-------|
+| `max_input_tokens` | `integer` | — | **ConfigMap** | Deployment config; combined with model's `context_window` from CCM API |
+| `max_output_tokens` | `integer` | — | **ConfigMap** + **CCM API** | Deployment override; model default from `snapshot.model_catalog[].max_output_tokens` |
+
+### B.5.2 Estimation budgets (preflight reserve)
+
+| Parameter | Type | Default | Source |
+|-----------|------|---------|--------|
+| `estimation_budgets.bytes_per_token_conservative` | — | — | **ConfigMap** |
+| `estimation_budgets.fixed_overhead_tokens` | — | — | **ConfigMap** |
+| `estimation_budgets.safety_margin_pct` | — | — | **ConfigMap** |
+| `estimation_budgets.image_token_budget` | — | — | **ConfigMap** |
+| `estimation_budgets.tool_surcharge_tokens` | — | — | **ConfigMap** |
+| `estimation_budgets.web_search_surcharge_tokens` | — | — | **ConfigMap** |
+| `estimation_budgets.minimal_generation_floor` | — | — | **ConfigMap** |
+
+### B.5.3 Overshoot tolerance
+
+| Parameter | Type | Default | Valid range | Source |
+|-----------|------|---------|-------------|--------|
+| `quota.overshoot_tolerance_factor` | `float` | `1.10` | `1.00..=1.50` | **ConfigMap** |
+
+### B.5.4 Quota downgrade negative threshold
+
+| Parameter | Type | Default | Source |
+|-----------|------|---------|--------|
+| Negative threshold for tier downgrade | — | — | **ConfigMap** |
+
+## B.6 Web search configuration
+
+| Parameter | Type | Default | Source | Notes |
+|-----------|------|---------|--------|-------|
+| `web_search.enabled` | `bool` | `false` | **Request** | Per-request body field |
+| `web_search.max_calls_per_message` | `integer` | `2` | **ConfigMap** | n/a in CCM API |
+| `web_search.daily_quota` | `integer` | `75` | **ConfigMap** | n/a in CCM API |
+| `disable_web_search` (kill switch) | `bool` | — | **CCM API**: `GET /policies/{v}` | `snapshot.kill_switches.disable_web_search` |
+
+## B.7 File search / RAG configuration
+
+| Parameter | Type | Default | Source |
+|-----------|------|---------|--------|
+| `file_search.max_calls_per_message` | `integer` | `2` | **ConfigMap** |
+| `max_documents_per_chat` | `integer` | `50` | **ConfigMap** |
+| `max_total_upload_mb_per_chat` | `integer` | `100` | **ConfigMap** |
+| `max_chunks_per_chat` | `integer` | `10_000` | **ConfigMap** |
+| `max_retrieved_chunks_per_turn` | `integer` | `5` | **ConfigMap** |
+| `retrieval_k` | `integer` | `5` | **ConfigMap** |
+| `max_retrieved_tokens_per_turn` | — | — | **ConfigMap** |
+| `disable_file_search` (kill switch) | `bool` | — | **CCM API**: `GET /policies/{v}` | |
+
+## B.8 Uploads / Attachments / Images
+
+| Parameter | Type | Default | Source |
+|-----------|------|---------|--------|
+| `uploaded_file_max_size_kb` | `integer` | — | **ConfigMap** |
+| `uploaded_image_max_size_kb` | `integer` | — | **ConfigMap** |
+| Max image size | — | `16 MiB` (target `25 MiB`) | **ConfigMap** |
+| `max_image_inputs_per_message` | `integer` | `4` | **ConfigMap** |
+| `max_image_inputs_per_user_per_day` | `integer` | `50` | **ConfigMap** |
+| `max_total_image_bytes_per_message` | — | uncapped | **ConfigMap** |
+| `thumbnail_width` | `integer` | `128` | **ConfigMap** |
+| `thumbnail_height` | `integer` | `128` | **ConfigMap** |
+| `thumbnail_max_bytes` | `integer` | `131072` | **ConfigMap** |
+| `thumbnail_max_pixels` | `integer` | `100000000` | **ConfigMap** |
+| `thumbnail_max_decode_bytes` | `integer` | `33554432` | **ConfigMap** |
+
+Note: per-model `max_file_size_mb` is available from **CCM API**: `GET /policies/{v}` → `snapshot.model_catalog[].general_config.max_file_size_mb`.
+
+## B.9 Background workers
+
+### B.9.1 Orphan watchdog
+
+| Parameter | Type | Default | Valid range | Source |
+|-----------|------|---------|-------------|--------|
+| `orphan_watchdog.timeout_seconds` | `integer` | `300` | `60..=3600` | **ConfigMap** |
+| `orphan_watchdog.enabled` | `bool` | — | — | **ConfigMap** |
+| `orphan_watchdog.scan_interval_secs` | `integer` | `60` | — | **ConfigMap** |
+
+### B.9.2 Outbox dispatcher
+
+| Parameter | Type | Default | Valid range | Source |
+|-----------|------|---------|-------------|--------|
+| `outbox_dispatcher.max_attempts` | `integer` | `10` | `3..=100` | **ConfigMap** |
+| `outbox_dispatcher.base_delay_seconds` | `integer` | `2` | `1..=60` | **ConfigMap** |
+| `outbox_dispatcher.max_delay_seconds` | `integer` | `300` | `base..=3600` | **ConfigMap** |
+| `outbox_dispatcher.batch_size` | — | — | — | **ConfigMap** |
+| `outbox_dispatcher.lease_duration` | — | — | — | **ConfigMap** |
+| `outbox_dispatcher.poll_interval` | — | — | — | **ConfigMap** |
+
+### B.9.3 Thread summary worker
+
+| Parameter | Type | Default | Source |
+|-----------|------|---------|--------|
+| Message count trigger threshold | — | `20` | **ConfigMap** |
+| Token budget trigger | — | — | **ConfigMap** |
+| User turn interval trigger | — | `15` | **ConfigMap** |
+| `summary_quality.min_length` | — | — | **ConfigMap** |
+| `summary_quality.min_entropy` | — | — | **ConfigMap** |
+
+## B.10 API & OpenAPI defaults
+
+| Parameter | Type | Default | Source |
+|-----------|------|---------|--------|
+| Pagination `limit` | `integer` | `20` (min 1, max 100) | **Hardcoded** |
+| `is_temporary` | `bool` | `false` | **Hardcoded** |
+
+## B.11 Audit / retention / redaction
+
+| Parameter | Type | Default | Source |
+|-----------|------|---------|--------|
+| Audit string truncation max | — | `8 KiB` | **ConfigMap** |
+| Audit retention period | — | `90 days` | **ConfigMap** (owned by `audit_service`) |
+
+## B.12 Summary: CCM API coverage
+
+| CCM API Endpoint | Parameters sourced |
+|------------------|--------------------|
+| `GET /policies/latest` | `policy_version`, cache invalidation trigger |
+| `GET /policies/{v}` | Full model catalog, kill switches (`disable_web_search`, `disable_file_search`), user_limits, model `max_output_tokens`, `context_window`, `max_file_size_mb`, credit multipliers |
+| `GET /users/{userId}/limits` | Per-user credit limits (alternative to reading from snapshot) |
+| `GET /tiers` | Tier definitions (`id`, `name`, `downgrade_to`) |
+| `GET /stats` | Tenant quota info (`soft_quota`, `hard_quota`) — not directly consumed by Mini Chat runtime |
+| `POST /usage/publish` | Not a source; Mini Chat is the **caller** of this endpoint |
+
+**Parameters with no CCM API source (ConfigMap / deployment-only):** ~45 parameters across sections B.1, B.3–B.5, B.6 (partial), B.7 (partial), B.8, B.9, B.10, B.11.
+
+**Design-only parameters not yet in CCM API:** `disable_premium_tier`, `force_standard_tier`.

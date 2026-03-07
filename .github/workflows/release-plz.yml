@@ -182,6 +182,9 @@ jobs:
       - name: cargo test (workspace)
         run: make test-no-macros
 
+      - name: Clear cargo registry index (workaround gix slotmap overflow)
+        run: rm -rf ~/.cargo/registry/index
+
       - name: release-plz release
         uses: release-plz/action@52440b50d383aa252927de395c8b2c1e0a9cf8e9 # v0.3.155
         with:

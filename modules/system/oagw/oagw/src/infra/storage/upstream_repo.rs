@@ -1,5 +1,6 @@
 use crate::domain::model::{ListQuery, Upstream};
 use crate::domain::repo::{RepositoryError, UpstreamRepository};
+use async_trait::async_trait;
 use dashmap::DashMap;
 use modkit_macros::domain_model;
 use uuid::Uuid;
@@ -29,7 +30,7 @@ impl Default for InMemoryUpstreamRepo {
     }
 }
 
-#[async_trait::async_trait]
+#[async_trait]
 impl UpstreamRepository for InMemoryUpstreamRepo {
     async fn create(&self, upstream: Upstream) -> Result<Upstream, RepositoryError> {
         let alias_key = (upstream.tenant_id, upstream.alias.clone());

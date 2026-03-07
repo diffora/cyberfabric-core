@@ -1,11 +1,16 @@
 [package]
 name = "cf-mini-chat-sdk"
-version.workspace = true
-publish = false
+description = "SDK for mini-chat: policy plugin traits, models, and errors"
+version = "0.1.1"
 edition.workspace = true
 license.workspace = true
 authors.workspace = true
-description = "SDK for mini-chat module: API traits, types, and error definitions"
+repository.workspace = true
+rust-version.workspace = true
+readme = "README.md"
+keywords = ["cyberfabric", "cyberfabric-modules"]
+categories = ["artificial-intelligence"]
+
 
 [lib]
 name = "mini_chat_sdk"
@@ -14,8 +19,13 @@ name = "mini_chat_sdk"
 workspace = true
 
 [dependencies]
+async-trait = { workspace = true }
 thiserror = { workspace = true }
 uuid = { workspace = true }
 time = { workspace = true }
-async-trait = { workspace = true }
-modkit-security = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+schemars = { workspace = true }
+gts = { workspace = true }
+gts-macros = { workspace = true }
+modkit = { workspace = true }

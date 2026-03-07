@@ -319,6 +319,7 @@ def kill_existing_server(port):
 
 def cmd_e2e(args):
     base_url = os.environ.get("E2E_BASE_URL", "http://localhost:8086")
+
     check_pytest()
 
     # Kill any existing server on the port before starting

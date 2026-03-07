@@ -166,17 +166,17 @@ modules:
       secrets:
         # Test-only fake client ID, not a real credential
         - tenant_id: "00000000-df51-5b42-9538-d2b56b7ee953"
-          owner_id: "00000000-df51-5b42-9538-d2b56b7ee953"
+          owner_id: "11111111-6a88-4768-9dfc-6bcd5187d9ed"
           key: "openai-key"
           value: "sk-test-e2e-fake-key"
         # Test-only fake credentials for OAuth2 client ID and secret
         - tenant_id: "00000000-df51-5b42-9538-d2b56b7ee953"
-          owner_id: "00000000-df51-5b42-9538-d2b56b7ee953"
+          owner_id: "11111111-6a88-4768-9dfc-6bcd5187d9ed"
           key: "test-oauth2-client-id"
           value: "test-client-id"
         # Test-only fake client secret, not a real credential
         - tenant_id: "00000000-df51-5b42-9538-d2b56b7ee953"
-          owner_id: "00000000-df51-5b42-9538-d2b56b7ee953"
+          owner_id: "11111111-6a88-4768-9dfc-6bcd5187d9ed"
           key: "test-oauth2-client-secret"
           value: "test-client-secret"
 
@@ -245,6 +245,7 @@ modules:
   oagw:
     config:
       proxy_timeout_secs: 2
+      allow_http_upstream: true # Only for testing - do not enable in production without proper security controls
 
 # OpenTelemetry tracing configuration
 tracing:

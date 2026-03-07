@@ -1,5 +1,6 @@
 use crate::domain::model::{PassthroughMode, RequestHeaderRules};
 use http::{HeaderMap, HeaderName, HeaderValue};
+use oagw_sdk::api::ErrorSource;
 
 const HOP_BY_HOP_HEADERS: &[&str] = &[
     "connection",
@@ -93,6 +94,22 @@ pub fn strip_internal_headers(headers: &mut HeaderMap) {
         .collect();
     for name in to_remove {
         headers.remove(&name);
+    }
+}
+
+/// Extract `ErrorSource` from the `x-oagw-error-source` response header.
+///
+/// Must be called **before** [`sanitize_response_headers`] which strips all
+/// `x-oagw-*` headers. Returns `ErrorSource::Upstream` when the header is
+/// absent or has an unrecognised value (upstream responses never carry the
+/// header, so absence ⇒ upstream).
+pub fn extract_error_source(headers: &HeaderMap) -> ErrorSource {
+    match headers
+        .get("x-oagw-error-source")
+        .and_then(|v| v.to_str().ok())
+    {
+        Some("gateway") => ErrorSource::Gateway,
+        _ => ErrorSource::Upstream,
     }
 }
 
@@ -373,6 +390,33 @@ mod tests {
         assert!(out.get(http::header::AUTHORIZATION).is_none());
         assert!(out.get("cookie").is_none());
         assert_eq!(out.get("x-custom").unwrap(), "keep");
+    }
+
+    #[test]
+    fn extract_error_source_gateway() {
+        let mut headers = HeaderMap::new();
+        headers.insert("x-oagw-error-source", "gateway".parse().unwrap());
+        assert_eq!(extract_error_source(&headers), ErrorSource::Gateway);
+    }
+
+    #[test]
+    fn extract_error_source_absent_defaults_to_upstream() {
+        let headers = HeaderMap::new();
+        assert_eq!(extract_error_source(&headers), ErrorSource::Upstream);
+    }
+
+    #[test]
+    fn extract_error_source_unrecognised_defaults_to_upstream() {
+        let mut headers = HeaderMap::new();
+        headers.insert("x-oagw-error-source", "unknown".parse().unwrap());
+        assert_eq!(extract_error_source(&headers), ErrorSource::Upstream);
+    }
+
+    #[test]
+    fn extract_error_source_upstream_explicit() {
+        let mut headers = HeaderMap::new();
+        headers.insert("x-oagw-error-source", "upstream".parse().unwrap());
+        assert_eq!(extract_error_source(&headers), ErrorSource::Upstream);
     }
 
     #[test]

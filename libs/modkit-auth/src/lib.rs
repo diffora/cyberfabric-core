@@ -31,6 +31,6 @@ pub use validation::{ValidationConfig, validate_claims};
 
 // Outbound OAuth2 exports
 pub use oauth2::{
-    BearerAuthLayer, ClientAuthMethod, HttpClientBuilderExt, OAuthClientConfig, SecretString,
-    Token, TokenError,
+    BearerAuthLayer, ClientAuthMethod, FetchedToken, HttpClientBuilderExt, OAuthClientConfig,
+    SecretString, Token, TokenError, fetch_token,
 };

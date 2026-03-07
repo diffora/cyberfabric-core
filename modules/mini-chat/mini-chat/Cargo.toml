@@ -1,11 +1,15 @@
 [package]
 name = "cf-mini-chat"
-version.workspace = true
-publish = false
+description = "Mini-chat module: multi-tenant AI chat"
+version = "0.1.1"
 edition.workspace = true
 license.workspace = true
 authors.workspace = true
-description = "Mini-chat module: multi-tenant AI chat with SSE streaming"
+repository.workspace = true
+rust-version.workspace = true
+readme = "README.md"
+keywords = ["cyberfabric", "cyberfabric-modules"]
+categories = ["artificial-intelligence"]
 
 [lib]
 name = "mini_chat"
@@ -14,14 +18,17 @@ name = "mini_chat"
 workspace = true
 
 [dependencies]
-# SDK - public API, models, and errors
-mini-chat-sdk = { package = "cf-mini-chat-sdk", path = "../mini-chat-sdk" }
+# Plugin SDK - policy plugin traits, models, and errors
+mini-chat-sdk = { workspace = true }
 
 # AuthZ resolver for authorization (PEP flow)
-authz-resolver-sdk = { package = "cf-authz-resolver-sdk", path = "../../system/authz-resolver/authz-resolver-sdk" }
+authz-resolver-sdk = { workspace = true }
 
 # OAGW SDK — proxy calls, SSE stream, gateway errors
-oagw-sdk = { package = "cf-oagw-sdk", path = "../../system/oagw/oagw-sdk" }
+oagw-sdk = { workspace = true }
+
+# Types registry for plugin discovery
+types-registry-sdk = { workspace = true }
 
 # Core dependencies
 anyhow = { workspace = true }
@@ -36,6 +43,9 @@ pin-project-lite = { workspace = true }
 futures = { workspace = true }
 bytes = { workspace = true }
 regex = { workspace = true }
+
+# Encoding
+base64 = { workspace = true }
 
 # Serde and JSON
 serde = { workspace = true }
@@ -62,8 +72,8 @@ thiserror = { workspace = true }
 # Local dependencies
 modkit = { workspace = true }
 modkit-db = { workspace = true, features = ["sqlite", "pg"] }
+modkit-db-macros = { workspace = true }
 modkit-security = { workspace = true }
-modkit-errors = { workspace = true }
-modkit-errors-macro = { workspace = true }
 modkit-macros = { workspace = true }
+modkit-odata = { workspace = true, features = ["with-utoipa"] }
 

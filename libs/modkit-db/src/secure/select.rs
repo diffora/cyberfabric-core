@@ -744,6 +744,43 @@ where
     }
 }
 
+// =============================================================================
+// Free functions for advanced query execution
+// =============================================================================
+
+/// Execute a custom `SelectModel` query through a database runner.
+///
+/// This enables advanced queries (e.g., GROUP BY with aggregates) that build
+/// a custom `Selector` from a scoped `SecureSelect::into_inner()` +
+/// `QuerySelect` transformations + `.into_model::<T>()`.
+///
+/// # Safety contract
+///
+/// This is an **escape hatch** that accepts a raw `sea_orm::Selector` and
+/// therefore bypasses the compile-time scope enforcement provided by
+/// [`SecureSelect`] / [`SecureSelectTwo`]. The caller **must** ensure that
+/// the input `Selector` was derived from a previously scoped query (e.g.,
+/// via `SecureSelect::into_inner()`) so that the correct tenant/scope
+/// WHERE clause is already present. Passing an unscoped selector will
+/// silently skip row-level security filtering.
+///
+/// # Errors
+/// Returns `ScopeError::Db` if the database query fails.
+#[allow(clippy::disallowed_methods)]
+pub async fn exec_custom_all<T, C>(
+    select: sea_orm::Selector<sea_orm::SelectModel<T>>,
+    runner: &C,
+) -> Result<Vec<T>, ScopeError>
+where
+    T: sea_orm::FromQueryResult + Send + Sync,
+    C: DBRunner,
+{
+    match DBRunnerInternal::as_seaorm(runner) {
+        SeaOrmRunner::Conn(db) => Ok(select.all(db).await?),
+        SeaOrmRunner::Tx(tx) => Ok(select.all(tx).await?),
+    }
+}
+
 #[cfg(test)]
 #[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {

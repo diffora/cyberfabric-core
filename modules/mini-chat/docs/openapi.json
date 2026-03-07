@@ -97,16 +97,13 @@
         "operationId": "listChats",
         "tags": ["chats"],
         "summary": "List chats for the current user",
-        "description": "Returns chats for the authenticated user ordered by most recent activity (updated_at DESC). Supports cursor-based pagination and OData `$select` field projection. This endpoint supports OData `$select` for sparse field projection. Field names are case-insensitive. Dot notation is supported for nested objects.",
+        "description": "Returns chats for the authenticated user ordered by most recent activity (`updated_at` DESC, `id` DESC tiebreaker). Supports cursor-based pagination via `limit` and `cursor` parameters.",
         "parameters": [
-          {
-            "$ref": "#/components/parameters/PaginationCursor"
-          },
           {
             "$ref": "#/components/parameters/PaginationLimit"
           },
           {
-            "$ref": "#/components/parameters/ODataSelect"
+            "$ref": "#/components/parameters/PaginationCursor"
           }
         ],
         "responses": {
@@ -115,19 +112,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "required": ["items", "page_info"],
-                  "properties": {
-                    "items": {
-                      "type": "array",
-                      "items": {
-                        "$ref": "#/components/schemas/Chat"
-                      }
-                    },
-                    "page_info": {
-                      "$ref": "#/components/schemas/PageInfo"
-                    }
-                  }
+                  "$ref": "#/components/schemas/ChatsPage"
                 }
               }
             }
@@ -261,7 +246,7 @@
         "operationId": "sendMessage",
         "tags": ["messages"],
         "summary": "Send message and receive streamed AI response",
-        "description": "Sends a user message and opens an SSE stream for the assistant response. If `request_id` matches an active generation, returns 409 Conflict (JSON, no SSE). If `request_id` matches a completed generation, replays the response as SSE (side-effect-free: no new quota reserve, no billing events).\n\nThe optional `web_search` parameter enables web search for this turn (disabled by default, backward compatible).\n\n**SSE event ordering (P1)**: `ping* delta* tool* citations? (done | error)`. `delta` and `tool` may interleave; at most one `citations` event, emitted after all `delta` events and before the terminal event.\n\nExactly one terminal event (`done` or `error`) ends the stream.\n\n**SSE event types and payloads**:\n- `event: ping` — keepalive, payload: `{}`. Clients MUST ignore.\n- `event: delta` — incremental text. Payload: `SseDeltaEvent`.\n- `event: tool` — tool activity (file_search, web_search at P1). Payload: `SseToolEvent`.\n- `event: citations` — source references (file and web). Payload: `SseCitationsEvent`.\n- `event: done` — terminal success with usage and quota_decision. Payload: `SseDoneEvent`.\n- `event: error` — terminal failure. Payload: `SseErrorEvent`.\n\nSee component schemas for payload definitions.\n\n**Pre-stream errors**: If validation, authorization, or quota preflight fails before streaming, a JSON error response with the appropriate HTTP status is returned and no SSE stream is opened.\n\n**Cancellation**: If the client disconnects mid-stream, the server cancels the in-flight provider request and applies a bounded best-effort debit for quota. No SSE error event is emitted (the stream is already broken). The Turn Status API is authoritative for final state after disconnect.",
+        "description": "Sends a user message and opens an SSE stream for the assistant response. If `request_id` matches an active generation, returns 409 Conflict (JSON, no SSE). If `request_id` matches a completed generation, replays the response as SSE (side-effect-free: no new quota reserve, no billing events).\n\nThe optional `web_search` parameter enables web search for this turn (disabled by default, backward compatible).\n\n**SSE event ordering (P1)**: `ping* delta* tool* citations? (done | error)`. `delta` and `tool` may interleave; at most one `citations` event, emitted after all `delta` events and before the terminal event.\n\nExactly one terminal event (`done` or `error`) ends the stream.\n\n**SSE event types and payloads**:\n- `event: ping` — keepalive, payload: `{}`. Clients MUST ignore.\n- `event: delta` — incremental text. Payload: `SseDeltaEvent`.\n- `event: tool` — tool activity (file_search, web_search at P1). Payload: `SseToolEvent`.\n- `event: citations` — source references (file and web). Payload: `SseCitationsEvent`.\n- `event: done` — terminal success with usage and quota_decision. Emitted for both full completions and truncated-but-successful completions (provider `response.incomplete`). Payload: `SseDoneEvent`.\n- `event: error` — terminal failure. Payload: `SseErrorEvent`.\n\nSee component schemas for payload definitions.\n\n**Pre-stream errors**: If validation, authorization, or quota preflight fails before streaming, a JSON error response with the appropriate HTTP status is returned and no SSE stream is opened.\n\n**Cancellation**: If the client disconnects mid-stream, the server cancels the in-flight provider request and applies a bounded best-effort debit for quota. No SSE error event is emitted (the stream is already broken). The Turn Status API is authoritative for final state after disconnect.",
         "requestBody": {
           "required": true,
           "content": {
@@ -273,7 +258,7 @@
                 "content": "What does the document say about Q3 revenue?",
                 "request_id": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
                 "attachment_ids": ["c3d4e5f6-7890-4abc-def1-234567890abc"],
-                "web_search": { "enabled": false }
+                "web_search": {"enabled": false}
               }
             }
           }
@@ -493,7 +478,7 @@
         "operationId": "listMessages",
         "tags": ["messages"],
         "summary": "List messages with cursor pagination",
-        "description": "Returns paginated messages for a chat using cursor-based pagination with OData query support. Default ordering is `created_at asc` (chronological). Use `$orderby`, `$filter`, and `$select` for advanced queries.\n\n**OData support**:\n- `$orderby`: `created_at asc|desc`, `id asc|desc`\n- `$filter`: `created_at` (eq, ne, gt, ge, lt, le), `role` (eq, ne, in), `id` (eq, ne, in)\n- `$select`: any top-level field (including `attachment_ids`)",
+        "description": "Returns paginated messages for a chat using cursor-based pagination with OData query support. Default ordering is `created_at asc` (chronological). Use `$orderby`, `$filter`, and `$select` for advanced queries.\n\n**OData support**:\n- `$orderby`: `created_at asc|desc`, `id asc|desc`\n- `$filter`: `created_at` (eq, ne, gt, ge, lt, le), `role` (eq, ne, in), `id` (eq, ne, in)\n- `$select`: any top-level field (including `attachments`)",
         "parameters": [
           {
             "$ref": "#/components/parameters/PaginationLimit"
@@ -541,7 +526,15 @@
                       "model": null,
                       "input_tokens": null,
                       "output_tokens": null,
-                      "attachment_ids": ["c3d4e5f6-7890-4abc-def1-234567890abc"],
+                      "attachments": [
+                        {
+                          "attachment_id": "c3d4e5f6-7890-4abc-def1-234567890abc",
+                          "kind": "document",
+                          "filename": "Q3_Report.pdf",
+                          "status": "ready",
+                          "img_thumbnail": null
+                        }
+                      ],
                       "created_at": "2025-06-15T10:35:30Z"
                     },
                     {
@@ -552,7 +545,7 @@
                       "model": "gpt-5.2",
                       "input_tokens": 500,
                       "output_tokens": 120,
-                      "attachment_ids": [],
+                      "attachments": [],
                       "created_at": "2025-06-15T10:35:45Z"
                     }
                   ],
@@ -691,7 +684,7 @@
         "operationId": "editTurn",
         "tags": ["turns"],
         "summary": "Edit the last user turn and regenerate response",
-        "description": "Replaces the content of the last user message and generates a new assistant response via SSE. The previous turn is soft-deleted with `replaced_by_request_id` set. Original `attachment_ids` are preserved. Only the most recent non-deleted turn in a terminal state may be edited.",
+        "description": "Replaces the content of the last user message and generates a new assistant response via SSE. The previous turn is soft-deleted with `replaced_by_request_id` set. Original attachment associations are preserved (copied to the new user message via `message_attachments`). Only the most recent non-deleted turn in a terminal state may be edited.",
         "requestBody": {
           "required": true,
           "content": {
@@ -857,7 +850,7 @@
         "operationId": "retryTurn",
         "tags": ["turns"],
         "summary": "Retry the last turn",
-        "description": "Soft-deletes the previous turn and re-submits the original user message (including any attachment_ids) for a new assistant response via SSE. Only the most recent non-deleted turn in a terminal state may be retried.",
+        "description": "Soft-deletes the previous turn and re-submits the original user message (including any attachment associations, copied to the new user message via `message_attachments`) for a new assistant response via SSE. Only the most recent non-deleted turn in a terminal state may be retried.",
         "responses": {
           "200": {
             "description": "SSE stream with new assistant response. Same event contract as sendMessage.",
@@ -981,17 +974,10 @@
         "operationId": "removeReaction",
         "tags": ["reactions"],
         "summary": "Remove reaction from an assistant message",
-        "description": "Removes the current user's reaction from an assistant message. Idempotent: returns 200 even if no reaction exists.",
+        "description": "Removes the current user's reaction from an assistant message. Idempotent: returns 204 whether or not a reaction existed.",
         "responses": {
-          "200": {
-            "description": "Reaction removed (or was already absent).",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ReactionDeleteResponse"
-                }
-              }
-            }
+          "204": {
+            "description": "Reaction removed (or was already absent)."
           },
           "403": {
             "$ref": "#/components/responses/Forbidden"
@@ -1338,7 +1324,7 @@
       },
       "Message": {
         "type": "object",
-        "required": ["id", "request_id", "role", "content", "attachment_ids", "created_at"],
+        "required": ["id", "request_id", "role", "content", "attachments", "created_at"],
         "description": "A single message in a chat (user, assistant, or system).",
         "properties": {
           "id": {
@@ -1369,13 +1355,12 @@
             "type": ["integer", "null"],
             "description": "Actual output tokens. Present on assistant messages."
           },
-          "attachment_ids": {
+          "attachments": {
             "type": "array",
             "items": {
-              "type": "string",
-              "format": "uuid"
+              "$ref": "#/components/schemas/AttachmentSummary"
             },
-            "description": "Always-present reference list of attachment UUIDs associated with this message. Empty array when no attachments. Details are fetched via GET /v1/chats/{id}/attachments/{attachment_id} if needed."
+            "description": "Always-present list of attachment summaries associated with this message. Contains lightweight metadata sufficient for UI rendering (kind, filename, status, thumbnail). Empty array when no attachments. Full attachment details (doc_summary, size_bytes, content_type, error_code) are available via GET /v1/chats/{id}/attachments/{attachment_id}."
           },
           "created_at": {
             "type": "string",
@@ -1503,20 +1488,6 @@
           }
         }
       },
-      "ReactionDeleteResponse": {
-        "type": "object",
-        "required": ["message_id", "deleted"],
-        "properties": {
-          "message_id": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "deleted": {
-            "type": "boolean",
-            "const": true
-          }
-        }
-      },
       "CreateChatRequest": {
         "type": "object",
         "description": "Request body for creating a new chat.",
@@ -1575,7 +1546,7 @@
       "EditTurnRequest": {
         "type": "object",
         "required": ["content"],
-        "description": "Request body for editing the last user turn. Original attachment_ids are preserved automatically.",
+        "description": "Request body for editing the last user turn. Original attachment associations are preserved automatically (copied via message_attachments).",
         "properties": {
           "content": {
             "type": "string",
@@ -1698,7 +1669,7 @@
       "SseDoneEvent": {
         "type": "object",
         "required": ["message_id", "usage", "effective_model", "selected_model", "quota_decision"],
-        "description": "SSE `event: done` payload. Terminal event finalizing the stream with usage and model selection metadata.",
+        "description": "SSE `event: done` payload. Terminal event finalizing the stream with usage and model selection metadata. Used for both full completions and truncated-but-successful completions (provider `response.incomplete`).",
         "properties": {
           "message_id": {
             "type": "string",
@@ -1788,6 +1759,22 @@
           }
         }
       },
+      "ChatsPage": {
+        "type": "object",
+        "required": ["items", "page_info"],
+        "description": "Paginated list of chats following the platform Page + PageInfo convention. Default ordering: `updated_at desc`, `id desc` (tiebreaker).",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ChatDetail"
+            }
+          },
+          "page_info": {
+            "$ref": "#/components/schemas/PageInfo"
+          }
+        }
+      },
       "MessagesPage": {
         "type": "object",
         "required": ["items", "page_info"],
@@ -1801,6 +1788,39 @@
           },
           "page_info": {
             "$ref": "#/components/schemas/PageInfo"
+          }
+        }
+      },
+      "AttachmentSummary": {
+        "type": "object",
+        "required": ["attachment_id", "kind", "filename", "status"],
+        "description": "Lightweight attachment metadata embedded in Message objects. Contains only the fields needed for UI rendering of message history. Full details (doc_summary, size_bytes, content_type, error_code, etc.) are available via GET /v1/chats/{id}/attachments/{attachment_id}.",
+        "properties": {
+          "attachment_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "kind": {
+            "type": "string",
+            "enum": ["document", "image"],
+            "description": "Attachment type. Derived from MIME type on upload."
+          },
+          "filename": {
+            "type": "string",
+            "maxLength": 255,
+            "description": "Original filename."
+          },
+          "status": {
+            "type": "string",
+            "enum": ["pending", "ready", "failed"],
+            "description": "Processing status."
+          },
+          "img_thumbnail": {
+            "oneOf": [
+              { "$ref": "#/components/schemas/ImgThumbnail" },
+              { "type": "null" }
+            ],
+            "description": "Server-generated preview thumbnail. Present only when kind=image and status=ready. Null for documents and when thumbnail generation failed or was skipped."
           }
         }
       },

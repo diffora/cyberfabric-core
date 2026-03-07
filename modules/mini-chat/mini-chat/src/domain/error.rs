@@ -1,12 +1,23 @@
 use modkit_db::DbError;
+use modkit_db::secure::InfraError;
 use modkit_db::secure::ScopeError;
 use modkit_macros::domain_model;
 use thiserror::Error;
 use uuid::Uuid;
 
+/// Domain-specific errors for the mini-chat module.
 #[domain_model]
 #[derive(Error, Debug)]
 pub enum DomainError {
+    #[error("Chat not found: {id}")]
+    ChatNotFound { id: Uuid },
+
+    #[error("Invalid model: {model}")]
+    InvalidModel { model: String },
+
+    #[error("Validation failed: {message}")]
+    Validation { message: String },
+
     #[error("Database error: {message}")]
     Database { message: String },
 
@@ -19,11 +30,35 @@ pub enum DomainError {
     #[error("Access denied")]
     Forbidden,
 
-    #[error("Internal error")]
-    Internal,
+    #[error("Message not found: {id}")]
+    MessageNotFound { id: Uuid },
+
+    #[error("Invalid reaction target: message {id} is not an assistant message")]
+    InvalidReactionTarget { id: Uuid },
+
+    #[error("Internal error: {message}")]
+    InternalError { message: String },
 }
 
 impl DomainError {
+    #[must_use]
+    pub fn chat_not_found(id: Uuid) -> Self {
+        Self::ChatNotFound { id }
+    }
+
+    #[must_use]
+    pub fn invalid_model(model: impl Into<String>) -> Self {
+        Self::InvalidModel {
+            model: model.into(),
+        }
+    }
+
+    pub fn validation(message: impl Into<String>) -> Self {
+        Self::Validation {
+            message: message.into(),
+        }
+    }
+
     pub fn database(message: impl Into<String>) -> Self {
         Self::Database {
             message: message.into(),
@@ -42,6 +77,35 @@ impl DomainError {
             entity: entity.into(),
             id,
         }
+    }
+
+    pub fn internal(message: impl Into<String>) -> Self {
+        Self::InternalError {
+            message: message.into(),
+        }
+    }
+
+    #[must_use]
+    pub fn message_not_found(id: Uuid) -> Self {
+        Self::MessageNotFound { id }
+    }
+
+    #[must_use]
+    pub fn invalid_reaction_target(id: Uuid) -> Self {
+        Self::InvalidReactionTarget { id }
+    }
+
+    #[must_use]
+    #[allow(clippy::needless_pass_by_value)]
+    pub fn database_infra(e: InfraError) -> Self {
+        Self::database(e.to_string())
+    }
+}
+
+impl From<Box<dyn std::error::Error>> for DomainError {
+    fn from(value: Box<dyn std::error::Error>) -> Self {
+        tracing::debug!(error = %value, "Converting boxed error to DomainError");
+        DomainError::internal(value.to_string())
     }
 }
 
@@ -71,7 +135,20 @@ impl From<ScopeError> for DomainError {
             }
             ScopeError::Invalid(msg) => {
                 tracing::error!("invalid scope: {msg}");
-                DomainError::Internal
+                DomainError::internal(msg)
+            }
+        }
+    }
+}
+
+impl From<authz_resolver_sdk::EnforcerError> for DomainError {
+    fn from(e: authz_resolver_sdk::EnforcerError) -> Self {
+        tracing::error!(error = %e, "AuthZ scope resolution failed");
+        match e {
+            authz_resolver_sdk::EnforcerError::Denied { .. }
+            | authz_resolver_sdk::EnforcerError::CompileFailed(_) => Self::Forbidden,
+            authz_resolver_sdk::EnforcerError::EvaluationFailed(ref err) => {
+                Self::internal(err.to_string())
             }
         }
     }

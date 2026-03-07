@@ -9,6 +9,7 @@ Uses only stdlib asyncio — no aiohttp dependency.
 import asyncio
 import json
 import re
+from urllib.parse import parse_qs
 import logging
 
 # ---------------------------------------------------------------------------
@@ -89,13 +90,48 @@ def _sse_end() -> bytes:
 
 
 # ---------------------------------------------------------------------------
+# Stateful counters for conditional-response endpoints
+# ---------------------------------------------------------------------------
+
+_endpoint_call_counts: dict[str, int] = {}
+
+
+def _bump_count(key: str) -> int:
+    """Increment and return the call count for *key* (1-indexed)."""
+    _endpoint_call_counts[key] = _endpoint_call_counts.get(key, 0) + 1
+    return _endpoint_call_counts[key]
+
+
+# ---------------------------------------------------------------------------
 # Route handlers
 # ---------------------------------------------------------------------------
 
 async def _handle(method: str, path: str, headers: dict, body: bytes, writer: asyncio.StreamWriter) -> None:
+    # POST /reset-counters — reset all stateful endpoint call counts
+    if method == "POST" and path == "/reset-counters":
+        _endpoint_call_counts.clear()
+        writer.write(_json_response({"reset": True}))
+
     # GET /health
-    if method == "GET" and path == "/health":
+    elif method == "GET" and path == "/health":
         writer.write(_json_response({"status": "ok"}))
+
+    # POST /oauth2/token — mock OAuth2 token endpoint
+    elif method == "POST" and path == "/oauth2/token":
+        # Parse URL-encoded form body and validate grant_type=client_credentials.
+        parsed = parse_qs(body.decode("utf-8", errors="replace"))
+        form_params = {k: v[0] for k, v in parsed.items() if v}
+        if form_params.get("grant_type") != "client_credentials":
+            writer.write(_json_response(
+                {"error": "unsupported_grant_type", "error_description": "grant_type must be client_credentials"},
+                status=400,
+            ))
+        else:
+            writer.write(_json_response({
+                "access_token": "mock-e2e-token",
+                "expires_in": 3600,
+                "token_type": "Bearer",
+            }))
 
     # POST /echo
     elif method == "POST" and path == "/echo":
@@ -177,6 +213,22 @@ async def _handle(method: str, path: str, headers: dict, body: bytes, writer: as
         code = int(m.group(1))
         writer.write(_json_response({"status": code, "description": f"Status {code}"}, status=code))
 
+    # POST /echo-401-once — returns 401 on first call, 200 thereafter.
+    # Used to exercise the OAGW 401-retry logic.
+    elif method == "POST" and path == "/echo-401-once":
+        call = _bump_count("echo-401-once")
+        if call == 1:
+            writer.write(_json_response(
+                {"error": "invalid_token", "error_description": "token expired"},
+                status=401,
+            ))
+        else:
+            writer.write(_json_response({
+                "headers": headers,
+                "body": body.decode("utf-8", errors="replace"),
+                "call_number": call,
+            }))
+
     # 404 fallback
     else:
         writer.write(_json_response({"error": "not found"}, status=404))
@@ -209,7 +261,7 @@ class MockUpstreamServer:
                     writer.close()
                 except RuntimeError:
                     # Event loop may already be closing/shutdown.
-                    return
+                    pass
                 try:
                     await writer.wait_closed()
                 except (ConnectionError, RuntimeError):

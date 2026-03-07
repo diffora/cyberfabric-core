@@ -1,6 +1,6 @@
 CI := 1
 
-OPENAPI_URL ?= http://127.0.0.1:8087/openapi.json
+OPENAPI_URL ?= http://127.0.0.1:8087/cf/openapi.json
 OPENAPI_OUT ?= docs/api/api.json
 
 # E2E feature set (single source of truth: config/e2e-features.txt)
@@ -415,7 +415,7 @@ fuzz-corpus: fuzz-install
 
 # -------- Main targets --------
 
-.PHONY: all check ci build quickstart example
+.PHONY: all check ci build quickstart example mini-chat
 
 # Start server with quickstart config
 quickstart:
@@ -425,6 +425,10 @@ quickstart:
 ## Run server with example module
 example:
 	cargo run --bin hyperspot-server $(E2E_ARGS) -- --config config/quickstart.yaml run
+
+## Run server with mini-chat module
+mini-chat:
+	cargo run --bin hyperspot-server --features mini-chat,static-authn,static-authz,single-tenant -- --config config/mini-chat.yaml run
 
 oop-example:
 	cargo build -p calculator --features oop_module

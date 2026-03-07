@@ -54,8 +54,8 @@ tokio = { version = "1.44", features = ["macros", "rt"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 utoipa = "5.2"
-modkit-macros = { package = "cf-modkit-macros", version = "0.2.0", path = "../libs/modkit-macros" }
-modkit = { package = "cf-modkit", version = "0.2.0", path = "../libs/modkit" }
+modkit-macros = { package = "cf-modkit-macros", path = "../libs/modkit-macros" }
+modkit = { package = "cf-modkit", path = "../libs/modkit" }
 gts-id = "0.8.4"
 gts = "0.8.4"
 gts-macros = "0.8.4"

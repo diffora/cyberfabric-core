@@ -230,11 +230,6 @@ mod tests {
     }
 
     #[test]
-    fn sharing_mode_default_is_tenant() {
-        assert_eq!(SharingMode::default(), SharingMode::Tenant);
-    }
-
-    #[test]
     fn get_secret_response_debug_redacts_value() {
         let resp = GetSecretResponse {
             value: SecretValue::from("secret"),
@@ -259,5 +254,28 @@ mod tests {
         let debug = format!("{meta:?}");
         assert!(debug.contains("[REDACTED]"));
         assert!(!debug.contains("secret"));
+    }
+
+    #[test]
+    fn sharing_mode_serde_roundtrip() {
+        for (mode, expected_json) in [
+            (SharingMode::Private, "\"private\""),
+            (SharingMode::Tenant, "\"tenant\""),
+            (SharingMode::Shared, "\"shared\""),
+        ] {
+            let json = serde_json::to_string(&mode).unwrap();
+            assert_eq!(json, expected_json);
+            let back: SharingMode = serde_json::from_str(&json).unwrap();
+            assert_eq!(back, mode);
+        }
+    }
+
+    #[test]
+    fn secret_ref_serialize_roundtrip() {
+        let r = SecretRef::new("round-trip").unwrap();
+        let json = serde_json::to_string(&r).unwrap();
+        assert_eq!(json, "\"round-trip\"");
+        let back: SecretRef = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.as_ref(), "round-trip");
     }
 }

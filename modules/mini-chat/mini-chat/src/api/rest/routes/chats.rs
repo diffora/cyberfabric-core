@@ -3,7 +3,7 @@ use modkit::api::OpenApiRegistry;
 use modkit::api::operation_builder::OperationBuilder;
 
 use super::AiChatLicense;
-use crate::api::rest::handlers;
+use crate::api::rest::{dto, handlers};
 
 pub(super) fn register_chat_routes(
     mut router: Router,
@@ -17,9 +17,17 @@ pub(super) fn register_chat_routes(
         .tag("chats")
         .authenticated()
         .require_license_features([&AiChatLicense])
+        .json_request::<dto::CreateChatReq>(openapi, "Chat creation data")
         .handler(handlers::chats::create_chat)
-        .json_response(http::StatusCode::CREATED, "Created chat")
-        .standard_errors(openapi)
+        .json_response_with_schema::<dto::ChatDetailDto>(
+            openapi,
+            http::StatusCode::CREATED,
+            "Created chat",
+        )
+        .error_400(openapi)
+        .error_401(openapi)
+        .error_403(openapi)
+        .error_500(openapi)
         .register(router, openapi);
 
     // GET {prefix}/v1/chats
@@ -29,9 +37,23 @@ pub(super) fn register_chat_routes(
         .tag("chats")
         .authenticated()
         .require_license_features([&AiChatLicense])
+        .query_param_typed(
+            "limit",
+            false,
+            "Maximum number of chats to return",
+            "integer",
+        )
+        .query_param("cursor", false, "Cursor for pagination")
         .handler(handlers::chats::list_chats)
-        .json_response(http::StatusCode::OK, "List of chats")
-        .standard_errors(openapi)
+        .json_response_with_schema::<modkit_odata::Page<dto::ChatDetailDto>>(
+            openapi,
+            http::StatusCode::OK,
+            "Paginated list of chats",
+        )
+        .error_400(openapi)
+        .error_401(openapi)
+        .error_403(openapi)
+        .error_500(openapi)
         .register(router, openapi);
 
     // GET {prefix}/v1/chats/{id}
@@ -43,21 +65,38 @@ pub(super) fn register_chat_routes(
         .require_license_features([&AiChatLicense])
         .path_param("id", "Chat UUID")
         .handler(handlers::chats::get_chat)
-        .json_response(http::StatusCode::OK, "Chat found")
-        .standard_errors(openapi)
+        .json_response_with_schema::<dto::ChatDetailDto>(
+            openapi,
+            http::StatusCode::OK,
+            "Chat found",
+        )
+        .error_400(openapi)
+        .error_401(openapi)
+        .error_403(openapi)
+        .error_404(openapi)
+        .error_500(openapi)
         .register(router, openapi);
 
     // PATCH {prefix}/v1/chats/{id}
     router = OperationBuilder::patch(format!("{prefix}/v1/chats/{{id}}"))
         .operation_id("mini_chat.update_chat")
-        .summary("Update a chat")
+        .summary("Update a chat title")
         .tag("chats")
         .authenticated()
         .require_license_features([&AiChatLicense])
         .path_param("id", "Chat UUID")
+        .json_request::<dto::UpdateChatReq>(openapi, "Chat update data")
         .handler(handlers::chats::update_chat)
-        .json_response(http::StatusCode::OK, "Updated chat")
-        .standard_errors(openapi)
+        .json_response_with_schema::<dto::ChatDetailDto>(
+            openapi,
+            http::StatusCode::OK,
+            "Updated chat",
+        )
+        .error_400(openapi)
+        .error_401(openapi)
+        .error_403(openapi)
+        .error_404(openapi)
+        .error_500(openapi)
         .register(router, openapi);
 
     // DELETE {prefix}/v1/chats/{id}
@@ -70,7 +109,11 @@ pub(super) fn register_chat_routes(
         .path_param("id", "Chat UUID")
         .handler(handlers::chats::delete_chat)
         .json_response(http::StatusCode::NO_CONTENT, "Chat deleted")
-        .standard_errors(openapi)
+        .error_400(openapi)
+        .error_401(openapi)
+        .error_403(openapi)
+        .error_404(openapi)
+        .error_500(openapi)
         .register(router, openapi);
 
     router

@@ -77,6 +77,19 @@ impl Default for ApiGateway {
 }
 
 impl ApiGateway {
+    fn apply_prefix_nesting(mut router: Router, prefix: &str) -> Router {
+        if prefix.is_empty() {
+            return router;
+        }
+
+        let top = Router::new()
+            .route("/health", get(web::health_check))
+            .route("/healthz", get(|| async { "ok" }));
+
+        router = Router::new().nest(prefix, router);
+        top.merge(router)
+    }
+
     /// Create a new `ApiGateway` instance with the given configuration
     #[must_use]
     pub fn new(config: ApiGatewayConfig) -> Self {
@@ -125,11 +138,13 @@ impl ApiGateway {
         // Always mark built-in health check routes as public
         public_routes.insert((Method::GET, "/health".to_owned()));
         public_routes.insert((Method::GET, "/healthz".to_owned()));
+
         public_routes.insert((Method::GET, "/docs".to_owned()));
         public_routes.insert((Method::GET, "/openapi.json".to_owned()));
 
         for spec in &self.openapi_registry.operation_specs {
             let spec = spec.value();
+
             let route_key = (spec.method.clone(), spec.path.clone());
 
             if spec.authenticated {
@@ -156,6 +171,45 @@ impl ApiGateway {
         );
 
         Ok(route_policy)
+    }
+
+    fn normalize_prefix_path(raw: &str) -> Result<String> {
+        let trimmed = raw.trim();
+        // Collapse consecutive slashes then strip trailing slash(es).
+        let collapsed: String =
+            trimmed
+                .chars()
+                .fold(String::with_capacity(trimmed.len()), |mut acc, c| {
+                    if c == '/' && acc.ends_with('/') {
+                        // skip duplicate slash
+                    } else {
+                        acc.push(c);
+                    }
+                    acc
+                });
+        let prefix = collapsed.trim_end_matches('/');
+        let result = if prefix.is_empty() {
+            String::new()
+        } else if prefix.starts_with('/') {
+            prefix.to_owned()
+        } else {
+            format!("/{prefix}")
+        };
+        // Reject characters that are unsafe in URL paths or HTML attributes.
+        if !result
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'/' || b == b'_' || b == b'-' || b == b'.')
+        {
+            anyhow::bail!(
+                "prefix_path contains invalid characters (must match [a-zA-Z0-9/_\\-.]): {raw:?}"
+            );
+        }
+
+        if result.split('/').any(|seg| seg == "." || seg == "..") {
+            anyhow::bail!("prefix_path must not contain '.' or '..' segments: {raw:?}");
+        }
+
+        Ok(result)
     }
 
     /// Apply all middleware layers to a router (request ID, tracing, timeout, body limit, CORS, rate limiting, error mapping, auth)
@@ -189,6 +243,7 @@ impl ApiGateway {
 
         // 11) License validation
         let license_map = middleware::license_validation::LicenseRequirementMap::from_specs(&specs);
+
         router = router.layer(from_fn(
             move |req: axum::extract::Request, next: axum::middleware::Next| {
                 let map = license_map.clone();
@@ -236,6 +291,7 @@ impl ApiGateway {
 
         // 8) Per-route rate limiting & in-flight limits
         let rate_map = middleware::rate_limit::RateLimiterMap::from_specs(&specs, &config)?;
+
         router = router.layer(from_fn(
             move |req: axum::extract::Request, next: axum::middleware::Next| {
                 let map = rate_map.clone();
@@ -362,6 +418,10 @@ impl ApiGateway {
         // Apply all middleware layers including auth, above the router
         let authn_client = self.authn_client.lock().clone();
         router = self.apply_middleware_stack(router, authn_client)?;
+
+        let config = self.get_cached_config();
+        let prefix = Self::normalize_prefix_path(&config.prefix_path)?;
+        router = Self::apply_prefix_nesting(router, &prefix);
 
         // Cache the built router for future use
         self.router_cache.store(router.clone());
@@ -491,6 +551,9 @@ impl ApiGateway {
         );
 
         let openapi_doc = Arc::new(self.build_openapi()?);
+        let config = self.get_cached_config();
+        let prefix = Self::normalize_prefix_path(&config.prefix_path)?;
+        let html_doc = web::serve_docs(&prefix);
 
         router = router
             .route(
@@ -517,7 +580,7 @@ impl ApiGateway {
                     }
                 }),
             )
-            .route("/docs", get(web::serve_docs));
+            .route("/docs", get(move || async move { html_doc }));
 
         #[cfg(feature = "embed_elements")]
         {
@@ -593,6 +656,9 @@ impl modkit::contracts::ApiGatewayCapability for ApiGateway {
         tracing::debug!("Applying middleware stack to finalized router");
         let authn_client = self.authn_client.lock().clone();
         router = self.apply_middleware_stack(router, authn_client)?;
+
+        let prefix = Self::normalize_prefix_path(&config.prefix_path)?;
+        router = Self::apply_prefix_nesting(router, &prefix);
 
         // Keep the finalized router to be used by `serve()`
         *self.final_router.lock() = Some(router.clone());
@@ -679,6 +745,107 @@ mod tests {
         assert_eq!(info.get("title").unwrap(), "Test API");
         assert_eq!(info.get("version").unwrap(), "1.0.0");
         assert_eq!(info.get("description").unwrap(), "Test Description");
+    }
+}
+
+#[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
+mod normalize_prefix_path_tests {
+    use super::*;
+
+    #[test]
+    fn empty_string_returns_empty() {
+        assert_eq!(ApiGateway::normalize_prefix_path("").unwrap(), "");
+    }
+
+    #[test]
+    fn sole_slash_returns_empty() {
+        assert_eq!(ApiGateway::normalize_prefix_path("/").unwrap(), "");
+    }
+
+    #[test]
+    fn multiple_slashes_return_empty() {
+        assert_eq!(ApiGateway::normalize_prefix_path("///").unwrap(), "");
+    }
+
+    #[test]
+    fn whitespace_only_returns_empty() {
+        assert_eq!(ApiGateway::normalize_prefix_path("   ").unwrap(), "");
+    }
+
+    #[test]
+    fn simple_prefix_preserved() {
+        assert_eq!(ApiGateway::normalize_prefix_path("/cf").unwrap(), "/cf");
+    }
+
+    #[test]
+    fn trailing_slash_stripped() {
+        assert_eq!(ApiGateway::normalize_prefix_path("/cf/").unwrap(), "/cf");
+    }
+
+    #[test]
+    fn leading_slash_prepended_when_missing() {
+        assert_eq!(ApiGateway::normalize_prefix_path("cf").unwrap(), "/cf");
+    }
+
+    #[test]
+    fn consecutive_leading_slashes_collapsed() {
+        assert_eq!(ApiGateway::normalize_prefix_path("//cf").unwrap(), "/cf");
+    }
+
+    #[test]
+    fn consecutive_slashes_mid_path_collapsed() {
+        assert_eq!(
+            ApiGateway::normalize_prefix_path("/api//v1").unwrap(),
+            "/api/v1"
+        );
+    }
+
+    #[test]
+    fn many_consecutive_slashes_collapsed() {
+        assert_eq!(
+            ApiGateway::normalize_prefix_path("///api///v1///").unwrap(),
+            "/api/v1"
+        );
+    }
+
+    #[test]
+    fn surrounding_whitespace_trimmed() {
+        assert_eq!(ApiGateway::normalize_prefix_path("  /cf  ").unwrap(), "/cf");
+    }
+
+    #[test]
+    fn nested_path_preserved() {
+        assert_eq!(
+            ApiGateway::normalize_prefix_path("/api/v1").unwrap(),
+            "/api/v1"
+        );
+    }
+
+    #[test]
+    fn dot_in_path_allowed() {
+        assert_eq!(
+            ApiGateway::normalize_prefix_path("/api/v1.0").unwrap(),
+            "/api/v1.0"
+        );
+    }
+
+    #[test]
+    fn rejects_html_injection() {
+        let result = ApiGateway::normalize_prefix_path(r#""><script>alert(1)</script>"#);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn rejects_spaces_in_path() {
+        let result = ApiGateway::normalize_prefix_path("/my path");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn rejects_query_string_chars() {
+        let result = ApiGateway::normalize_prefix_path("/api?foo=bar");
+        assert!(result.is_err());
     }
 }
 

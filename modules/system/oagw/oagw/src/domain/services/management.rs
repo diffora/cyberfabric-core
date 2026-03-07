@@ -1,12 +1,16 @@
 use std::sync::Arc;
 
 use super::ControlPlaneService;
+use std::net::IpAddr;
+
 use crate::domain::error::DomainError;
 use crate::domain::model::{
-    CreateRouteRequest, CreateUpstreamRequest, ListQuery, Route, UpdateRouteRequest,
+    CreateRouteRequest, CreateUpstreamRequest, Endpoint, ListQuery, Route, UpdateRouteRequest,
     UpdateUpstreamRequest, Upstream,
 };
 use crate::domain::repo::{RouteRepository, UpstreamRepository};
+
+use async_trait::async_trait;
 use modkit_macros::domain_model;
 use modkit_security::SecurityContext;
 use uuid::Uuid;
@@ -26,6 +30,74 @@ impl ControlPlaneServiceImpl {
     ) -> Self {
         Self { upstreams, routes }
     }
+}
+
+/// Validate the endpoint list for a server configuration.
+///
+/// Rules:
+/// - At least one endpoint is required.
+/// - All endpoints must use either IP addresses or hostnames — no mixing.
+/// - All endpoints must share the same scheme (upstream-level invariant).
+fn validate_endpoints(endpoints: &[Endpoint]) -> Result<(), DomainError> {
+    if endpoints.is_empty() {
+        return Err(DomainError::validation(
+            "server must have at least one endpoint",
+        ));
+    }
+
+    // TODO(hardening): add configurable SSRF deny-list for private IPv4 ranges
+    // (loopback, RFC 1918, link-local, 169.254.169.254 metadata). Should be
+    // opt-in (many deployments legitimately proxy to internal services) and also
+    // enforced at DNS resolution time in DnsDiscovery::resolve() to cover
+    // hostnames that resolve to private IPs.
+
+    // IPv6 endpoints are not yet supported — reject early with a clear message.
+    // Enabling IPv6 requires SSRF protections (deny-lists for link-local, private
+    // ranges, IPv4-mapped addresses).
+    for (i, ep) in endpoints.iter().enumerate() {
+        if strip_brackets(&ep.host)
+            .parse::<std::net::Ipv6Addr>()
+            .is_ok()
+        {
+            return Err(DomainError::validation(format!(
+                "endpoint[{i}] uses IPv6 address '{}'; IPv6 endpoints are not yet supported",
+                ep.host
+            )));
+        }
+    }
+
+    // Check all-IP vs all-hostname consistency.
+    let ip_count = endpoints
+        .iter()
+        .filter(|ep| strip_brackets(&ep.host).parse::<IpAddr>().is_ok())
+        .count();
+    if ip_count != 0 && ip_count != endpoints.len() {
+        return Err(DomainError::validation(
+            "all endpoints must use either IP addresses or hostnames; mixed configurations are not allowed",
+        ));
+    }
+
+    // Enforce identical scheme and port across the pool.
+    if endpoints.len() > 1 {
+        let first_scheme = &endpoints[0].scheme;
+        let first_port = endpoints[0].port;
+        for (i, ep) in endpoints.iter().enumerate().skip(1) {
+            if ep.scheme != *first_scheme {
+                return Err(DomainError::validation(format!(
+                    "endpoint[{i}] scheme {:?} differs from endpoint[0] scheme {:?}; all endpoints must share the same scheme",
+                    ep.scheme, first_scheme
+                )));
+            }
+            if ep.port != first_port {
+                return Err(DomainError::validation(format!(
+                    "endpoint[{i}] port {} differs from endpoint[0] port {}; all endpoints must share the same port",
+                    ep.port, first_port
+                )));
+            }
+        }
+    }
+
+    Ok(())
 }
 
 /// Maximum length for an upstream alias.
@@ -52,6 +124,14 @@ fn validate_alias(alias: &str) -> Result<(), DomainError> {
     Ok(())
 }
 
+/// Strip surrounding `[` and `]` from a host string so that bracketed IPv6
+/// literals (e.g. `[2001:db8::1]`) can be parsed by `Ipv6Addr` / `IpAddr`.
+fn strip_brackets(host: &str) -> &str {
+    host.strip_prefix('[')
+        .and_then(|s| s.strip_suffix(']'))
+        .unwrap_or(host)
+}
+
 /// Generate an alias from the upstream's server endpoints.
 /// Single endpoint: host (standard port omitted) or host:port.
 fn generate_alias(upstream: &Upstream) -> String {
@@ -63,7 +143,7 @@ fn generate_alias(upstream: &Upstream) -> String {
     endpoints[0].alias_contribution()
 }
 
-#[async_trait::async_trait]
+#[async_trait]
 impl ControlPlaneService for ControlPlaneServiceImpl {
     // -- Upstream CRUD --
 
@@ -72,6 +152,8 @@ impl ControlPlaneService for ControlPlaneServiceImpl {
         ctx: &SecurityContext,
         req: CreateUpstreamRequest,
     ) -> Result<Upstream, DomainError> {
+        validate_endpoints(&req.server.endpoints)?;
+
         let tenant_id = ctx.subject_tenant_id();
         let id = Uuid::new_v4();
 
@@ -139,6 +221,7 @@ impl ControlPlaneService for ControlPlaneServiceImpl {
 
         // Apply partial update.
         if let Some(server) = req.server {
+            validate_endpoints(&server.endpoints)?;
             existing.server = server;
         }
         if let Some(protocol) = req.protocol {
@@ -632,6 +715,188 @@ mod tests {
             .await
             .unwrap_err();
         assert!(matches!(err, DomainError::NotFound { .. }));
+    }
+
+    // -- validate_endpoints tests --
+
+    #[test]
+    fn validate_endpoints_rejects_empty() {
+        let err = validate_endpoints(&[]).unwrap_err();
+        assert!(matches!(err, DomainError::Validation { .. }));
+    }
+
+    #[test]
+    fn validate_endpoints_rejects_mixed_ip_and_hostname() {
+        let endpoints = vec![
+            Endpoint {
+                scheme: Scheme::Https,
+                host: "10.0.0.1".into(),
+                port: 443,
+            },
+            Endpoint {
+                scheme: Scheme::Https,
+                host: "api.example.com".into(),
+                port: 443,
+            },
+        ];
+        let err = validate_endpoints(&endpoints).unwrap_err();
+        match err {
+            DomainError::Validation { detail, .. } => {
+                assert!(
+                    detail.contains("mixed"),
+                    "expected mixed error, got: {detail}"
+                );
+            }
+            _ => panic!("expected Validation, got: {err:?}"),
+        }
+    }
+
+    #[test]
+    fn validate_endpoints_rejects_mixed_scheme() {
+        let endpoints = vec![
+            Endpoint {
+                scheme: Scheme::Https,
+                host: "a.example.com".into(),
+                port: 443,
+            },
+            Endpoint {
+                scheme: Scheme::Http,
+                host: "b.example.com".into(),
+                port: 443,
+            },
+        ];
+        let err = validate_endpoints(&endpoints).unwrap_err();
+        match err {
+            DomainError::Validation { detail, .. } => {
+                assert!(
+                    detail.contains("scheme"),
+                    "expected scheme error, got: {detail}"
+                );
+            }
+            _ => panic!("expected Validation, got: {err:?}"),
+        }
+    }
+
+    #[test]
+    fn validate_endpoints_accepts_all_ip() {
+        let endpoints = vec![
+            Endpoint {
+                scheme: Scheme::Https,
+                host: "10.0.0.1".into(),
+                port: 443,
+            },
+            Endpoint {
+                scheme: Scheme::Https,
+                host: "10.0.0.2".into(),
+                port: 443,
+            },
+        ];
+        assert!(validate_endpoints(&endpoints).is_ok());
+    }
+
+    #[test]
+    fn validate_endpoints_accepts_all_hostname() {
+        let endpoints = vec![
+            Endpoint {
+                scheme: Scheme::Https,
+                host: "a.example.com".into(),
+                port: 443,
+            },
+            Endpoint {
+                scheme: Scheme::Https,
+                host: "b.example.com".into(),
+                port: 443,
+            },
+        ];
+        assert!(validate_endpoints(&endpoints).is_ok());
+    }
+
+    #[test]
+    fn validate_endpoints_rejects_mixed_ports() {
+        let endpoints = vec![
+            Endpoint {
+                scheme: Scheme::Https,
+                host: "a.example.com".into(),
+                port: 443,
+            },
+            Endpoint {
+                scheme: Scheme::Https,
+                host: "b.example.com".into(),
+                port: 8443,
+            },
+        ];
+        let err = validate_endpoints(&endpoints).unwrap_err();
+        assert!(
+            err.to_string().contains("port"),
+            "expected port error, got: {err}"
+        );
+    }
+
+    #[test]
+    fn validate_endpoints_accepts_single() {
+        let endpoints = vec![Endpoint {
+            scheme: Scheme::Https,
+            host: "api.openai.com".into(),
+            port: 443,
+        }];
+        assert!(validate_endpoints(&endpoints).is_ok());
+    }
+
+    #[test]
+    fn validate_endpoints_rejects_ipv6() {
+        let endpoints = vec![Endpoint {
+            scheme: Scheme::Https,
+            host: "::1".into(),
+            port: 443,
+        }];
+        let err = validate_endpoints(&endpoints).unwrap_err();
+        match err {
+            DomainError::Validation { detail, .. } => {
+                assert!(
+                    detail.contains("IPv6"),
+                    "expected IPv6 error, got: {detail}"
+                );
+                assert!(
+                    detail.contains("not yet supported"),
+                    "expected 'not yet supported', got: {detail}"
+                );
+            }
+            _ => panic!("expected Validation, got: {err:?}"),
+        }
+    }
+
+    #[test]
+    fn validate_endpoints_rejects_ipv6_full_address() {
+        let endpoints = vec![Endpoint {
+            scheme: Scheme::Https,
+            host: "2001:db8::1".into(),
+            port: 8443,
+        }];
+        let err = validate_endpoints(&endpoints).unwrap_err();
+        assert!(matches!(err, DomainError::Validation { .. }));
+    }
+
+    #[test]
+    fn validate_endpoints_rejects_bracketed_ipv6() {
+        let endpoints = vec![Endpoint {
+            scheme: Scheme::Https,
+            host: "[2001:db8::1]".into(),
+            port: 8443,
+        }];
+        let err = validate_endpoints(&endpoints).unwrap_err();
+        match err {
+            DomainError::Validation { detail, .. } => {
+                assert!(
+                    detail.contains("IPv6"),
+                    "expected IPv6 error, got: {detail}"
+                );
+                assert!(
+                    detail.contains("not yet supported"),
+                    "expected 'not yet supported', got: {detail}"
+                );
+            }
+            _ => panic!("expected Validation, got: {err:?}"),
+        }
     }
 
     #[tokio::test]

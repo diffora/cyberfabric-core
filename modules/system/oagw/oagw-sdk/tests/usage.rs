@@ -12,6 +12,7 @@
 
 use std::sync::Mutex;
 
+use async_trait::async_trait;
 use bytes::Bytes;
 use futures_util::{SinkExt, StreamExt};
 use modkit_security::SecurityContext;
@@ -62,7 +63,7 @@ impl MockGateway {
     }
 }
 
-#[async_trait::async_trait]
+#[async_trait]
 impl ServiceGatewayClientV1 for MockGateway {
     async fn create_upstream(
         &self,

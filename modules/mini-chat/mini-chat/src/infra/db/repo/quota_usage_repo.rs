@@ -4,14 +4,14 @@ use modkit_db::secure::{
 };
 use modkit_security::AccessScope;
 use sea_orm::sea_query::Expr;
-use sea_orm::{ActiveEnum, ColumnTrait, Condition, EntityTrait, QueryFilter, Set};
+use sea_orm::{ActiveEnum, ColumnTrait, Condition, EntityTrait, QueryFilter, QuerySelect, Set};
 use time::OffsetDateTime;
 use uuid::Uuid;
 
 use crate::domain::error::DomainError;
 use crate::domain::repos::{IncrementReserveParams, SettleParams};
 use crate::infra::db::entity::quota_usage::{
-    ActiveModel, Column, Entity as QuotaUsageEntity, Model as QuotaUsageModel,
+    ActiveModel, Column, Entity as QuotaUsageEntity, Model as QuotaUsageModel, PeriodType,
 };
 
 pub struct QuotaUsageRepository;
@@ -146,5 +146,35 @@ impl crate::domain::repos::QuotaUsageRepository for QuotaUsageRepository {
             .scope_with(scope)
             .all(runner)
             .await?)
+    }
+
+    async fn find_bucket_rows_for_update<C: DBRunner>(
+        &self,
+        runner: &C,
+        scope: &AccessScope,
+        tenant_id: Uuid,
+        user_id: Uuid,
+        period_types: &[PeriodType],
+        period_starts: &[time::Date],
+    ) -> Result<Vec<QuotaUsageModel>, DomainError> {
+        let period_type_values: Vec<_> = period_types
+            .iter()
+            .map(|pt| pt.clone().into_value())
+            .collect();
+
+        let base_query = QuotaUsageEntity::find().filter(
+            Condition::all()
+                .add(Column::TenantId.eq(tenant_id))
+                .add(Column::UserId.eq(user_id))
+                .add(Column::PeriodType.is_in(period_type_values))
+                .add(Column::PeriodStart.is_in(period_starts.iter().copied())),
+        );
+
+        // FOR UPDATE on Postgres for pessimistic locking.
+        // SeaORM omits the FOR UPDATE clause for SQLite backend since it's not supported.
+        // SQLite has implicit table-level locking within a transaction.
+        let query = base_query.lock(sea_orm::sea_query::LockType::Update);
+
+        Ok(query.secure().scope_with(scope).all(runner).await?)
     }
 }

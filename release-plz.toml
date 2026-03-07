@@ -253,3 +253,13 @@ git_release_enable = false
 name = "cf-credstore"
 changelog_update = false
 git_release_enable = false
+
+[[package]]
+name = "cf-mini-chat-sdk"
+changelog_update = false
+git_release_enable = false
+
+[[package]]
+name = "cf-mini-chat"
+changelog_update = false
+git_release_enable = false

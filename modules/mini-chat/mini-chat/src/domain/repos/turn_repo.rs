@@ -27,20 +27,29 @@ pub struct CreateTurnParams {
 
 /// Parameters for CAS update to completed state.
 #[domain_model]
-#[allow(clippy::struct_field_names)]
+// Fields are read in infra::db::repo::turn_repo — #[domain_model] hides access from clippy.
+#[allow(clippy::struct_field_names, dead_code)]
 pub struct CasCompleteParams {
     pub turn_id: Uuid,
     pub assistant_message_id: Uuid,
     pub provider_response_id: Option<String>,
 }
 
-/// Parameters for CAS update to a terminal state (failed/cancelled).
+/// Parameters for CAS update to a terminal state (completed/failed/cancelled).
+///
+/// Unified CAS method: handles all terminal transitions. For completed turns,
+/// `assistant_message_id` and `provider_response_id` are set; for failed/cancelled
+/// they are `None` (content durability invariant — DESIGN.md §5.7).
 #[domain_model]
 pub struct CasTerminalParams {
     pub turn_id: Uuid,
     pub state: TurnState,
     pub error_code: Option<String>,
     pub error_detail: Option<String>,
+    /// Set only for completed turns — links to the persisted assistant message.
+    pub assistant_message_id: Option<Uuid>,
+    /// Provider response ID (e.g. `OpenAI` `response_id`); set for completed turns.
+    pub provider_response_id: Option<String>,
 }
 
 /// Repository trait for turn persistence operations.
@@ -89,6 +98,19 @@ pub trait TurnRepository: Send + Sync {
         scope: &AccessScope,
         params: CasCompleteParams,
     ) -> Result<u64, DomainError>;
+
+    /// Set `assistant_message_id` on a turn after the message has been persisted.
+    ///
+    /// Called within the finalization transaction, AFTER the assistant message
+    /// INSERT and CAS guard. Separate from the CAS step because
+    /// `assistant_message_id` has a FK to `messages(id)`.
+    async fn set_assistant_message_id<C: DBRunner>(
+        &self,
+        runner: &C,
+        scope: &AccessScope,
+        turn_id: Uuid,
+        assistant_message_id: Uuid,
+    ) -> Result<(), DomainError>;
 
     /// Soft-delete a turn, linking to a replacement `request_id`.
     async fn soft_delete<C: DBRunner>(

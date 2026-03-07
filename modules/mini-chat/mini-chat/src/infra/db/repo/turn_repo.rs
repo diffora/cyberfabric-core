@@ -96,12 +96,26 @@ impl crate::domain::repos::TurnRepository for TurnRepository {
         params: CasTerminalParams,
     ) -> Result<u64, DomainError> {
         let now = OffsetDateTime::now_utc();
-        let result = TurnEntity::update_many()
+        let mut update = TurnEntity::update_many()
             .col_expr(Column::State, Expr::value(params.state.into_value()))
             .col_expr(Column::ErrorCode, Expr::value(params.error_code))
             .col_expr(Column::ErrorDetail, Expr::value(params.error_detail))
             .col_expr(Column::CompletedAt, Expr::value(now))
-            .col_expr(Column::UpdatedAt, Expr::value(now))
+            .col_expr(Column::UpdatedAt, Expr::value(now));
+
+        // For completed turns, set assistant_message_id and provider_response_id
+        // within the same CAS UPDATE (content durability invariant).
+        if let Some(msg_id) = params.assistant_message_id {
+            update = update.col_expr(Column::AssistantMessageId, Expr::value(Some(msg_id)));
+        }
+        if params.provider_response_id.is_some() {
+            update = update.col_expr(
+                Column::ProviderResponseId,
+                Expr::value(params.provider_response_id),
+            );
+        }
+
+        let result = update
             .filter(
                 Condition::all()
                     .add(Column::Id.eq(params.turn_id))
@@ -146,6 +160,33 @@ impl crate::domain::repos::TurnRepository for TurnRepository {
             .exec(runner)
             .await?;
         Ok(result.rows_affected)
+    }
+
+    async fn set_assistant_message_id<C: DBRunner>(
+        &self,
+        runner: &C,
+        scope: &AccessScope,
+        turn_id: Uuid,
+        assistant_message_id: Uuid,
+    ) -> Result<(), DomainError> {
+        let now = OffsetDateTime::now_utc();
+        let result = TurnEntity::update_many()
+            .col_expr(
+                Column::AssistantMessageId,
+                Expr::value(Some(assistant_message_id)),
+            )
+            .col_expr(Column::UpdatedAt, Expr::value(now))
+            .filter(Column::Id.eq(turn_id))
+            .secure()
+            .scope_with(scope)
+            .exec(runner)
+            .await?;
+        if result.rows_affected == 0 {
+            return Err(DomainError::internal(format!(
+                "set_assistant_message_id: turn {turn_id} not found"
+            )));
+        }
+        Ok(())
     }
 
     async fn soft_delete<C: DBRunner>(

@@ -2,6 +2,8 @@ use axum::http::Method;
 use axum::response::IntoResponse;
 use std::{collections::HashMap, sync::Arc};
 
+use crate::middleware::common;
+
 use authn_resolver_sdk::{AuthNResolverClient, AuthNResolverError};
 use modkit::api::Problem;
 use modkit_security::SecurityContext;
@@ -204,7 +206,14 @@ pub async fn authn_middleware(
         return next.run(req).await;
     }
 
-    let requirement = state.route_policy.resolve(req.method(), req.uri().path());
+    let path = req
+        .extensions()
+        .get::<axum::extract::MatchedPath>()
+        .map_or_else(|| req.uri().path().to_owned(), |p| p.as_str().to_owned());
+
+    let path = common::resolve_path(&req, path.as_str());
+
+    let requirement = state.route_policy.resolve(req.method(), path.as_str());
 
     match requirement {
         AuthRequirement::None => {
