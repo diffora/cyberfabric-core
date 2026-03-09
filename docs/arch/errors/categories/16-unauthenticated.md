@@ -4,9 +4,9 @@
 **GTS ID**: `gts.cf.core.errors.err.v1~cf.core.err.unauthenticated.v1~`
 **HTTP Status**: 401
 **Title**: "Unauthenticated"
-**Context Type**: `Unauthenticated`
 **Use When**: The request does not have valid authentication credentials.
 **Similar Categories**: `permission_denied` — authenticated but insufficient permissions vs no valid credentials
+**Resource-scoped error**: no
 **Default Message**: "Authentication required"
 
 ## Context Schema
@@ -16,18 +16,16 @@ GTS schema ID: `gts.cf.core.errors.error_info.v1~`
 | Field | Type | Description |
 |-------|------|-------------|
 | `reason` | `String` | Machine-readable reason code (e.g., `TOKEN_EXPIRED`, `MISSING_CREDENTIALS`) |
-| `domain` | `String` | Logical grouping (e.g., `"auth.cyberfabric.io"`) |
 | `extra` | `Option<Object>` | Reserved for derived GTS type extensions (p3+); absent in p1 |
 
-## Rust Definitions and Constructor Example
+## Constructor Example
 
 ```rust
-use cf_modkit_errors::{CanonicalError, Unauthenticated};
-use std::collections::HashMap;
+use cf_modkit_errors::CanonicalError;
 
-let err = CanonicalError::unauthenticated(
-    Unauthenticated::new("TOKEN_EXPIRED", "auth.cyberfabric.io")
-);
+let err = CanonicalError::unauthenticated()
+    .with_reason("TOKEN_EXPIRED")
+    .create();
 ```
 
 ## JSON Wire — JSON Schema
@@ -48,15 +46,11 @@ let err = CanonicalError::unauthenticated(
         "status": { "const": 401 },
         "context": {
           "type": "object",
-          "required": ["reason", "domain"],
+          "required": ["reason"],
           "properties": {
             "reason": {
               "type": "string",
               "description": "Machine-readable reason code (e.g., TOKEN_EXPIRED, MISSING_CREDENTIALS)"
-            },
-            "domain": {
-              "type": "string",
-              "description": "Logical grouping (e.g., auth.cyberfabric.io)"
             },
             "extra": {
               "type": ["object", "null"],
@@ -80,8 +74,7 @@ let err = CanonicalError::unauthenticated(
   "status": 401,
   "detail": "Authentication required",
   "context": {
-    "reason": "TOKEN_EXPIRED",
-    "domain": "auth.cyberfabric.io"
+    "reason": "TOKEN_EXPIRED"
   }
 }
 ```

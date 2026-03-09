@@ -1,12 +1,19 @@
 use proc_macro::TokenStream;
 use quote::quote;
-use syn::{ItemStruct, LitStr, parse_macro_input};
+use syn::{Fields, ItemStruct, LitStr, parse_macro_input};
 
-/// Generates a resource error type with constructors for all 16 canonical error categories.
+/// Generates a resource error type with builder-returning constructors for the 13 canonical
+/// error categories that carry a `resource_type`.
 ///
-/// For `ResourceInfo` categories (`not_found`, `already_exists`, `data_loss`), the generated
-/// constructors take only a resource name and bake the GTS type into `ResourceInfo`.
-/// For all other categories, constructors forward the context and tag with `resource_type`.
+/// Generated constructors either accept a detail string or are zero-argument
+/// (using a default message). Each returns a `ResourceErrorBuilder` with
+/// typestate enforcement — required fields must be set via builder methods
+/// (e.g. `.with_resource(...)`, `.with_reason(...)`) before `.create()`
+/// compiles.
+///
+/// Categories where `resource_type` is absent (`internal`,
+/// `service_unavailable`, `unauthenticated`) are **not** generated — use
+/// `CanonicalError::*()` directly for those.
 ///
 /// # Example
 ///
@@ -14,7 +21,9 @@ use syn::{ItemStruct, LitStr, parse_macro_input};
 /// #[resource_error("gts.cf.core.tenants.tenant.v1~")]
 /// struct TenantResourceError;
 ///
-/// let err = TenantResourceError::not_found("tenant-123");
+/// let err = TenantResourceError::not_found("tenant not found")
+///     .with_resource("tenant-123")
+///     .create();
 /// assert_eq!(err.resource_type(), Some("gts.cf.core.tenants.tenant.v1~"));
 /// ```
 #[proc_macro_attribute]
@@ -29,95 +38,152 @@ pub fn resource_error(attr: TokenStream, item: TokenStream) -> TokenStream {
             .into();
     }
 
+    if !matches!(input.fields, Fields::Unit) {
+        return syn::Error::new_spanned(
+            &input,
+            "#[resource_error] can only be applied to unit structs (e.g. `struct MyError;`)",
+        )
+        .to_compile_error()
+        .into();
+    }
+
     let vis = &input.vis;
     let name = &input.ident;
-    let attrs = &input.attrs;
+    let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
 
     let expanded = quote! {
-        #(#attrs)*
-        #vis struct #name;
+        #input
 
-        impl #name {
-            // --- ResourceInfo categories: take only resource_name ---
+        impl #impl_generics #name #ty_generics #where_clause {
+            // --- resource_name required ---
 
-            #vis fn not_found(resource_name: impl Into<String>) -> ::cf_modkit_errors::CanonicalError {
-                ::cf_modkit_errors::CanonicalError::not_found(
-                    ::cf_modkit_errors::NotFound::new(#gts_type, resource_name),
-                ).with_resource_type(#gts_type)
+            #vis fn not_found(detail: impl Into<String>)
+                -> ::cf_modkit_errors::ResourceErrorBuilder<
+                    ::cf_modkit_errors::builder::ResourceMissing,
+                    ::cf_modkit_errors::builder::NoContext,
+                >
+            {
+                ::cf_modkit_errors::ResourceErrorBuilder::__not_found(#gts_type, detail)
             }
 
-            #vis fn already_exists(resource_name: impl Into<String>) -> ::cf_modkit_errors::CanonicalError {
-                ::cf_modkit_errors::CanonicalError::already_exists(
-                    ::cf_modkit_errors::AlreadyExists::new(#gts_type, resource_name),
-                ).with_resource_type(#gts_type)
+            #vis fn already_exists(detail: impl Into<String>)
+                -> ::cf_modkit_errors::ResourceErrorBuilder<
+                    ::cf_modkit_errors::builder::ResourceMissing,
+                    ::cf_modkit_errors::builder::NoContext,
+                >
+            {
+                ::cf_modkit_errors::ResourceErrorBuilder::__already_exists(#gts_type, detail)
             }
 
-            #vis fn data_loss(resource_name: impl Into<String>) -> ::cf_modkit_errors::CanonicalError {
-                ::cf_modkit_errors::CanonicalError::data_loss(
-                    ::cf_modkit_errors::DataLoss::new(#gts_type, resource_name),
-                ).with_resource_type(#gts_type)
+            #vis fn data_loss(detail: impl Into<String>)
+                -> ::cf_modkit_errors::ResourceErrorBuilder<
+                    ::cf_modkit_errors::builder::ResourceMissing,
+                    ::cf_modkit_errors::builder::NoContext,
+                >
+            {
+                ::cf_modkit_errors::ResourceErrorBuilder::__data_loss(#gts_type, detail)
             }
 
-            // --- All other categories: forward context, tag with resource_type ---
+            // --- resource_name optional ---
 
-            #vis fn invalid_argument(ctx: ::cf_modkit_errors::InvalidArgument) -> ::cf_modkit_errors::CanonicalError {
-                ::cf_modkit_errors::CanonicalError::invalid_argument(ctx)
-                    .with_resource_type(#gts_type)
+            #vis fn aborted(detail: impl Into<String>)
+                -> ::cf_modkit_errors::ResourceErrorBuilder<
+                    ::cf_modkit_errors::builder::ResourceOptional,
+                    ::cf_modkit_errors::builder::NeedsReason,
+                >
+            {
+                ::cf_modkit_errors::ResourceErrorBuilder::__aborted(#gts_type, detail)
             }
 
-            #vis fn permission_denied(ctx: ::cf_modkit_errors::PermissionDenied) -> ::cf_modkit_errors::CanonicalError {
-                ::cf_modkit_errors::CanonicalError::permission_denied(ctx)
-                    .with_resource_type(#gts_type)
+            #vis fn unknown(detail: impl Into<String>)
+                -> ::cf_modkit_errors::ResourceErrorBuilder<
+                    ::cf_modkit_errors::builder::ResourceOptional,
+                    ::cf_modkit_errors::builder::NoContext,
+                >
+            {
+                ::cf_modkit_errors::ResourceErrorBuilder::__unknown(#gts_type, detail)
             }
 
-            #vis fn unauthenticated(ctx: ::cf_modkit_errors::Unauthenticated) -> ::cf_modkit_errors::CanonicalError {
-                ::cf_modkit_errors::CanonicalError::unauthenticated(ctx)
-                    .with_resource_type(#gts_type)
+            #vis fn deadline_exceeded(detail: impl Into<String>)
+                -> ::cf_modkit_errors::ResourceErrorBuilder<
+                    ::cf_modkit_errors::builder::ResourceOptional,
+                    ::cf_modkit_errors::builder::NoContext,
+                >
+            {
+                ::cf_modkit_errors::ResourceErrorBuilder::__deadline_exceeded(#gts_type, detail)
             }
 
-            #vis fn resource_exhausted(ctx: ::cf_modkit_errors::ResourceExhausted) -> ::cf_modkit_errors::CanonicalError {
-                ::cf_modkit_errors::CanonicalError::resource_exhausted(ctx)
-                    .with_resource_type(#gts_type)
+            // --- resource_name absent ---
+
+            #vis fn permission_denied()
+                -> ::cf_modkit_errors::ResourceErrorBuilder<
+                    ::cf_modkit_errors::builder::ResourceAbsent,
+                    ::cf_modkit_errors::builder::NoContext,
+                >
+            {
+                ::cf_modkit_errors::ResourceErrorBuilder::__permission_denied(#gts_type, "You do not have permission to perform this operation")
             }
 
-            #vis fn failed_precondition(ctx: ::cf_modkit_errors::FailedPrecondition) -> ::cf_modkit_errors::CanonicalError {
-                ::cf_modkit_errors::CanonicalError::failed_precondition(ctx)
-                    .with_resource_type(#gts_type)
+            #vis fn unimplemented(detail: impl Into<String>)
+                -> ::cf_modkit_errors::ResourceErrorBuilder<
+                    ::cf_modkit_errors::builder::ResourceOptional,
+                    ::cf_modkit_errors::builder::NoContext,
+                >
+            {
+                ::cf_modkit_errors::ResourceErrorBuilder::__unimplemented(#gts_type, detail)
             }
 
-            #vis fn aborted(ctx: ::cf_modkit_errors::Aborted) -> ::cf_modkit_errors::CanonicalError {
-                ::cf_modkit_errors::CanonicalError::aborted(ctx)
-                    .with_resource_type(#gts_type)
+            #vis fn cancelled()
+                -> ::cf_modkit_errors::ResourceErrorBuilder<
+                    ::cf_modkit_errors::builder::ResourceAbsent,
+                    ::cf_modkit_errors::builder::NoContext,
+                >
+            {
+                ::cf_modkit_errors::ResourceErrorBuilder::__cancelled(#gts_type, "Operation cancelled by the client")
             }
 
-            #vis fn out_of_range(ctx: ::cf_modkit_errors::OutOfRange) -> ::cf_modkit_errors::CanonicalError {
-                ::cf_modkit_errors::CanonicalError::out_of_range(ctx)
-                    .with_resource_type(#gts_type)
+            // --- resource_name optional, needs field violations ---
+
+            #vis fn invalid_argument()
+                -> ::cf_modkit_errors::ResourceErrorBuilder<
+                    ::cf_modkit_errors::builder::ResourceOptional,
+                    ::cf_modkit_errors::builder::NeedsFieldViolation,
+                >
+            {
+                ::cf_modkit_errors::ResourceErrorBuilder::__invalid_argument(#gts_type, "Request validation failed")
             }
 
-            #vis fn unimplemented(ctx: ::cf_modkit_errors::Unimplemented) -> ::cf_modkit_errors::CanonicalError {
-                ::cf_modkit_errors::CanonicalError::unimplemented(ctx)
-                    .with_resource_type(#gts_type)
+            // --- resource_name optional, needs field violations ---
+
+            #vis fn out_of_range(detail: impl Into<String>)
+                -> ::cf_modkit_errors::ResourceErrorBuilder<
+                    ::cf_modkit_errors::builder::ResourceOptional,
+                    ::cf_modkit_errors::builder::NeedsFieldViolation,
+                >
+            {
+                ::cf_modkit_errors::ResourceErrorBuilder::__out_of_range(#gts_type, detail)
             }
 
-            #vis fn internal(ctx: ::cf_modkit_errors::Internal) -> ::cf_modkit_errors::CanonicalError {
-                ::cf_modkit_errors::CanonicalError::internal(ctx)
-                    .with_resource_type(#gts_type)
+            // --- resource_name optional, needs quota violations ---
+
+            #vis fn resource_exhausted(detail: impl Into<String>)
+                -> ::cf_modkit_errors::ResourceErrorBuilder<
+                    ::cf_modkit_errors::builder::ResourceOptional,
+                    ::cf_modkit_errors::builder::NeedsQuotaViolation,
+                >
+            {
+                ::cf_modkit_errors::ResourceErrorBuilder::__resource_exhausted(#gts_type, detail)
             }
 
-            #vis fn unknown(ctx: ::cf_modkit_errors::Unknown) -> ::cf_modkit_errors::CanonicalError {
-                ::cf_modkit_errors::CanonicalError::unknown(ctx)
-                    .with_resource_type(#gts_type)
-            }
+            // --- resource_name optional, needs precondition violations ---
 
-            #vis fn deadline_exceeded(ctx: ::cf_modkit_errors::DeadlineExceeded) -> ::cf_modkit_errors::CanonicalError {
-                ::cf_modkit_errors::CanonicalError::deadline_exceeded(ctx)
-                    .with_resource_type(#gts_type)
-            }
-
-            #vis fn cancelled(ctx: ::cf_modkit_errors::Cancelled) -> ::cf_modkit_errors::CanonicalError {
-                ::cf_modkit_errors::CanonicalError::cancelled(ctx)
-                    .with_resource_type(#gts_type)
+            #vis fn failed_precondition()
+                -> ::cf_modkit_errors::ResourceErrorBuilder<
+                    ::cf_modkit_errors::builder::ResourceOptional,
+                    ::cf_modkit_errors::builder::NeedsPreconditionViolation,
+                >
+            {
+                ::cf_modkit_errors::ResourceErrorBuilder::__failed_precondition(#gts_type, "Operation precondition not met")
             }
         }
     };

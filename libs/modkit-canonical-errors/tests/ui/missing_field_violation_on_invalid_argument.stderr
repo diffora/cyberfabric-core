@@ -1,0 +1,17 @@
+error[E0599]: the method `create` exists for struct `ResourceErrorBuilder<ResourceOptional, NeedsFieldViolation>`, but its trait bounds were not satisfied
+  --> tests/ui/missing_field_violation_on_invalid_argument.rs:11:10
+   |
+10 |       let _err = UserResourceError::invalid_argument()
+   |  ________________-
+11 | |         .create();
+   | |         -^^^^^^ method cannot be called due to unsatisfied trait bounds
+   | |_________|
+   |
+   |
+  ::: src/builder.rs
+   |
+   |   pub struct NeedsFieldViolation;
+   |   ------------------------------ doesn't satisfy `NeedsFieldViolation: ContextResolved`
+   |
+   = note: the following trait bounds were not satisfied:
+           `NeedsFieldViolation: ContextResolved`

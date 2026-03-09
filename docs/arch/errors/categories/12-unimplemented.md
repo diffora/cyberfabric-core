@@ -4,29 +4,28 @@
 **GTS ID**: `gts.cf.core.errors.err.v1~cf.core.err.unimplemented.v1~`
 **HTTP Status**: 501
 **Title**: "Unimplemented"
-**Context Type**: `Unimplemented`
 **Use When**: The requested operation is recognized but not implemented (e.g., a planned feature, an unsupported protocol variant).
 **Similar Categories**: `internal` — bug vs intentionally unimplemented
-**Default Message**: "This operation is not implemented"
+**Resource-scoped error**: yes
+**Default Message**: Same as the `detail` parameter passed to the constructor.
 
 ## Context Schema
 
 | Field | Type | Description |
 |-------|------|-------------|
 | `resource_type` | `String` | GTS type identifier of the associated resource |
-| `resource_name` | `String` | Identifier of the associated resource |
-| `reason` | `String` | Machine-readable reason code (e.g., `GRPC_ROUTING`) |
-| `domain` | `String` | Logical grouping (e.g., `"cf.oagw"`) |
+| `resource_name` | `Option<String>` | Identifier of the associated resource |
 | `extra` | `Option<Object>` | Reserved for derived GTS type extensions (p3+); absent in p1 |
 
 ## Constructor Example
 
 ```rust
-use cf_modkit_errors::{CanonicalError, Unimplemented};
+use cf_modkit_errors::resource_error;
 
-let err = CanonicalError::unimplemented(
-    Unimplemented::new("GRPC_ROUTING", "cf.oagw")
-);
+#[resource_error("gts.cf.core.users.user.v1~")]
+struct UserResourceError;
+
+let err = UserResourceError::unimplemented("This operation is not implemented").create();
 ```
 
 ## JSON Wire — JSON Schema
@@ -47,23 +46,15 @@ let err = CanonicalError::unimplemented(
         "status": { "const": 501 },
         "context": {
           "type": "object",
-          "required": ["reason", "domain"],
+          "required": ["resource_type"],
           "properties": {
             "resource_type": {
               "type": "string",
-              "description": "GTS type identifier of the associated resource (injected when resource_type is set)"
+              "description": "GTS type identifier of the associated resource"
             },
             "resource_name": {
               "type": "string",
-              "description": "Identifier of the associated resource (injected when resource_name is set)"
-            },
-            "reason": {
-              "type": "string",
-              "description": "Machine-readable reason code (e.g., GRPC_ROUTING)"
-            },
-            "domain": {
-              "type": "string",
-              "description": "Logical grouping (e.g., cf.oagw)"
+              "description": "Identifier of the associated resource (set via with_resource())"
             },
             "extra": {
               "type": ["object", "null"],
@@ -87,10 +78,7 @@ let err = CanonicalError::unimplemented(
   "status": 501,
   "detail": "This operation is not implemented",
   "context": {
-    "resource_type": "gts.cf.oagw.upstreams.upstream.v1~",
-    "resource_name": "upstream-123",
-    "reason": "GRPC_ROUTING",
-    "domain": "cf.oagw"
+    "resource_type": "gts.cf.core.users.user.v1~"
   }
 }
 ```

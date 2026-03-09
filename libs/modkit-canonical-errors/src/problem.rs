@@ -24,10 +24,10 @@ impl Problem {
     /// Convert a `CanonicalError` to a `Problem`.
     #[must_use]
     pub fn from_error(err: &CanonicalError) -> Self {
-        let problem_type = err.gts_type().to_owned();
+        let problem_type = format!("gts://{}", err.gts_type());
         let title = err.title().to_owned();
         let status = err.status_code();
-        let detail = err.message().to_owned();
+        let detail = err.detail().to_owned();
 
         let mut context = serialize_context(err);
 

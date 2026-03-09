@@ -1,0 +1,17 @@
+error[E0599]: the method `create` exists for struct `ResourceErrorBuilder<ResourceOptional, NeedsPreconditionViolation>`, but its trait bounds were not satisfied
+  --> tests/ui/missing_precondition_violation_on_failed_precondition.rs:11:10
+   |
+10 |       let _err = UserResourceError::failed_precondition()
+   |  ________________-
+11 | |         .create();
+   | |         -^^^^^^ method cannot be called due to unsatisfied trait bounds
+   | |_________|
+   |
+   |
+  ::: src/builder.rs
+   |
+   |   pub struct NeedsPreconditionViolation;
+   |   ------------------------------------- doesn't satisfy `NeedsPreconditionViolation: ContextResolved`
+   |
+   = note: the following trait bounds were not satisfied:
+           `NeedsPreconditionViolation: ContextResolved`

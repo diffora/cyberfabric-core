@@ -4,18 +4,16 @@
 **GTS ID**: `gts.cf.core.errors.err.v1~cf.core.err.permission_denied.v1~`
 **HTTP Status**: 403
 **Title**: "Permission Denied"
-**Context Type**: `PermissionDenied`
 **Use When**: The caller is authenticated but does not have permission for the requested operation.
 **Similar Categories**: `unauthenticated` — no valid credentials vs insufficient permissions
+**Resource-scoped error**: yes
 **Default Message**: "You do not have permission to perform this operation"
 
 ## Context Schema
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `resource_type` | `Option<String>` | Transport-injected resource GTS type identifier when provided by the canonical error wrapper |
-| `reason` | `String` | Machine-readable reason code (e.g., `CROSS_TENANT_ACCESS`, `SCOPE_INSUFFICIENT`) |
-| `domain` | `String` | Logical grouping (e.g., `"auth.cyberfabric.io"`) |
+| `resource_type` | `String` | Transport-injected resource GTS type identifier when provided by the canonical error wrapper |
 | `extra` | `Option<Object>` | Reserved for derived GTS type extensions (p3+); absent in p1 |
 
 > Note: In Rust, `resource_type` is carried on `CanonicalError::PermissionDenied` as an envelope field, not inside `ErrorInfo`. It is injected into the wire `context` object during mapping to `Problem` via `Problem::from_error`. It is not part of the `ErrorInfo` GTS type (`gts.cf.core.errors.error_info.v1~`).
@@ -23,11 +21,12 @@
 ## Constructor Example
 
 ```rust
-use cf_modkit_errors::{CanonicalError, PermissionDenied};
+use cf_modkit_errors::resource_error;
 
-let err = CanonicalError::permission_denied(
-    PermissionDenied::new("CROSS_TENANT_ACCESS", "auth.cyberfabric.io")
-);
+#[resource_error("gts.cf.core.tenants.tenant.v1~")]
+struct TenantResourceError;
+
+let err = TenantResourceError::permission_denied().create();
 ```
 
 ## JSON Wire — JSON Schema
@@ -48,19 +47,11 @@ let err = CanonicalError::permission_denied(
         "status": { "const": 403 },
         "context": {
           "type": "object",
-          "required": ["reason", "domain"],
+          "required": ["resource_type"],
           "properties": {
             "resource_type": {
               "type": "string",
-              "description": "GTS type identifier of the associated resource (injected when resource_type is set)"
-            },
-            "reason": {
-              "type": "string",
-              "description": "Machine-readable reason code (e.g., CROSS_TENANT_ACCESS, SCOPE_INSUFFICIENT)"
-            },
-            "domain": {
-              "type": "string",
-              "description": "Logical grouping (e.g., auth.cyberfabric.io)"
+              "description": "GTS type identifier of the resource"
             },
             "extra": {
               "type": ["object", "null"],
@@ -84,9 +75,6 @@ let err = CanonicalError::permission_denied(
   "status": 403,
   "detail": "You do not have permission to perform this operation",
   "context": {
-    "resource_type": "gts.cf.core.tenants.tenant.v1~",
-    "reason": "CROSS_TENANT_ACCESS",
-    "domain": "auth.cyberfabric.io"
   }
 }
 ```

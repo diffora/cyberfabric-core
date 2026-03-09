@@ -4,25 +4,28 @@
 **GTS ID**: `gts.cf.core.errors.err.v1~cf.core.err.deadline_exceeded.v1~`
 **HTTP Status**: 504
 **Title**: "Deadline Exceeded"
-**Context Type**: `DeadlineExceeded`
 **Use When**: The server did not complete the operation within the allowed time.
 **Similar Categories**: `cancelled` — client-initiated cancellation, not server-side timeout
-**Default Message**: "Operation did not complete within the allowed time"
+**Resource-scoped error**: yes
+**Default Message**: Same as the `detail` parameter passed to the constructor.
 
 ## Context Schema
 
 | Field | Type | Description |
 |-------|------|-------------|
 | `resource_type` | `String` | GTS type identifier of the associated resource |
-| `resource_name` | `String` | Identifier of the associated resource |
+| `resource_name` | `Option<String>` | Identifier of the associated resource |
 | `extra` | `Option<Object>` | Reserved for derived GTS type extensions (p3+); absent in p1 |
 
 ## Constructor Example
 
 ```rust
-use cf_modkit_errors::{CanonicalError, DeadlineExceeded};
+use cf_modkit_errors::resource_error;
 
-let err = CanonicalError::deadline_exceeded(DeadlineExceeded::new());
+#[resource_error("gts.cf.core.users.user.v1~")]
+struct UserResourceError;
+
+let err = UserResourceError::deadline_exceeded("Request timed out").create();
 ```
 
 ## JSON Wire — JSON Schema
@@ -43,14 +46,15 @@ let err = CanonicalError::deadline_exceeded(DeadlineExceeded::new());
         "status": { "const": 504 },
         "context": {
           "type": "object",
+          "required": ["resource_type"],
           "properties": {
             "resource_type": {
               "type": "string",
-              "description": "GTS type identifier of the associated resource (injected when resource_type is set)"
+              "description": "GTS type identifier of the associated resource"
             },
             "resource_name": {
               "type": "string",
-              "description": "Identifier of the associated resource (injected when resource_name is set)"
+              "description": "Identifier of the associated resource (set via with_resource())"
             },
             "extra": {
               "type": ["object", "null"],
@@ -72,10 +76,9 @@ let err = CanonicalError::deadline_exceeded(DeadlineExceeded::new());
   "type": "gts://gts.cf.core.errors.err.v1~cf.core.err.deadline_exceeded.v1~",
   "title": "Deadline Exceeded",
   "status": 504,
-  "detail": "Operation did not complete within the allowed time",
+  "detail": "Request timed out",
   "context": {
-    "resource_type": "gts.cf.core.users.user.v1~",
-    "resource_name": "user-123"
+    "resource_type": "gts.cf.core.users.user.v1~"
   }
 }
 ```

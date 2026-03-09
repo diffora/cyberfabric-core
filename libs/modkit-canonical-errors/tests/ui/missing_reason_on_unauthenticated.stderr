@@ -1,0 +1,17 @@
+error[E0599]: the method `create` exists for struct `ResourceErrorBuilder<ResourceAbsent, NeedsReason>`, but its trait bounds were not satisfied
+ --> tests/ui/missing_reason_on_unauthenticated.rs:8:10
+  |
+7 |       let _err = CanonicalError::unauthenticated()
+  |  ________________-
+8 | |         .create();
+  | |         -^^^^^^ method cannot be called on `ResourceErrorBuilder<ResourceAbsent, NeedsReason>` due to unsatisfied trait bounds
+  | |_________|
+  |
+  |
+ ::: src/builder.rs
+  |
+  |   pub struct NeedsReason;
+  |   ---------------------- doesn't satisfy `NeedsReason: ContextResolved`
+  |
+  = note: the following trait bounds were not satisfied:
+          `NeedsReason: ContextResolved`

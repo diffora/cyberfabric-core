@@ -4,10 +4,10 @@
 **GTS ID**: `gts.cf.core.errors.err.v1~cf.core.err.data_loss.v1~`
 **HTTP Status**: 500
 **Title**: "Data Loss"
-**Context Type**: `DataLoss`
 **Use When**: Unrecoverable data loss or corruption detected.
 **Similar Categories**: `internal` — transient infrastructure failure vs permanent data loss
-**Default Message**: "Data loss detected"
+**Resource-scoped error**: yes
+**Default Message**: Same as the `detail` parameter passed to the constructor.
 
 ## Context Schema
 
@@ -15,21 +15,19 @@
 |-------|------|-------------|
 | `resource_type` | `String` | GTS type identifier of the affected resource |
 | `resource_name` | `String` | Identifier of the affected resource |
-| `description` | `String` | Human-readable explanation |
 | `extra` | `Option<Object>` | Reserved for derived GTS type extensions (p3+); absent in p1 |
 
 ## Constructor Example
 
 ```rust
-use cf_modkit_errors::{CanonicalError, DataLoss};
+use cf_modkit_errors::resource_error;
 
-let err = CanonicalError::data_loss(
-    DataLoss::new("gts.cf.core.files.file.v1~", "01JFILE-ABC")
-        .with_description("Checksum mismatch detected")
-);
+#[resource_error("gts.cf.core.files.file.v1~")]
+struct FileResourceError;
 
-// Or via resource-scoped macro:
-// FileResourceError::data_loss("01JFILE-ABC")
+let err = FileResourceError::data_loss("Data loss detected")
+    .with_resource("01JFILE-ABC")
+    .create();
 ```
 
 ## JSON Wire — JSON Schema
@@ -50,7 +48,7 @@ let err = CanonicalError::data_loss(
         "status": { "const": 500 },
         "context": {
           "type": "object",
-          "required": ["resource_type", "resource_name", "description"],
+          "required": ["resource_type", "resource_name"],
           "properties": {
             "resource_type": {
               "type": "string",
@@ -59,10 +57,6 @@ let err = CanonicalError::data_loss(
             "resource_name": {
               "type": "string",
               "description": "Identifier of the affected resource"
-            },
-            "description": {
-              "type": "string",
-              "description": "Human-readable explanation"
             },
             "extra": {
               "type": ["object", "null"],
@@ -87,8 +81,7 @@ let err = CanonicalError::data_loss(
   "detail": "Data loss detected",
   "context": {
     "resource_type": "gts.cf.core.files.file.v1~",
-    "resource_name": "01JFILE-ABC",
-    "description": "Data loss detected"
+    "resource_name": "01JFILE-ABC"
   }
 }
 ```

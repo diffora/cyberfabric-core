@@ -11,16 +11,17 @@ The canonical error system provides a single, universal error type (`CanonicalEr
 - A GTS compound type identifier for global uniqueness
 - A fixed HTTP status mapping for REST (gRPC/SSE mappings are future work)
 
-The `CanonicalError` enum has one variant per category. Every variant carries three fields: `ctx` (category-specific context type), `message`, and `resource_type`. Constructing an error is a single expression — e.g., `CanonicalError::not_found(ctx)`. Using the wrong context type for a category is a compile error.
+The `CanonicalError` enum has one variant per category. Every variant carries four fields: `ctx` (category-specific context type), `detail`, `resource_type`, and `resource_name` (the `Internal` variant is an exception — it carries only `ctx` and `detail`). Constructing an error uses the builder pattern — e.g., `CanonicalError::internal("db failure").create()` or `UserResourceError::not_found("User not found").with_resource("user-123").create()`. Using the wrong context type for a category is a compile error.
+
+**Builder-only enforcement**: The enum and all variants are marked `#[non_exhaustive]`, preventing direct variant construction from outside the crate. Internal constructors and mutation methods (`with_detail`, `with_resource_type`, `with_resource`) are `pub(crate)`, ensuring the only external construction path is through the builder API (`ResourceErrorBuilder` or the three non-resource builders: `internal`, `service_unavailable`, `unauthenticated`).
 
 Canonical errors construction examples:
 
 ```rust
 // 1. Direct canonical error
-let auth_err = CanonicalError::unauthenticated(ErrorInfo {
-    reason: "TOKEN_EXPIRED".to_string(),
-    domain: "auth.cyberfabric.io".to_string(),
-});
+let auth_err = CanonicalError::unauthenticated()
+    .with_reason("TOKEN_EXPIRED")
+    .create();
 
 // 2. Library error propagation via ?
 async fn process_data() -> Result<Data, CanonicalError> {
@@ -36,24 +37,16 @@ struct UserResourceError;
 async fn get_user(id: &str) -> Result<User, CanonicalError> {
     db.find_user(id)
         .await?  // DbErr → Internal
-        .ok_or_else(|| UserResourceError::not_found(id))
+        .ok_or_else(|| UserResourceError::not_found("User not found")
+            .with_resource(id)
+            .create())
 }
 
 // 4. Validation error with multiple field violations
-let validation_err = CanonicalError::invalid_argument(Validation {
-    field_violations: vec![
-        FieldViolation {
-            field: "email".to_string(),
-            description: "Invalid email format".to_string(),
-            reason: "INVALID_FORMAT".to_string(),
-        },
-        FieldViolation {
-            field: "age".to_string(),
-            description: "Must be between 0 and 120".to_string(),
-            reason: "OUT_OF_RANGE".to_string(),
-        },
-    ],
-});
+let validation_err = UserResourceError::invalid_argument()
+    .with_field_violation("email", "Invalid email format", "INVALID_FORMAT")
+    .with_field_violation("age", "Must be between 0 and 120", "OUT_OF_RANGE")
+    .create();
 ```
 
 **Resource-scoped errors** are a convenience layer for module-owned resources. The `#[resource_error]` macro declares a resource type and generates constructors that auto-tag every error with the resource's GTS identity:
@@ -62,9 +55,10 @@ let validation_err = CanonicalError::invalid_argument(Validation {
 #[resource_error("gts.cf.core.users.user.v1~")]
 struct UserResourceError;
 
-// Generated constructors:
-UserResourceError::not_found("user-123")        // → CanonicalError::NotFound with resource_type set
-UserResourceError::permission_denied(error_info) // → CanonicalError::PermissionDenied with resource_type set
+// Generated constructors return builders — call .create() to produce CanonicalError:
+UserResourceError::not_found("User not found")     // → builder (resource required)
+    .with_resource("user-123").create();             // → CanonicalError::NotFound with resource_type set
+UserResourceError::permission_denied().create();     // → CanonicalError::PermissionDenied with resource_type set
 ```
 
 Non-resource errors (e.g., `service_unavailable`, `unauthenticated`) use `CanonicalError::` constructors directly.
@@ -111,8 +105,9 @@ See [§ 4. Category Reference](#4-category-reference) for full definitions inclu
 | `cpt-cf-errors-fr-public-private-isolation` | Internal details never included in production responses; `trace_id` used for correlation |
 | `cpt-cf-errors-fr-compile-time-safety` | Typed enum + `#[resource_error]` macro |
 | `cpt-cf-errors-fr-gts-identification` | `GtsSchema` trait with `SCHEMA_ID` const per context type |
-| `cpt-cf-errors-fr-single-line-construction` | One constructor per category; `CanonicalError::category(ctx)` single expression |
+| `cpt-cf-errors-fr-single-line-construction` | One builder per category; `CanonicalError::category(detail).create()` or `ResourceError::category(detail).with_resource(id).create()` |
 | `cpt-cf-errors-fr-resource-scoped-construction` | `#[resource_error]` macro generates constructors with auto-tagged `resource_type` |
+| `cpt-cf-errors-fr-builder-only-construction` | `#[non_exhaustive]` on enum + variants; `pub(crate)` internal constructors and mutation methods |
 | `cpt-cf-errors-fr-library-error-propagation` | Blanket `From` impls for common library errors (`io::Error`, `serde_json::Error`, `DbErr`) |
 | `cpt-cf-errors-fr-schema-drift-prevention` | Showcase snapshot tests + `cargo-semver-checks` + schema file diffing in CI |
 | `cpt-cf-errors-fr-standard-adoption` | RFC 9457 Problem Details as REST wire format |
@@ -131,8 +126,8 @@ See [§ 4. Category Reference](#4-category-reference) for full definitions inclu
 ```text
       Module handler code
                │
-               │  CanonicalError::category(ctx)
-               │  or ResourceError::category(id)
+               │  CanonicalError::category(detail).create()
+               │  or ResourceError::category(detail).with_resource(id).create()
                v
       ┌─────────────────┐
       │  CanonicalError │ ← domain layer (transport-agnostic)
@@ -255,7 +250,7 @@ Every error response consists of **contract parts** (fixed per category) and **v
 
 - [ ] `p1` - **ID**: `cpt-cf-errors-constraint-macro-gts-construction`
 
-Resource types are declared via attribute macros that associate a GTS identifier with a named type. The macro validates the GTS format at compile time, generates error constructors for 15 canonical categories (all except `service_unavailable`, which is system-level only), and tags every generated constructor with `resource_type` automatically.
+Resource types are declared via attribute macros that associate a GTS identifier with a named type. The macro validates the GTS format at compile time, generates error constructors for 13 canonical categories (all except `internal`, `service_unavailable`, and `unauthenticated`, which are not resource-scoped), and tags every generated constructor with `resource_type` automatically.
 
 ```rust
 #[resource_error("gts.cf.core.users.user.v1~")]
@@ -265,7 +260,9 @@ struct UserResourceError;
 async fn get_user(Path(id): Path<String>) -> Result<Json<User>, CanonicalError> {
     let user = db.find_user(&id)
         .await?  // DbErr → CanonicalError::Internal via blanket From
-        .ok_or_else(|| UserResourceError::not_found(&id))?;
+        .ok_or_else(|| UserResourceError::not_found("User not found")
+            .with_resource(&id)
+            .create())?;
     Ok(Json(user))
 }
 ```
@@ -322,9 +319,9 @@ async fn get_user(Path(id): Path<String>) -> Result<Json<User>, CanonicalError> 
 
 **Responsibility scope**:
 
-Owns the 16 canonical error categories. Owns the mapping from category to GTS identifier, HTTP status code, and title. Each variant is a struct with three fields: `ctx` (category-specific context type), `message: String`, `resource_type: Option<String>`.
+Owns the 16 canonical error categories. Owns the mapping from category to GTS identifier, HTTP status code, and title. Each variant is a struct with four fields: `ctx` (category-specific context type), `detail: String`, `resource_type: Option<String>`, `resource_name: Option<String>` (the `Internal` variant carries only `ctx` and `detail`).
 
-Provides ergonomic constructors (one per category), builder methods (`with_message()`, `with_resource_type()`), and accessors (`message()`, `resource_type()`, `gts_type()`, `status_code()`, `title()`).
+Provides builder-returning constructors (one per category) and public accessors (`detail()`, `resource_type()`, `resource_name()`, `gts_type()`, `status_code()`, `title()`). Internal mutation methods (`with_detail()`, `with_resource_type()`, `with_resource()`) are `pub(crate)` — used only by the builder's `.create()` implementation. The enum and all variants are `#[non_exhaustive]`, preventing direct variant construction from outside the crate.
 
 Provides blanket `From` implementations for common library error types so that `?` propagates library errors into canonical categories without per-call-site mapping.
 
@@ -392,10 +389,10 @@ Does not construct domain errors. Does not decide which category to use — that
 
 **Responsibility scope**:
 
-The `#[resource_error("gts.cf.core.users.user.v1~")]` attribute macro on a unit struct generates 15 associated functions (all categories except `service_unavailable`). Each generated function:
-1. Calls the corresponding `CanonicalError::category(ctx)` constructor
-2. Calls `.with_resource_type("gts.cf.core.users.user.v1~")` on the result
-3. For `not_found`, `already_exists`, and `data_loss`: takes a single `impl Into<String>` (resource name) and constructs the `ResourceInfo` context internally
+The `#[resource_error("gts.cf.core.users.user.v1~")]` attribute macro on a unit struct generates 13 associated functions (all categories except `internal`, `service_unavailable`, and `unauthenticated`). Each generated function returns a `ResourceErrorBuilder` that:
+1. Pre-sets `resource_type` to the GTS identifier (e.g., `"gts.cf.core.users.user.v1~"`)
+2. Accepts a `detail` string describing the error occurrence
+3. For `not_found`, `already_exists`, and `data_loss`: requires `.with_resource(name)` before `.create()` to set the `resource_name`
 
 **Responsibility boundaries**:
 
@@ -437,7 +434,7 @@ Every REST error response follows this structure:
 | `type` | GTS URI from category | **Contract** | Error type URI (e.g., `gts.cf.core.errors.err.v1~cf.core.err.not_found.v1~`) |
 | `title` | Static per category | **Contract** | Human-readable summary (e.g., "Not Found") |
 | `status` | HTTP status from mapping | **Contract** | HTTP status code as integer |
-| `detail` | `CanonicalError.message` | Variable | Human-readable explanation of this occurrence |
+| `detail` | `CanonicalError.detail` | Variable | Human-readable explanation of this occurrence |
 | `instance` | Request URI path | Variable | URI identifying this specific occurrence |
 | `trace_id` | Request context | Variable | W3C trace ID for correlation |
 | `context` | Serialized context type | Contract schema / Variable values | Category-specific structured details |
@@ -488,13 +485,12 @@ The base error schema defines the common structure for all error categories.
   "type": "gts://gts.cf.core.errors.err.v1~cf.core.err.not_found.v1~",
   "title": "Not Found",
   "status": 404,
-  "detail": "Resource not found",
+  "detail": "User not found",
   "instance": "/api/v1/users/user-123",
   "trace_id": "4bf92f3577b34da6a3ce929d0e0e4736",
   "context": {
     "resource_type": "gts.cf.core.users.user.v1~",
-    "resource_name": "user-123",
-    "description": "Resource not found"
+    "resource_name": "user-123"
   }
 }
 ```
@@ -550,22 +546,24 @@ The GTS type URI is matched against the known set of 16 GTS identifiers to dispa
 
 ### 3.4 Construction Paths
 
-Two entry points converge into the same `CanonicalError` type:
+Two entry points converge into the same `CanonicalError` type. These are the **only** construction paths — direct variant construction and internal constructors are inaccessible from outside the crate (enforced by `#[non_exhaustive]` on all variants and `pub(crate)` on internal constructors):
 
 ```text
 Resource-scoped construction              Non-resource construction
 ─────────────────────────────             ─────────────────────────
-#[resource_error("gts...")]               CanonicalError::category(ctx)
-UserResourceError::not_found(id)          CanonicalError::service_unavailable(...)
-UserResourceError::permission_denied(ei)  CanonicalError::unauthenticated(...)
+#[resource_error("gts...")]               CanonicalError::internal(detail).create()
+UserResourceError::not_found(detail)      CanonicalError::service_unavailable().create()
+  .with_resource(id).create()             CanonicalError::unauthenticated()
+UserResourceError::permission_denied(d)     .with_reason(r).create()
+  .create()                                           │
         │                                             │
-        │  .with_resource_type(gts) auto              │  resource_type = None
+        │  resource_type auto-tagged by macro         │  resource_type = None
         └─────────────────────┬───────────────────────┘
                               │
                               v
                      ┌─────────────────┐
                      │  CanonicalError │
-                     │  (16 variants)  │
+                     │  (16 variants)  │  #[non_exhaustive]
                      └────────┬────────┘
                               │
                 ┌─────────────┼─────────────┐
@@ -577,26 +575,27 @@ UserResourceError::permission_denied(ei)  CanonicalError::unauthenticated(...)
 **Direct canonical error instantiation**:
 
 ```rust
-use cf_modkit_errors::{CanonicalError, Validation, FieldViolation};
+use cf_modkit_errors::resource_error;
 
-let err = CanonicalError::invalid_argument(
-    Validation::fields(vec![
-        FieldViolation::new("email", "must be a valid email address", "INVALID_FORMAT"),
-    ]),
-)
-.with_message("Request validation failed");
+#[resource_error("gts.cf.core.users.user.v1~")]
+struct UserResourceError;
+
+let err = UserResourceError::invalid_argument()
+    .with_field_violation("email", "must be a valid email address", "INVALID_FORMAT")
+    .create();
 ```
 
 **Resource-scoped error instantiation**:
 
 ```rust
-use cf_modkit_errors::{resource_error, CanonicalError};
+use cf_modkit_errors::resource_error;
 
 #[resource_error("gts.cf.core.users.user.v1~")]
 struct UserResourceError;
 
-let err: CanonicalError = UserResourceError::not_found("user-123");
-// Equivalent to CanonicalError::not_found(ctx).with_resource_type("gts.cf.core.users.user.v1~")
+let err = UserResourceError::not_found("User not found")
+    .with_resource("user-123")
+    .create();
 ```
 
 ### 3.5 GTS Registration
@@ -630,7 +629,9 @@ Internal diagnostic information (stack traces, connection strings, file paths) i
 ```text
 Handler                CanonicalError          Problem              Client
   │                        │                      │                   │
-  │  ::not_found(ctx)      │                      │                   │
+  │  ::not_found(d)       │                      │                   │
+  │  .with_resource(id)   │                      │                   │
+  │  .create()            │                      │                   │
   ├───────────────────────>│                      │                   │
   │                        │                      │                   │
   │  Err(canonical_error)  │                      │                   │
@@ -646,7 +647,7 @@ Handler                CanonicalError          Problem              Client
   │                        │                      ├──────────────────>│
 ```
 
-1. Handler constructs `CanonicalError` via category constructor or `#[resource_error]` macro
+1. Handler constructs `CanonicalError` via builder + `.create()` or `#[resource_error]` macro builder + `.create()`
 2. Handler returns `Err(canonical_error)` from the handler function
 3. Error middleware catches the error, calls `Problem::from_error()`
 4. Middleware sets `trace_id` from span context, `instance` from request URI
@@ -695,7 +696,9 @@ async fn handle_error(err: CanonicalError, uri: &Uri, trace_id: Option<String>) 
 async fn get_user(Path(id): Path<String>) -> Result<Json<User>, CanonicalError> {
     let user = db.find_user(&id)
         .await?
-        .ok_or_else(|| UserResourceError::not_found(&id))?;
+        .ok_or_else(|| UserResourceError::not_found("User not found")
+            .with_resource(&id)
+            .create())?;
     Ok(Json(user))
 }
 // Middleware automatically adds trace_id and instance when converting to Problem
@@ -705,13 +708,13 @@ async fn get_user(Path(id): Path<String>) -> Result<Json<User>, CanonicalError> 
 
 > **Out of scope**: Error extensibility rules are out of scope for the current phase (see PRD §4.2). This section documents the reserved extension point for future phases only. The `extra` field MUST NOT be populated by any p1 code.
 
-Every context type carries an optional `extra: Option<serde_json::Value>` field. In **p1 (current)** this field is always absent — it is reserved for future use.
+In future phases, every context type will carry an optional `extra: Option<serde_json::Value>` field. In **p1 (current)** this field does not exist in the struct definitions — it is reserved for future use and will be added when the extensibility rules are implemented.
 
 **Purpose**: `extra` provides an open-ended extension point for error categories. Rather than extending the 16 base categories with new fields, callers can attach category-specific structured data without breaking the base schema.
 
 **p3+ — Derived GTS types**: Future versions may allow a handler to attach a *derived* GTS type identifier to an error, effectively sub-typing the error for a specific domain. The GTS type chain expresses this derivation:
 
-```
+```text
 gts.cf.core.errors.err.v1~cf.core.err.invalid_argument.v1~cf.scripting._.invalid_script_format.v1~
 ```
 
@@ -730,7 +733,7 @@ Not applicable. Errors are transient in-memory values. No persistent storage.
 
 | Tier | When | Mechanism | What It Catches |
 |------|------|-----------|-----------------|
-| 1. Compile-time | `cargo build` | Typed enum variants, exhaustive `match`, `#[resource_error]` macro, `GtsSchema` const, Dylint lint rules (`dylint_lints/`) | Wrong context type, missing match arm, GTS typos, direct `Problem` construction, legacy error patterns |
+| 1. Compile-time | `cargo build` | Typed enum variants, exhaustive `match`, `#[resource_error]` macro, `GtsSchema` const, Dylint lint rules (`dylint_lints/`), `#[non_exhaustive]` on enum + variants, `pub(crate)` internal constructors | Wrong context type, missing match arm, GTS typos, direct `Problem` construction, legacy error patterns, direct variant construction, bypassing builder API |
 | 2. Test-time | `cargo test` | Showcase tests with `assert_eq!` on full Problem JSON per category; JSON Schema equality assertions per context type | Field renames, default message changes, status code changes, schema drift |
 | 3. CI-time | PR merge gate | `cargo-semver-checks` on `cf-modkit-errors`; schema file diffing; snapshot CI gate | Removed types, changed signatures, schema evolution |
 | 4. Design-time | Architecture | Single `Problem` conversion point; dedicated context constructors; `GtsSchema` generates schemas from types | Ad-hoc JSON construction, missing required fields, schema/code divergence |
@@ -739,7 +742,7 @@ Not applicable. Errors are transient in-memory values. No persistent storage.
 
 Each section below defines one canonical error category: GTS ID, HTTP mapping, context type, constructor, JSON wire example, and similar categories.
 
-All variants share the same structure: `{ ctx: ContextType, message: String, resource_type: Option<String> }`. Context schemas are documented where first introduced; subsequent categories using the same context type reference back.
+All variants share the same structure: `{ ctx: ContextType, detail: String, resource_type: Option<String>, resource_name: Option<String> }` (the `Internal` variant carries only `ctx` and `detail`). Context schemas are documented where first introduced; subsequent categories using the same context type reference back.
 
 
 ### 4.1 `cancelled`

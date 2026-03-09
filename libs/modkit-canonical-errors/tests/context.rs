@@ -52,7 +52,7 @@ fn cancelled_serialization() {
 fn unknown_serialization() {
     let ctx = Unknown::new("something went wrong");
     let json = serde_json::to_value(&ctx).unwrap();
-    assert_eq!(json["description"], "something went wrong");
+    assert!(json.is_object());
 }
 
 #[test]
@@ -90,28 +90,25 @@ fn deadline_exceeded_serialization() {
 
 #[test]
 fn not_found_serialization() {
-    let ctx = NotFound::new("gts.cf.core.users.user.v1", "user-123");
+    let ctx = NotFound::new("gts.cf.core.users.user.v1~", "user-123");
     let json = serde_json::to_value(&ctx).unwrap();
-    assert_eq!(json["resource_type"], "gts.cf.core.users.user.v1");
+    assert_eq!(json["resource_type"], "gts.cf.core.users.user.v1~");
     assert_eq!(json["resource_name"], "user-123");
-    assert_eq!(json["description"], "Resource not found");
 }
 
 #[test]
 fn already_exists_serialization() {
-    let ctx = AlreadyExists::new("gts.cf.core.users.user.v1", "alice@example.com");
+    let ctx = AlreadyExists::new("gts.cf.core.users.user.v1~", "alice@example.com");
     let json = serde_json::to_value(&ctx).unwrap();
-    assert_eq!(json["resource_type"], "gts.cf.core.users.user.v1");
+    assert_eq!(json["resource_type"], "gts.cf.core.users.user.v1~");
     assert_eq!(json["resource_name"], "alice@example.com");
-    assert_eq!(json["description"], "Resource already exists");
 }
 
 #[test]
 fn permission_denied_serialization() {
-    let ctx = PermissionDenied::new("CROSS_TENANT_ACCESS", "auth.cyberfabric.io");
+    let ctx = PermissionDenied::new();
     let json = serde_json::to_value(&ctx).unwrap();
-    assert_eq!(json["reason"], "CROSS_TENANT_ACCESS");
-    assert_eq!(json["domain"], "auth.cyberfabric.io");
+    assert!(json.is_object());
 }
 
 #[test]
@@ -131,10 +128,10 @@ fn failed_precondition_serialization() {
 
 #[test]
 fn aborted_serialization() {
-    let ctx = Aborted::new("LOCK", "cf");
+    let ctx = Aborted::new("OPTIMISTIC_LOCK_FAILURE");
     let json = serde_json::to_value(&ctx).unwrap();
-    assert_eq!(json["reason"], "LOCK");
-    assert_eq!(json["domain"], "cf");
+    assert!(json.is_object());
+    assert_eq!(json["reason"], "OPTIMISTIC_LOCK_FAILURE");
 }
 
 #[test]
@@ -149,20 +146,18 @@ fn out_of_range_field_violations_serialization() {
     assert_eq!(json["field_violations"][0]["field"], "page");
 }
 
-
 #[test]
 fn unimplemented_serialization() {
-    let ctx = Unimplemented::new("GRPC_ROUTING", "cf.oagw");
+    let ctx = Unimplemented::new();
     let json = serde_json::to_value(&ctx).unwrap();
-    assert_eq!(json["reason"], "GRPC_ROUTING");
-    assert_eq!(json["domain"], "cf.oagw");
+    assert!(json.is_object());
 }
 
 #[test]
 fn internal_serialization() {
     let ctx = Internal::new("db pool exhausted");
     let json = serde_json::to_value(&ctx).unwrap();
-    assert_eq!(json["description"], "db pool exhausted");
+    assert!(json.is_object());
 }
 
 #[test]
@@ -174,18 +169,15 @@ fn service_unavailable_serialization() {
 
 #[test]
 fn data_loss_serialization() {
-    let ctx = DataLoss::new("gts.cf.core.files.file.v1", "file-abc");
+    let ctx = DataLoss::new("gts.cf.core.files.file.v1~", "file-abc");
     let json = serde_json::to_value(&ctx).unwrap();
-    assert_eq!(json["resource_type"], "gts.cf.core.files.file.v1");
+    assert_eq!(json["resource_type"], "gts.cf.core.files.file.v1~");
     assert_eq!(json["resource_name"], "file-abc");
-    assert_eq!(json["description"], "Data loss detected");
 }
 
 #[test]
 fn unauthenticated_serialization() {
-    let ctx = Unauthenticated::new("TOKEN_EXPIRED", "auth.cyberfabric.io");
+    let ctx = Unauthenticated::new();
     let json = serde_json::to_value(&ctx).unwrap();
-    assert_eq!(json["reason"], "TOKEN_EXPIRED");
-    assert_eq!(json["domain"], "auth.cyberfabric.io");
+    assert!(json.is_object());
 }
-

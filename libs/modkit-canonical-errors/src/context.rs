@@ -71,6 +71,7 @@ impl PreconditionViolation {
 
 // 01 Cancelled — context: Cancelled
 #[derive(Debug, Clone, Serialize)]
+#[allow(clippy::empty_structs_with_brackets)]
 pub struct Cancelled {}
 
 impl Cancelled {
@@ -80,9 +81,16 @@ impl Cancelled {
     }
 }
 
+impl Default for Cancelled {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 // 02 Unknown — context: Unknown
 #[derive(Debug, Clone, Serialize)]
 pub struct Unknown {
+    #[serde(skip)]
     pub description: String,
 }
 
@@ -133,6 +141,7 @@ impl InvalidArgument {
 
 // 04 DeadlineExceeded — context: DeadlineExceeded
 #[derive(Debug, Clone, Serialize)]
+#[allow(clippy::empty_structs_with_brackets)]
 pub struct DeadlineExceeded {}
 
 impl DeadlineExceeded {
@@ -142,12 +151,17 @@ impl DeadlineExceeded {
     }
 }
 
+impl Default for DeadlineExceeded {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 // 05 NotFound — context: NotFound
 #[derive(Debug, Clone, Serialize)]
 pub struct NotFound {
     pub resource_type: String,
     pub resource_name: String,
-    pub description: String,
 }
 
 impl NotFound {
@@ -156,14 +170,7 @@ impl NotFound {
         Self {
             resource_type: resource_type.into(),
             resource_name: resource_name.into(),
-            description: String::from("Resource not found"),
         }
-    }
-
-    #[must_use]
-    pub fn with_description(mut self, description: impl Into<String>) -> Self {
-        self.description = description.into();
-        self
     }
 }
 
@@ -172,7 +179,6 @@ impl NotFound {
 pub struct AlreadyExists {
     pub resource_type: String,
     pub resource_name: String,
-    pub description: String,
 }
 
 impl AlreadyExists {
@@ -181,31 +187,25 @@ impl AlreadyExists {
         Self {
             resource_type: resource_type.into(),
             resource_name: resource_name.into(),
-            description: String::from("Resource already exists"),
         }
-    }
-
-    #[must_use]
-    pub fn with_description(mut self, description: impl Into<String>) -> Self {
-        self.description = description.into();
-        self
     }
 }
 
 // 07 PermissionDenied — context: PermissionDenied
 #[derive(Debug, Clone, Serialize)]
-pub struct PermissionDenied {
-    pub reason: String,
-    pub domain: String,
-}
+#[allow(clippy::empty_structs_with_brackets)]
+pub struct PermissionDenied {}
 
 impl PermissionDenied {
     #[must_use]
-    pub fn new(reason: impl Into<String>, domain: impl Into<String>) -> Self {
-        Self {
-            reason: reason.into(),
-            domain: domain.into(),
-        }
+    pub fn new() -> Self {
+        Self {}
+    }
+}
+
+impl Default for PermissionDenied {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -243,15 +243,13 @@ impl FailedPrecondition {
 #[derive(Debug, Clone, Serialize)]
 pub struct Aborted {
     pub reason: String,
-    pub domain: String,
 }
 
 impl Aborted {
     #[must_use]
-    pub fn new(reason: impl Into<String>, domain: impl Into<String>) -> Self {
+    pub fn new(reason: impl Into<String>) -> Self {
         Self {
             reason: reason.into(),
-            domain: domain.into(),
         }
     }
 }
@@ -273,24 +271,26 @@ impl OutOfRange {
 
 // 12 Unimplemented — context: Unimplemented
 #[derive(Debug, Clone, Serialize)]
-pub struct Unimplemented {
-    pub reason: String,
-    pub domain: String,
-}
+#[allow(clippy::empty_structs_with_brackets)]
+pub struct Unimplemented {}
 
 impl Unimplemented {
     #[must_use]
-    pub fn new(reason: impl Into<String>, domain: impl Into<String>) -> Self {
-        Self {
-            reason: reason.into(),
-            domain: domain.into(),
-        }
+    pub fn new() -> Self {
+        Self {}
+    }
+}
+
+impl Default for Unimplemented {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
 // 13 Internal — context: Internal
 #[derive(Debug, Clone, Serialize)]
 pub struct Internal {
+    #[serde(skip)]
     pub description: String,
 }
 
@@ -323,7 +323,6 @@ impl ServiceUnavailable {
 pub struct DataLoss {
     pub resource_type: String,
     pub resource_name: String,
-    pub description: String,
 }
 
 impl DataLoss {
@@ -332,31 +331,32 @@ impl DataLoss {
         Self {
             resource_type: resource_type.into(),
             resource_name: resource_name.into(),
-            description: String::from("Data loss detected"),
         }
-    }
-
-    #[must_use]
-    pub fn with_description(mut self, description: impl Into<String>) -> Self {
-        self.description = description.into();
-        self
     }
 }
 
 // 16 Unauthenticated — context: Unauthenticated
 #[derive(Debug, Clone, Serialize)]
 pub struct Unauthenticated {
-    pub reason: String,
-    pub domain: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
 }
 
 impl Unauthenticated {
     #[must_use]
-    pub fn new(reason: impl Into<String>, domain: impl Into<String>) -> Self {
-        Self {
-            reason: reason.into(),
-            domain: domain.into(),
-        }
+    pub fn new() -> Self {
+        Self { reason: None }
+    }
+
+    #[must_use]
+    pub fn with_reason(mut self, reason: impl Into<String>) -> Self {
+        self.reason = Some(reason.into());
+        self
     }
 }
 
+impl Default for Unauthenticated {
+    fn default() -> Self {
+        Self::new()
+    }
+}

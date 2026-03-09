@@ -4,17 +4,17 @@
 **GTS ID**: `gts.cf.core.errors.err.v1~cf.core.err.out_of_range.v1~`
 **HTTP Status**: 400
 **Title**: "Out of Range"
-**Context Type**: `OutOfRange`
 **Use When**: A value is syntactically valid but outside the acceptable range (e.g., age beyond allowed maximum, negative quantity).
 **Similar Categories**: `invalid_argument` — bad format vs valid format but out of range
-**Default Message**: "Value out of range"
+**Resource-scoped error**: yes
+**Default Message**: Same as the `detail` parameter passed to the constructor.
 
 ## Context Schema
 
 | Field | Type | Description |
 |-------|------|-------------|
 | `resource_type` | `String` | GTS type identifier of the associated resource |
-| `resource_name` | `String` | Identifier of the associated resource |
+| `resource_name` | `Option<String>` | Identifier of the associated resource |
 | `field_violations` | `Vec<FieldViolation>` | List of per-field out-of-range errors |
 | `extra` | `Option<Object>` | Reserved for derived GTS type extensions (p3+); absent in p1 |
 
@@ -29,13 +29,18 @@ Field violation:
 ## Constructor Example
 
 ```rust
-use cf_modkit_errors::{CanonicalError, OutOfRange, FieldViolation};
+use cf_modkit_errors::resource_error;
 
-let err = CanonicalError::out_of_range(
-    OutOfRange::new(vec![
-        FieldViolation::new("age", "must be between 1 and 150", "OUT_OF_RANGE"),
-    ])
-);
+#[resource_error("gts.cf.library.books.book.v1~")]
+struct BookResourceError;
+
+let err = BookResourceError::out_of_range("Page out of range")
+    .with_field_violation(
+        "page",
+        "Page 50 is beyond the last page (12)",
+        "OUT_OF_RANGE",
+    )
+    .create();
 ```
 
 ## JSON Wire — JSON Schema
@@ -56,7 +61,7 @@ let err = CanonicalError::out_of_range(
         "status": { "const": 400 },
         "context": {
           "type": "object",
-          "required": ["field_violations"],
+          "required": ["resource_type", "field_violations"],
           "properties": {
             "resource_type": { "type": "string" },
             "resource_name": { "type": "string" },
@@ -93,14 +98,13 @@ let err = CanonicalError::out_of_range(
   "type": "gts://gts.cf.core.errors.err.v1~cf.core.err.out_of_range.v1~",
   "title": "Out of Range",
   "status": 400,
-  "detail": "Value out of range",
+  "detail": "Page out of range",
   "context": {
-    "resource_type": "gts.cf.core.users.user.v1~",
-    "resource_name": "user-123",
+    "resource_type": "gts.cf.library.books.book.v1~",
     "field_violations": [
       {
-        "field": "age",
-        "description": "must be between 1 and 150",
+        "field": "page",
+        "description": "Page 50 is beyond the last page (12)",
         "reason": "OUT_OF_RANGE"
       }
     ]

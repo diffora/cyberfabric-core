@@ -4,10 +4,10 @@
 **GTS ID**: `gts.cf.core.errors.err.v1~cf.core.err.resource_exhausted.v1~`
 **HTTP Status**: 429
 **Title**: "Resource Exhausted"
-**Context Type**: `ResourceExhausted`
 **Use When**: A quota or rate limit was exceeded.
 **Similar Categories**: `service_unavailable` — system overload vs per-caller quota
-**Default Message**: "Quota exceeded"
+**Resource-scoped error**: yes
+**Default Message**: Same as the `detail` parameter passed to the constructor.
 
 ## Context Schema
 
@@ -16,7 +16,7 @@ Quota failure:
 | Field | Type | Description |
 |-------|------|-------------|
 | `resource_type` | `String` | GTS type identifier of the associated resource |
-| `resource_name` | `String` | Identifier of the associated resource |
+| `resource_name` | `Option<String>` | Identifier of the associated resource |
 | `violations` | `Vec<QuotaViolation>` | List of quota violations |
 | `extra` | `Option<Object>` | Reserved for derived GTS type extensions (p3+); absent in p1 |
 
@@ -30,16 +30,17 @@ Quota violation:
 ## Constructor Example
 
 ```rust
-use cf_modkit_errors::{CanonicalError, ResourceExhausted, QuotaViolation};
+use cf_modkit_errors::resource_error;
 
-let err = CanonicalError::resource_exhausted(
-    ResourceExhausted::new(vec![
-        QuotaViolation::new(
-            "requests_per_minute",
-            "Limit of 100 requests per minute exceeded",
-        )
-    ])
-);
+#[resource_error("gts.cf.core.users.user.v1~")]
+struct UserResourceError;
+
+let err = UserResourceError::resource_exhausted("Quota exceeded")
+    .with_quota_violation(
+        "requests_per_minute",
+        "Limit of 100 requests per minute exceeded",
+    )
+    .create();
 ```
 
 ## JSON Wire — JSON Schema
@@ -60,15 +61,15 @@ let err = CanonicalError::resource_exhausted(
         "status": { "const": 429 },
         "context": {
           "type": "object",
-          "required": ["violations"],
+          "required": ["resource_type", "violations"],
           "properties": {
             "resource_type": {
               "type": "string",
-              "description": "GTS type identifier of the associated resource (injected when resource_type is set)"
+              "description": "GTS type identifier of the associated resource"
             },
             "resource_name": {
               "type": "string",
-              "description": "Identifier of the associated resource (injected when resource_name is set)"
+              "description": "Identifier of the associated resource (set via with_resource())"
             },
             "violations": {
               "type": "array",
@@ -108,7 +109,6 @@ let err = CanonicalError::resource_exhausted(
   "detail": "Quota exceeded",
   "context": {
     "resource_type": "gts.cf.core.users.user.v1~",
-    "resource_name": "user-123",
     "violations": [
       {
         "subject": "requests_per_minute",

@@ -1,11 +1,6 @@
 extern crate cf_modkit_errors;
 
-use cf_modkit_errors::{
-    Aborted, Cancelled, CanonicalError, DeadlineExceeded, FailedPrecondition, FieldViolation,
-    Internal, InvalidArgument, OutOfRange, PermissionDenied, PreconditionViolation, Problem,
-    QuotaViolation, ResourceExhausted, ServiceUnavailable, Unauthenticated, Unimplemented, Unknown,
-    resource_error,
-};
+use cf_modkit_errors::{CanonicalError, Problem, resource_error};
 
 // =========================================================================
 // Showcase tests — resource-scoped categories (macro-generated)
@@ -16,21 +11,22 @@ fn showcase_not_found() {
     #[resource_error("gts.cf.core.users.user.v1~")]
     struct UserResourceError;
 
-    let err = UserResourceError::not_found("user-123");
+    let err = UserResourceError::not_found("User not found")
+        .with_resource("user-123")
+        .create();
     let problem = Problem::from(err);
     let json = serde_json::to_value(&problem).unwrap();
 
     assert_eq!(
         json,
         serde_json::json!({
-            "type": "gts.cf.core.errors.err.v1~cf.core.err.not_found.v1~",
+            "type": "gts://gts.cf.core.errors.err.v1~cf.core.err.not_found.v1~",
             "title": "Not Found",
             "status": 404,
-            "detail": "Resource not found",
+            "detail": "User not found",
             "context": {
                 "resource_type": "gts.cf.core.users.user.v1~",
-                "resource_name": "user-123",
-                "description": "Resource not found"
+                "resource_name": "user-123"
             }
         })
     );
@@ -41,21 +37,22 @@ fn showcase_already_exists() {
     #[resource_error("gts.cf.core.users.user.v1~")]
     struct UserResourceError;
 
-    let err = UserResourceError::already_exists("alice@example.com");
+    let err = UserResourceError::already_exists("User already exists")
+        .with_resource("alice@example.com")
+        .create();
     let problem = Problem::from(err);
     let json = serde_json::to_value(&problem).unwrap();
 
     assert_eq!(
         json,
         serde_json::json!({
-            "type": "gts.cf.core.errors.err.v1~cf.core.err.already_exists.v1~",
+            "type": "gts://gts.cf.core.errors.err.v1~cf.core.err.already_exists.v1~",
             "title": "Already Exists",
             "status": 409,
-            "detail": "Resource already exists",
+            "detail": "User already exists",
             "context": {
                 "resource_type": "gts.cf.core.users.user.v1~",
-                "resource_name": "alice@example.com",
-                "description": "Resource already exists"
+                "resource_name": "alice@example.com"
             }
         })
     );
@@ -66,21 +63,22 @@ fn showcase_data_loss() {
     #[resource_error("gts.cf.core.files.file.v1~")]
     struct FileResourceError;
 
-    let err = FileResourceError::data_loss("01JFILE-ABC");
+    let err = FileResourceError::data_loss("Data loss detected")
+        .with_resource("01JFILE-ABC")
+        .create();
     let problem = Problem::from(err);
     let json = serde_json::to_value(&problem).unwrap();
 
     assert_eq!(
         json,
         serde_json::json!({
-            "type": "gts.cf.core.errors.err.v1~cf.core.err.data_loss.v1~",
+            "type": "gts://gts.cf.core.errors.err.v1~cf.core.err.data_loss.v1~",
             "title": "Data Loss",
             "status": 500,
             "detail": "Data loss detected",
             "context": {
                 "resource_type": "gts.cf.core.files.file.v1~",
-                "resource_name": "01JFILE-ABC",
-                "description": "Data loss detected"
+                "resource_name": "01JFILE-ABC"
             }
         })
     );
@@ -91,39 +89,18 @@ fn showcase_invalid_argument() {
     #[resource_error("gts.cf.core.users.user.v1~")]
     struct UserResourceError;
 
-    // --- Simulated user input ---
-    let email = "not-an-email";
-    let age: u8 = 12;
+    let err = UserResourceError::invalid_argument()
+        .with_field_violation("email", "must be a valid email address", "INVALID_FORMAT")
+        .with_field_violation("age", "must be at least 18", "OUT_OF_RANGE")
+        .create();
 
-    // --- Anticipated user code: validate fields, collect violations ---
-    let mut violations = Vec::new();
-
-    if !email.contains('@') {
-        violations.push(FieldViolation::new(
-            "email",
-            "must be a valid email address",
-            "INVALID_FORMAT",
-        ));
-    }
-    if age < 18 {
-        violations.push(FieldViolation::new(
-            "age",
-            "must be at least 18",
-            "OUT_OF_RANGE",
-        ));
-    }
-
-    assert!(!violations.is_empty());
-    let err = UserResourceError::invalid_argument(InvalidArgument::fields(violations));
-
-    // --- Wire format ---
     let problem = Problem::from(err);
     let json = serde_json::to_value(&problem).unwrap();
 
     assert_eq!(
         json,
         serde_json::json!({
-            "type": "gts.cf.core.errors.err.v1~cf.core.err.invalid_argument.v1~",
+            "type": "gts://gts.cf.core.errors.err.v1~cf.core.err.invalid_argument.v1~",
             "title": "Invalid Argument",
             "status": 400,
             "detail": "Request validation failed",
@@ -147,23 +124,110 @@ fn showcase_invalid_argument() {
 }
 
 #[test]
-fn showcase_out_of_range() {
+fn showcase_invalid_argument_format() {
     #[resource_error("gts.cf.core.users.user.v1~")]
     struct UserResourceError;
 
-    let err = UserResourceError::out_of_range(OutOfRange::new(vec![
-        FieldViolation::new("page", "Page 50 is beyond the last page (12)", "OUT_OF_RANGE"),
-    ]));
+    let err = UserResourceError::invalid_argument()
+        .with_format("Request body is not valid JSON")
+        .create();
+
     let problem = Problem::from(err);
     let json = serde_json::to_value(&problem).unwrap();
 
     assert_eq!(
         json,
         serde_json::json!({
-            "type": "gts.cf.core.errors.err.v1~cf.core.err.out_of_range.v1~",
+            "type": "gts://gts.cf.core.errors.err.v1~cf.core.err.invalid_argument.v1~",
+            "title": "Invalid Argument",
+            "status": 400,
+            "detail": "Request body is not valid JSON",
+            "context": {
+                "resource_type": "gts.cf.core.users.user.v1~",
+                "format": "Request body is not valid JSON"
+            }
+        })
+    );
+}
+
+#[test]
+fn showcase_invalid_argument_constraint() {
+    #[resource_error("gts.cf.core.users.user.v1~")]
+    struct UserResourceError;
+
+    let err = UserResourceError::invalid_argument()
+        .with_constraint("at most 10 tags allowed per resource")
+        .create();
+
+    let problem = Problem::from(err);
+    let json = serde_json::to_value(&problem).unwrap();
+
+    assert_eq!(
+        json,
+        serde_json::json!({
+            "type": "gts://gts.cf.core.errors.err.v1~cf.core.err.invalid_argument.v1~",
+            "title": "Invalid Argument",
+            "status": 400,
+            "detail": "at most 10 tags allowed per resource",
+            "context": {
+                "resource_type": "gts.cf.core.users.user.v1~",
+                "constraint": "at most 10 tags allowed per resource"
+            }
+        })
+    );
+}
+
+#[test]
+fn showcase_invalid_argument_format_with_resource() {
+    #[resource_error("gts.cf.core.users.user.v1~")]
+    struct UserResourceError;
+
+    let err = UserResourceError::invalid_argument()
+        .with_resource("user-123")
+        .with_format("Request body is not valid JSON")
+        .create();
+
+    let problem = Problem::from(err);
+    let json = serde_json::to_value(&problem).unwrap();
+
+    assert_eq!(
+        json,
+        serde_json::json!({
+            "type": "gts://gts.cf.core.errors.err.v1~cf.core.err.invalid_argument.v1~",
+            "title": "Invalid Argument",
+            "status": 400,
+            "detail": "Request body is not valid JSON",
+            "context": {
+                "resource_type": "gts.cf.core.users.user.v1~",
+                "resource_name": "user-123",
+                "format": "Request body is not valid JSON"
+            }
+        })
+    );
+}
+
+#[test]
+fn showcase_out_of_range() {
+    #[resource_error("gts.cf.core.users.user.v1~")]
+    struct UserResourceError;
+
+    let err = UserResourceError::out_of_range("Page out of range")
+        .with_field_violation(
+            "page",
+            "Page 50 is beyond the last page (12)",
+            "OUT_OF_RANGE",
+        )
+        .create();
+    let problem = Problem::from(err);
+    let json = serde_json::to_value(&problem).unwrap();
+
+    assert_eq!(
+        json,
+        serde_json::json!({
+            "type": "gts://gts.cf.core.errors.err.v1~cf.core.err.out_of_range.v1~",
             "title": "Out of Range",
             "status": 400,
-            "detail": "Value out of range",
+            "detail": "Page out of range",
             "context": {
                 "resource_type": "gts.cf.core.users.user.v1~",
                 "field_violations": [
@@ -183,24 +247,19 @@ fn showcase_permission_denied() {
     #[resource_error("gts.cf.core.tenants.tenant.v1~")]
     struct TenantResourceError;
 
-    let err = TenantResourceError::permission_denied(PermissionDenied::new(
-        "CROSS_TENANT_ACCESS",
-        "auth.cyberfabric.io",
-    ));
+    let err = TenantResourceError::permission_denied().create();
     let problem = Problem::from(err);
     let json = serde_json::to_value(&problem).unwrap();
 
     assert_eq!(
         json,
         serde_json::json!({
-            "type": "gts.cf.core.errors.err.v1~cf.core.err.permission_denied.v1~",
+            "type": "gts://gts.cf.core.errors.err.v1~cf.core.err.permission_denied.v1~",
             "title": "Permission Denied",
             "status": 403,
             "detail": "You do not have permission to perform this operation",
             "context": {
-                "resource_type": "gts.cf.core.tenants.tenant.v1~",
-                "reason": "CROSS_TENANT_ACCESS",
-                "domain": "auth.cyberfabric.io"
+                "resource_type": "gts.cf.core.tenants.tenant.v1~"
             }
         })
     );
@@ -211,23 +270,22 @@ fn showcase_aborted() {
     #[resource_error("gts.cf.oagw.upstreams.upstream.v1~")]
     struct UpstreamResourceError;
 
-    let err = UpstreamResourceError::aborted(
-        Aborted::new("OPTIMISTIC_LOCK_FAILURE", "cf.oagw"),
-    );
+    let err = UpstreamResourceError::aborted("Operation aborted due to concurrency conflict")
+        .with_reason("OPTIMISTIC_LOCK_FAILURE")
+        .create();
     let problem = Problem::from(err);
     let json = serde_json::to_value(&problem).unwrap();
 
     assert_eq!(
         json,
         serde_json::json!({
-            "type": "gts.cf.core.errors.err.v1~cf.core.err.aborted.v1~",
+            "type": "gts://gts.cf.core.errors.err.v1~cf.core.err.aborted.v1~",
             "title": "Aborted",
             "status": 409,
             "detail": "Operation aborted due to concurrency conflict",
             "context": {
                 "resource_type": "gts.cf.oagw.upstreams.upstream.v1~",
-                "reason": "OPTIMISTIC_LOCK_FAILURE",
-                "domain": "cf.oagw"
+                "reason": "OPTIMISTIC_LOCK_FAILURE"
             }
         })
     );
@@ -235,24 +293,22 @@ fn showcase_aborted() {
 
 #[test]
 fn showcase_unimplemented() {
-    #[resource_error("gts.cf.oagw.upstreams.upstream.v1~")]
-    struct UpstreamResourceError;
+    #[resource_error("gts.cf.core.users.user.v1~")]
+    struct UserResourceError;
 
-    let err = UpstreamResourceError::unimplemented(Unimplemented::new("GRPC_ROUTING", "cf.oagw"));
+    let err = UserResourceError::unimplemented("This operation is not implemented").create();
     let problem = Problem::from(err);
     let json = serde_json::to_value(&problem).unwrap();
 
     assert_eq!(
         json,
         serde_json::json!({
-            "type": "gts.cf.core.errors.err.v1~cf.core.err.unimplemented.v1~",
+            "type": "gts://gts.cf.core.errors.err.v1~cf.core.err.unimplemented.v1~",
             "title": "Unimplemented",
             "status": 501,
             "detail": "This operation is not implemented",
             "context": {
-                "resource_type": "gts.cf.oagw.upstreams.upstream.v1~",
-                "reason": "GRPC_ROUTING",
-                "domain": "cf.oagw"
+                "resource_type": "gts.cf.core.users.user.v1~"
             }
         })
     );
@@ -263,20 +319,20 @@ fn showcase_failed_precondition() {
     #[resource_error("gts.cf.core.tenants.tenant.v1~")]
     struct TenantResourceError;
 
-    let err = TenantResourceError::failed_precondition(FailedPrecondition::new(vec![
-        PreconditionViolation::new(
-            "STATE",
+    let err = TenantResourceError::failed_precondition()
+        .with_precondition_violation(
             "tenant.users",
             "Tenant must have zero active users before deletion",
-        ),
-    ]));
+            "STATE",
+        )
+        .create();
     let problem = Problem::from(err);
     let json = serde_json::to_value(&problem).unwrap();
 
     assert_eq!(
         json,
         serde_json::json!({
-            "type": "gts.cf.core.errors.err.v1~cf.core.err.failed_precondition.v1~",
+            "type": "gts://gts.cf.core.errors.err.v1~cf.core.err.failed_precondition.v1~",
             "title": "Failed Precondition",
             "status": 400,
             "detail": "Operation precondition not met",
@@ -296,25 +352,18 @@ fn showcase_failed_precondition() {
 
 #[test]
 fn showcase_internal() {
-    #[resource_error("gts.cf.core.tenants.tenant.v1~")]
-    struct TenantResourceError;
-
-    let err = TenantResourceError::internal(Internal::new(
-        "An internal error occurred. Please retry later.",
-    ));
+    let err = CanonicalError::internal("An internal error occurred. Please retry later.").create();
     let problem = Problem::from(err);
     let json = serde_json::to_value(&problem).unwrap();
 
     assert_eq!(
         json,
         serde_json::json!({
-            "type": "gts.cf.core.errors.err.v1~cf.core.err.internal.v1~",
+            "type": "gts://gts.cf.core.errors.err.v1~cf.core.err.internal.v1~",
             "title": "Internal",
             "status": 500,
             "detail": "An internal error occurred. Please retry later.",
             "context": {
-                "resource_type": "gts.cf.core.tenants.tenant.v1~",
-                "description": "An internal error occurred. Please retry later."
             }
         })
     );
@@ -325,17 +374,17 @@ fn showcase_deadline_exceeded() {
     #[resource_error("gts.cf.core.users.user.v1~")]
     struct UserResourceError;
 
-    let err = UserResourceError::deadline_exceeded(DeadlineExceeded::new());
+    let err = UserResourceError::deadline_exceeded("Request timed out").create();
     let problem = Problem::from(err);
     let json = serde_json::to_value(&problem).unwrap();
 
     assert_eq!(
         json,
         serde_json::json!({
-            "type": "gts.cf.core.errors.err.v1~cf.core.err.deadline_exceeded.v1~",
+            "type": "gts://gts.cf.core.errors.err.v1~cf.core.err.deadline_exceeded.v1~",
             "title": "Deadline Exceeded",
             "status": 504,
-            "detail": "Operation did not complete within the allowed time",
+            "detail": "Request timed out",
             "context": {
                 "resource_type": "gts.cf.core.users.user.v1~"
             }
@@ -345,22 +394,22 @@ fn showcase_deadline_exceeded() {
 
 #[test]
 fn showcase_cancelled() {
-    #[resource_error("gts.cf.oagw.upstreams.upstream.v1~")]
-    struct UpstreamResourceError;
+    #[resource_error("gts.cf.core.users.user.v1~")]
+    struct UserResourceError;
 
-    let err = UpstreamResourceError::cancelled(Cancelled::new());
+    let err = UserResourceError::cancelled().create();
     let problem = Problem::from(err);
     let json = serde_json::to_value(&problem).unwrap();
 
     assert_eq!(
         json,
         serde_json::json!({
-            "type": "gts.cf.core.errors.err.v1~cf.core.err.cancelled.v1~",
+            "type": "gts://gts.cf.core.errors.err.v1~cf.core.err.cancelled.v1~",
             "title": "Cancelled",
             "status": 499,
             "detail": "Operation cancelled by the client",
             "context": {
-                "resource_type": "gts.cf.oagw.upstreams.upstream.v1~"
+                "resource_type": "gts.cf.core.users.user.v1~"
             }
         })
     );
@@ -372,22 +421,21 @@ fn showcase_cancelled() {
 
 #[test]
 fn showcase_unauthenticated() {
-    let err = CanonicalError::unauthenticated(
-        Unauthenticated::new("TOKEN_EXPIRED", "auth.cyberfabric.io"),
-    );
+    let err = CanonicalError::unauthenticated()
+        .with_reason("TOKEN_EXPIRED")
+        .create();
     let problem = Problem::from(err);
     let json = serde_json::to_value(&problem).unwrap();
 
     assert_eq!(
         json,
         serde_json::json!({
-            "type": "gts.cf.core.errors.err.v1~cf.core.err.unauthenticated.v1~",
+            "type": "gts://gts.cf.core.errors.err.v1~cf.core.err.unauthenticated.v1~",
             "title": "Unauthenticated",
             "status": 401,
             "detail": "Authentication required",
             "context": {
-                "reason": "TOKEN_EXPIRED",
-                "domain": "auth.cyberfabric.io"
+                "reason": "TOKEN_EXPIRED"
             }
         })
     );
@@ -395,22 +443,27 @@ fn showcase_unauthenticated() {
 
 #[test]
 fn showcase_resource_exhausted() {
-    let err =
-        CanonicalError::resource_exhausted(ResourceExhausted::new(vec![QuotaViolation::new(
+    #[resource_error("gts.cf.core.users.user.v1~")]
+    struct UserResourceError;
+
+    let err = UserResourceError::resource_exhausted("Quota exceeded")
+        .with_quota_violation(
             "requests_per_minute",
             "Limit of 100 requests per minute exceeded",
-        )]));
+        )
+        .create();
     let problem = Problem::from(err);
     let json = serde_json::to_value(&problem).unwrap();
 
     assert_eq!(
         json,
         serde_json::json!({
-            "type": "gts.cf.core.errors.err.v1~cf.core.err.resource_exhausted.v1~",
+            "type": "gts://gts.cf.core.errors.err.v1~cf.core.err.resource_exhausted.v1~",
             "title": "Resource Exhausted",
             "status": 429,
             "detail": "Quota exceeded",
             "context": {
+                "resource_type": "gts.cf.core.users.user.v1~",
                 "violations": [
                     {
                         "subject": "requests_per_minute",
@@ -424,7 +477,9 @@ fn showcase_resource_exhausted() {
 
 #[test]
 fn showcase_unavailable() {
-    let err = CanonicalError::service_unavailable(ServiceUnavailable::new(30));
+    let err = CanonicalError::service_unavailable()
+        .with_retry_after_seconds(30)
+        .create();
 
     let problem = Problem::from(err);
     let json = serde_json::to_value(&problem).unwrap();
@@ -432,7 +487,7 @@ fn showcase_unavailable() {
     assert_eq!(
         json,
         serde_json::json!({
-            "type": "gts.cf.core.errors.err.v1~cf.core.err.service_unavailable.v1~",
+            "type": "gts://gts.cf.core.errors.err.v1~cf.core.err.service_unavailable.v1~",
             "title": "Service Unavailable",
             "status": 503,
             "detail": "Service temporarily unavailable",
@@ -445,19 +500,22 @@ fn showcase_unavailable() {
 
 #[test]
 fn showcase_unknown() {
-    let err = CanonicalError::unknown(Unknown::new("Unexpected response from payment provider"));
+    #[resource_error("gts.cf.core.users.user.v1~")]
+    struct UserResourceError;
+
+    let err = UserResourceError::unknown("Unexpected response from payment provider").create();
     let problem = Problem::from(err);
     let json = serde_json::to_value(&problem).unwrap();
 
     assert_eq!(
         json,
         serde_json::json!({
-            "type": "gts.cf.core.errors.err.v1~cf.core.err.unknown.v1~",
+            "type": "gts://gts.cf.core.errors.err.v1~cf.core.err.unknown.v1~",
             "title": "Unknown",
             "status": 500,
             "detail": "Unexpected response from payment provider",
             "context": {
-                "description": "Unexpected response from payment provider"
+                "resource_type": "gts.cf.core.users.user.v1~"
             }
         })
     );

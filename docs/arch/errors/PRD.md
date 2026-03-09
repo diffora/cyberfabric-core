@@ -157,6 +157,15 @@ Module vendors MUST be able to declare a resource type once and get error constr
 - **Rationale**: Ensures resource identity is never forgotten and enables consumers to distinguish errors from different resource types.
 - **Actors**: `cpt-cf-errors-actor-module-developer`
 
+#### Builder-Only Construction
+
+- [ ] `p1` - **ID**: `cpt-cf-errors-fr-builder-only-construction`
+
+The system MUST enforce that `CanonicalError` instances can only be constructed through the provided builder API. Direct construction of enum variants or use of internal constructors from outside the canonical error crate MUST be prevented at compile time.
+
+- **Rationale**: Enforcing builder-only construction ensures all errors are properly initialized with correct defaults, required fields are set via typestate enforcement, and the construction API surface is clear and discoverable.
+- **Actors**: `cpt-cf-errors-actor-module-developer`, `cpt-cf-errors-actor-llm-agent`
+
 #### Library Error Propagation
 
 - [ ] `p1` - **ID**: `cpt-cf-errors-fr-library-error-propagation`
@@ -287,6 +296,7 @@ Error construction MUST be O(1) enum + struct allocation with no heap allocation
 - [ ] Production error responses for `internal`/`unknown` contain no stack traces, query text, or file paths
 - [ ] Every error response includes a trace ID
 - [ ] Dylint static analysis rules enforce correct error construction patterns (no bypassing canonical errors)
+- [ ] `CanonicalError` variants cannot be constructed directly from outside the crate (`#[non_exhaustive]` on variants, `pub(crate)` internal constructors)
 
 ## 10. Dependencies
 

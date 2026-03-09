@@ -4,10 +4,10 @@
 **GTS ID**: `gts.cf.core.errors.err.v1~cf.core.err.not_found.v1~`
 **HTTP Status**: 404
 **Title**: "Not Found"
-**Context Type**: `NotFound`
 **Use When**: The requested resource does not exist or was filtered out by access controls.
 **Similar Categories**: `permission_denied` — resource exists but caller lacks access; use `not_found` for DB-filtered 404 to avoid information leakage
-**Default Message**: "Resource not found"
+**Resource-scoped error**: yes
+**Default Message**: Same as the `detail` parameter passed to the constructor.
 
 ## Context Schema
 
@@ -15,25 +15,19 @@
 |-------|------|-------------|
 | `resource_type` | `String` | GTS type identifier of the resource |
 | `resource_name` | `String` | Identifier of the missing resource |
-| `description` | `String` | Human-readable explanation |
 | `extra` | `Option<Object>` | Reserved for derived GTS type extensions (p3+); absent in p1 |
 
 ## Constructor Example
 
 ```rust
-use cf_modkit_errors::{CanonicalError, NotFound};
+use cf_modkit_errors::resource_error;
 
-// Direct construction:
-let err = CanonicalError::not_found(
-    NotFound::new("gts.cf.core.users.user.v1~", "user-123")
-);
-
-// Or via resource-scoped macro:
 #[resource_error("gts.cf.core.users.user.v1~")]
 struct UserResourceError;
 
-let err = UserResourceError::not_found("user-123");
-// Auto-creates NotFound context and sets resource_type
+let err = UserResourceError::not_found("User not found")
+    .with_resource("user-123")
+    .create();
 ```
 
 ## JSON Wire — JSON Schema
@@ -54,7 +48,7 @@ let err = UserResourceError::not_found("user-123");
         "status": { "const": 404 },
         "context": {
           "type": "object",
-          "required": ["resource_type", "resource_name", "description"],
+          "required": ["resource_type", "resource_name"],
           "properties": {
             "resource_type": {
               "type": "string",
@@ -63,10 +57,6 @@ let err = UserResourceError::not_found("user-123");
             "resource_name": {
               "type": "string",
               "description": "Identifier of the missing resource"
-            },
-            "description": {
-              "type": "string",
-              "description": "Human-readable explanation"
             },
             "extra": {
               "type": ["object", "null"],
@@ -88,11 +78,10 @@ let err = UserResourceError::not_found("user-123");
   "type": "gts://gts.cf.core.errors.err.v1~cf.core.err.not_found.v1~",
   "title": "Not Found",
   "status": 404,
-  "detail": "Resource not found",
+  "detail": "User not found",
   "context": {
     "resource_type": "gts.cf.core.users.user.v1~",
-    "resource_name": "user-123",
-    "description": "Resource not found"
+    "resource_name": "user-123"
   }
 }
 ```
