@@ -83,11 +83,13 @@ impl ControlPlaneService for ControlPlaneServiceImpl {
 
         let tenant_id = ctx.subject_tenant_id();
         let id = Uuid::new_v4();
+        let tenant_chain = self.build_tenant_chain(ctx).await?;
 
         // Check if an ancestor tenant has an upstream with this alias.
         // If so, this is a "bind" operation requiring ancestor bind validation.
         self.validate_ancestor_bind(
             ctx,
+            &tenant_chain,
             &alias,
             &BindOverrides {
                 auth: req.auth.as_ref(),
@@ -195,8 +197,10 @@ impl ControlPlaneService for ControlPlaneServiceImpl {
             || effective_plugins.is_some();
 
         if has_overrides || endpoints_changed || req.alias.is_some() {
+            let tenant_chain = self.build_tenant_chain(ctx).await?;
             self.validate_ancestor_bind(
                 ctx,
+                &tenant_chain,
                 &existing.alias,
                 &BindOverrides {
                     auth: effective_auth,
@@ -387,11 +391,10 @@ impl ControlPlaneServiceImpl {
     async fn validate_ancestor_bind(
         &self,
         ctx: &SecurityContext,
+        tenant_chain: &[Uuid],
         alias: &str,
         overrides: &BindOverrides<'_>,
     ) -> Result<(), DomainError> {
-        let tenant_chain = self.build_tenant_chain(ctx).await?;
-
         for &ancestor_tid in &tenant_chain[1..] {
             if let Ok(ancestor_upstream) = self.upstreams.get_by_alias(ancestor_tid, alias).await {
                 validate_bind_constraints(
