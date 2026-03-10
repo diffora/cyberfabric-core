@@ -41,6 +41,7 @@ gts = { workspace = true }
 utoipa = { workspace = true }
 types-registry-sdk = { workspace = true }
 authz-resolver-sdk = { workspace = true }
+tenant-resolver-sdk = { workspace = true }
 credstore-sdk = { workspace = true }
 # CP deps
 dashmap = { workspace = true }

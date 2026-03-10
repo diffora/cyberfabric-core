@@ -71,19 +71,18 @@ pub(crate) trait ControlPlaneService: Send + Sync {
 
     // -- Resolution --
 
-    async fn resolve_upstream(
+    /// Combined upstream + route resolution for the proxy hot path.
+    ///
+    /// Single `get_ancestors` call, correct multi-ID route matching across
+    /// ancestor upstreams, and full effective config merge including route
+    /// overrides.
+    async fn resolve_proxy_target(
         &self,
         ctx: &SecurityContext,
         alias: &str,
-    ) -> Result<Upstream, DomainError>;
-
-    async fn resolve_route(
-        &self,
-        ctx: &SecurityContext,
-        upstream_id: Uuid,
         method: &str,
         path: &str,
-    ) -> Result<Route, DomainError>;
+    ) -> Result<(Upstream, Route), DomainError>;
 }
 
 /// Internal Data Plane service trait — proxy orchestration and plugin execution.

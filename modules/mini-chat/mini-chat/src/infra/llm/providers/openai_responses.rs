@@ -890,23 +890,15 @@ mod tests {
         ) -> Result<(), ServiceGatewayError> {
             unimplemented!()
         }
-        async fn resolve_upstream(
+        async fn resolve_proxy_target(
             &self,
             _: SecurityContext,
             _: &str,
-        ) -> Result<Upstream, ServiceGatewayError> {
-            unimplemented!()
-        }
-        async fn resolve_route(
-            &self,
-            _: SecurityContext,
-            _: uuid::Uuid,
             _: &str,
             _: &str,
-        ) -> Result<Route, ServiceGatewayError> {
+        ) -> Result<(Upstream, Route), ServiceGatewayError> {
             unimplemented!()
         }
-
         async fn proxy_request(
             &self,
             _ctx: SecurityContext,

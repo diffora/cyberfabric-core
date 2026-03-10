@@ -13,6 +13,7 @@ use modkit::contracts::SystemCapability;
 use modkit::{Module, ModuleCtx, RestApiCapability};
 use modkit_security::SecurityContext;
 use oagw_sdk::api::ServiceGatewayClientV1;
+use tenant_resolver_sdk::TenantResolverClient;
 use tracing::info;
 use types_registry_sdk::{RegisterResult, RegisterSummary, TypesRegistryClient};
 
@@ -36,7 +37,7 @@ pub struct AppState {
 /// Outbound API Gateway module: wires repos, services, and routes.
 #[modkit::module(
     name = "oagw",
-    deps = ["types-registry", "authz-resolver", "credstore"],
+    deps = ["types-registry", "authz-resolver", "credstore", "tenant-resolver"],
     capabilities = [system, rest]
 )]
 pub struct OutboundApiGatewayModule {
@@ -64,14 +65,21 @@ impl Module for OutboundApiGatewayModule {
         // -- Control Plane init --
         let upstream_repo = Arc::new(InMemoryUpstreamRepo::new());
         let route_repo = Arc::new(InMemoryRouteRepo::new());
-        let cp: Arc<dyn ControlPlaneService> =
-            Arc::new(ControlPlaneServiceImpl::new(upstream_repo, route_repo));
+        let tenant_resolver = ctx.client_hub().get::<dyn TenantResolverClient>()?;
 
         let credstore = ctx.client_hub().get::<dyn CredStoreClientV1>()?;
 
         // -- AuthZ resolver for permission checks --
         let authz = ctx.client_hub().get::<dyn AuthZResolverClient>()?;
         let policy_enforcer = PolicyEnforcer::new(authz);
+
+        let cp: Arc<dyn ControlPlaneService> = Arc::new(ControlPlaneServiceImpl::new(
+            upstream_repo,
+            route_repo,
+            tenant_resolver,
+            policy_enforcer.clone(),
+            credstore.clone(),
+        ));
 
         // -- Data Plane init (Pingora proxy engine) --
         let server_conf = Arc::new(pingora_core::server::configuration::ServerConf {

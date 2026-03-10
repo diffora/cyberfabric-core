@@ -232,50 +232,48 @@ modules:
 
   tenant-resolver:
     config:
-      vendor: "Fabrikam"
-  contoso-tr-plugin:
-    config: {}
-  fabrikam-tr-plugin:
+      vendor: "hyperspot"
+  static-tr-plugin:
     config:
-      vendor: "Fabrikam"
+      vendor: "hyperspot"
       priority: 20
       # Tenant tree configuration (example: company with 2 divisions, each with departments)
       tenants:
         # Root tenant (company level)
-        - id: "00000000000000000000000000000001"
+        - id: "00000000-0000-0000-0000-000000000001"
+          name: "company-root"
           parent_id: null
-          status: ACTIVE
-          is_accessible_by_parent: true
+          status: active
 
         # Division 1: Engineering
-        - id: "00000000000000000000000000000002"
-          parent_id: "00000000000000000000000000000001"
-          status: ACTIVE
-          is_accessible_by_parent: true
+        - id: "00000000-0000-0000-0000-000000000002"
+          name: "engineering"
+          parent_id: "00000000-0000-0000-0000-000000000001"
+          status: active
 
         # Division 2: Sales
-        - id: "00000000000000000000000000000005"
-          parent_id: "00000000000000000000000000000001"
-          status: ACTIVE
-          is_accessible_by_parent: true
+        - id: "00000000-0000-0000-0000-000000000005"
+          name: "sales"
+          parent_id: "00000000-0000-0000-0000-000000000001"
+          status: active
 
-        # Department under Engineering: Frontend (soft-deleted, not accessible)
-        - id: "00000000000000000000000000000003"
-          parent_id: "00000000000000000000000000000002"
-          status: SOFT_DELETED
-          is_accessible_by_parent: false
+        # Department under Engineering: Frontend (soft-deleted)
+        - id: "00000000-0000-0000-0000-000000000003"
+          name: "frontend"
+          parent_id: "00000000-0000-0000-0000-000000000002"
+          status: deleted
 
         # Department under Engineering: Backend
-        - id: "00000000000000000000000000000004"
-          parent_id: "00000000000000000000000000000002"
-          status: ACTIVE
-          is_accessible_by_parent: true
+        - id: "00000000-0000-0000-0000-000000000004"
+          name: "backend"
+          parent_id: "00000000-0000-0000-0000-000000000002"
+          status: active
 
         # Department under Sales: Enterprise
-        - id: "00000000000000000000000000000006"
-          parent_id: "00000000000000000000000000000005"
-          status: ACTIVE
-          is_accessible_by_parent: true
+        - id: "00000000-0000-0000-0000-000000000006"
+          name: "enterprise"
+          parent_id: "00000000-0000-0000-0000-000000000005"
+          status: active
 
   static-credstore-plugin:
     config:

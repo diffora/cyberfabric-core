@@ -123,6 +123,38 @@ impl From<RepositoryError> for DomainError {
 }
 
 // ---------------------------------------------------------------------------
+// From<TenantResolverError>
+// ---------------------------------------------------------------------------
+
+impl From<tenant_resolver_sdk::TenantResolverError> for DomainError {
+    fn from(e: tenant_resolver_sdk::TenantResolverError) -> Self {
+        use tenant_resolver_sdk::TenantResolverError;
+
+        match e {
+            TenantResolverError::TenantNotFound { tenant_id } => {
+                tracing::warn!(tenant_id = %tenant_id, "tenant not found during hierarchy resolution");
+                Self::NotFound {
+                    entity: "tenant",
+                    id: tenant_id,
+                }
+            }
+            TenantResolverError::Unauthorized => Self::Forbidden {
+                detail: "tenant resolver: unauthorized".to_string(),
+            },
+            TenantResolverError::NoPluginAvailable => Self::Internal {
+                message: "tenant resolver: no plugin available".to_string(),
+            },
+            TenantResolverError::ServiceUnavailable(msg) => Self::Internal {
+                message: format!("tenant resolver unavailable: {msg}"),
+            },
+            TenantResolverError::Internal(msg) => Self::Internal {
+                message: format!("tenant resolver internal error: {msg}"),
+            },
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // From<EnforcerError>
 // ---------------------------------------------------------------------------
 

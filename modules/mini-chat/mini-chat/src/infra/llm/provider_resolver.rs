@@ -188,20 +188,13 @@ mod tests {
         ) -> Result<(), ServiceGatewayError> {
             unimplemented!()
         }
-        async fn resolve_upstream(
+        async fn resolve_proxy_target(
             &self,
             _: modkit_security::SecurityContext,
             _: &str,
-        ) -> Result<oagw_sdk::Upstream, ServiceGatewayError> {
-            unimplemented!()
-        }
-        async fn resolve_route(
-            &self,
-            _: modkit_security::SecurityContext,
-            _: uuid::Uuid,
             _: &str,
             _: &str,
-        ) -> Result<oagw_sdk::Route, ServiceGatewayError> {
+        ) -> Result<(oagw_sdk::Upstream, oagw_sdk::Route), ServiceGatewayError> {
             unimplemented!()
         }
         async fn proxy_request(

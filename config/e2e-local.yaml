@@ -118,48 +118,45 @@ modules:
   types-registry:
     config: {}
 
-  contoso-tr-plugin:
+  static-tr-plugin:
     config:
-      vendor: "Contoso"
-      priority: 10
-
-  fabrikam-tr-plugin:
-    config:
-      vendor: "Fabrikam"
+      vendor: "hyperspot"
       priority: 20
       tenants:
-        # Root
-        - id: "00000000000000000000000000000001"
+        # Root tenant used by oagw + credstore e2e tests
+        - id: "00000000-df51-5b42-9538-d2b56b7ee953"
+          name: "e2e-root"
           parent_id: null
-          status: ACTIVE
-          is_accessible_by_parent: true
-        # Level 1
-        - id: "00000000000000000000000000000002"
-          parent_id: "00000000000000000000000000000001"
-          status: ACTIVE
-          is_accessible_by_parent: true
-        - id: "00000000000000000000000000000005"
-          parent_id: "00000000000000000000000000000001"
-          status: ACTIVE
-          is_accessible_by_parent: true
-        # Level 2 under 000...02
-        - id: "00000000000000000000000000000003"
-          parent_id: "00000000000000000000000000000002"
-          status: SOFT_DELETED
-          is_accessible_by_parent: false
-        - id: "00000000000000000000000000000004"
-          parent_id: "00000000000000000000000000000002"
-          status: ACTIVE
-          is_accessible_by_parent: true
-        # Level 2 under 000...05
-        - id: "00000000000000000000000000000006"
-          parent_id: "00000000000000000000000000000005"
-          status: ACTIVE
-          is_accessible_by_parent: true
+          status: active
+        # Hierarchy tenants
+        - id: "00000000-0000-0000-0000-000000000001"
+          name: "hierarchy-root"
+          parent_id: null
+          status: active
+        - id: "00000000-0000-0000-0000-000000000002"
+          name: "hierarchy-l1a"
+          parent_id: "00000000-0000-0000-0000-000000000001"
+          status: active
+        - id: "00000000-0000-0000-0000-000000000005"
+          name: "hierarchy-l1b"
+          parent_id: "00000000-0000-0000-0000-000000000001"
+          status: active
+        - id: "00000000-0000-0000-0000-000000000003"
+          name: "hierarchy-l2a-deleted"
+          parent_id: "00000000-0000-0000-0000-000000000002"
+          status: deleted
+        - id: "00000000-0000-0000-0000-000000000004"
+          name: "hierarchy-l2b"
+          parent_id: "00000000-0000-0000-0000-000000000002"
+          status: active
+        - id: "00000000-0000-0000-0000-000000000006"
+          name: "hierarchy-l2c"
+          parent_id: "00000000-0000-0000-0000-000000000005"
+          status: active
 
   tenant-resolver:
     config:
-      vendor: "Fabrikam"
+      vendor: "hyperspot"
 
   static-credstore-plugin:
     config:

@@ -158,29 +158,17 @@ impl ServiceGatewayClientV1 for ServiceGatewayClientV1Facade {
             .map_err(domain_err_to_sdk)
     }
 
-    async fn resolve_upstream(
+    async fn resolve_proxy_target(
         &self,
         ctx: SecurityContext,
         alias: &str,
-    ) -> Result<oagw_sdk::Upstream, ServiceGatewayError> {
-        self.cp
-            .resolve_upstream(&ctx, alias)
-            .await
-            .map(upstream_to_sdk)
-            .map_err(domain_err_to_sdk)
-    }
-
-    async fn resolve_route(
-        &self,
-        ctx: SecurityContext,
-        upstream_id: Uuid,
         method: &str,
         path: &str,
-    ) -> Result<oagw_sdk::Route, ServiceGatewayError> {
+    ) -> Result<(oagw_sdk::Upstream, oagw_sdk::Route), ServiceGatewayError> {
         self.cp
-            .resolve_route(&ctx, upstream_id, method, path)
+            .resolve_proxy_target(&ctx, alias, method, path)
             .await
-            .map(route_to_sdk)
+            .map(|(u, r)| (upstream_to_sdk(u), route_to_sdk(r)))
             .map_err(domain_err_to_sdk)
     }
 

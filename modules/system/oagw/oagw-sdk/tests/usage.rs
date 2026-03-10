@@ -148,21 +148,13 @@ impl ServiceGatewayClientV1 for MockGateway {
         unimplemented!()
     }
 
-    async fn resolve_upstream(
+    async fn resolve_proxy_target(
         &self,
         _: SecurityContext,
         _: &str,
-    ) -> Result<oagw_sdk::Upstream, ServiceGatewayError> {
-        unimplemented!()
-    }
-
-    async fn resolve_route(
-        &self,
-        _: SecurityContext,
-        _: uuid::Uuid,
         _: &str,
         _: &str,
-    ) -> Result<oagw_sdk::Route, ServiceGatewayError> {
+    ) -> Result<(oagw_sdk::Upstream, oagw_sdk::Route), ServiceGatewayError> {
         unimplemented!()
     }
 

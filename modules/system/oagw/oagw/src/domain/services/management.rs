@@ -11,15 +11,36 @@ use crate::domain::model::{
 use crate::domain::repo::{RouteRepository, UpstreamRepository};
 
 use async_trait::async_trait;
+use authz_resolver_sdk::PolicyEnforcer;
+use authz_resolver_sdk::pep::{AccessRequest, ResourceType};
+use credstore_sdk::CredStoreClientV1;
 use modkit_macros::domain_model;
 use modkit_security::SecurityContext;
+use tenant_resolver_sdk::TenantResolverClient;
 use uuid::Uuid;
+
+/// Resource type for upstream binding permission checks.
+const UPSTREAM_RESOURCE: ResourceType = ResourceType {
+    name: "gts.x.core.oagw.upstream.v1~",
+    supported_properties: &["owner_tenant_id"],
+};
+
+/// Permission action names for ancestor bind checks.
+mod bind_actions {
+    pub const BIND: &str = "bind";
+    pub const OVERRIDE_AUTH: &str = "override_auth";
+    pub const OVERRIDE_RATE: &str = "override_rate";
+    pub const ADD_PLUGINS: &str = "add_plugins";
+}
 
 /// Control Plane service implementation backed by in-memory repositories.
 #[domain_model]
 pub(crate) struct ControlPlaneServiceImpl {
     upstreams: Arc<dyn UpstreamRepository>,
     routes: Arc<dyn RouteRepository>,
+    tenant_resolver: Arc<dyn TenantResolverClient>,
+    policy_enforcer: PolicyEnforcer,
+    credstore: Arc<dyn CredStoreClientV1>,
 }
 
 impl ControlPlaneServiceImpl {
@@ -27,10 +48,518 @@ impl ControlPlaneServiceImpl {
     pub(crate) fn new(
         upstreams: Arc<dyn UpstreamRepository>,
         routes: Arc<dyn RouteRepository>,
+        tenant_resolver: Arc<dyn TenantResolverClient>,
+        policy_enforcer: PolicyEnforcer,
+        credstore: Arc<dyn CredStoreClientV1>,
     ) -> Self {
-        Self { upstreams, routes }
+        Self {
+            upstreams,
+            routes,
+            tenant_resolver,
+            policy_enforcer,
+            credstore,
+        }
     }
 }
+
+// ===========================================================================
+// Trait implementation — public API surface
+// ===========================================================================
+
+#[async_trait]
+impl ControlPlaneService for ControlPlaneServiceImpl {
+    // -- Upstream CRUD --
+
+    async fn create_upstream(
+        &self,
+        ctx: &SecurityContext,
+        req: CreateUpstreamRequest,
+    ) -> Result<Upstream, DomainError> {
+        validate_endpoints(&req.server.endpoints)?;
+
+        let tenant_id = ctx.subject_tenant_id();
+        let id = Uuid::new_v4();
+
+        let upstream = Upstream {
+            id,
+            tenant_id,
+            alias: String::new(),
+            server: req.server.clone(),
+            protocol: req.protocol.clone(),
+            enabled: req.enabled,
+            auth: req.auth.clone(),
+            headers: req.headers.clone(),
+            plugins: req.plugins.clone(),
+            rate_limit: req.rate_limit.clone(),
+            tags: req.tags.clone(),
+        };
+
+        let alias = req
+            .alias
+            .clone()
+            .unwrap_or_else(|| generate_alias(&upstream));
+
+        validate_alias(&alias)?;
+
+        // Check if an ancestor tenant has an upstream with this alias.
+        // If so, this is a "bind" operation requiring ancestor bind validation.
+        self.validate_ancestor_bind(
+            ctx,
+            &alias,
+            &BindOverrides {
+                auth: req.auth.as_ref(),
+                rate_limit: req.rate_limit.as_ref(),
+                plugins: req.plugins.as_ref(),
+            },
+        )
+        .await?;
+
+        let upstream = Upstream { alias, ..upstream };
+
+        self.upstreams
+            .create(upstream)
+            .await
+            .map_err(DomainError::from)
+    }
+
+    async fn get_upstream(&self, ctx: &SecurityContext, id: Uuid) -> Result<Upstream, DomainError> {
+        let tenant_id = ctx.subject_tenant_id();
+        self.upstreams
+            .get_by_id(tenant_id, id)
+            .await
+            .map_err(|_| DomainError::not_found("upstream", id))
+    }
+
+    async fn list_upstreams(
+        &self,
+        ctx: &SecurityContext,
+        query: &ListQuery,
+    ) -> Result<Vec<Upstream>, DomainError> {
+        let tenant_id = ctx.subject_tenant_id();
+        self.upstreams
+            .list(tenant_id, query)
+            .await
+            .map_err(DomainError::from)
+    }
+
+    async fn update_upstream(
+        &self,
+        ctx: &SecurityContext,
+        id: Uuid,
+        req: UpdateUpstreamRequest,
+    ) -> Result<Upstream, DomainError> {
+        let tenant_id = ctx.subject_tenant_id();
+        let mut existing = self
+            .upstreams
+            .get_by_id(tenant_id, id)
+            .await
+            .map_err(|_| DomainError::not_found("upstream", id))?;
+
+        // Apply partial update.
+        if let Some(server) = req.server {
+            validate_endpoints(&server.endpoints)?;
+            existing.server = server;
+        }
+        if let Some(protocol) = req.protocol {
+            existing.protocol = protocol;
+        }
+        if let Some(ref alias) = req.alias {
+            validate_alias(alias)?;
+        }
+
+        // Validate ancestor bind constraints if the resulting alias matches
+        // an ancestor upstream. Use the new alias if provided, else the existing.
+        let effective_alias = req.alias.as_deref().unwrap_or(&existing.alias);
+
+        // Build post-update local state for bind validation. When an alias
+        // changes to match an ancestor, *existing* local overrides (auth,
+        // rate_limit, plugins) must also be validated — not just the fields
+        // present in the patch request.
+        let effective_auth = req.auth.as_ref().or(existing.auth.as_ref());
+        let effective_rate_limit = req.rate_limit.as_ref().or(existing.rate_limit.as_ref());
+        let effective_plugins = req.plugins.as_ref().or(existing.plugins.as_ref());
+        let has_overrides = effective_auth.is_some()
+            || effective_rate_limit.is_some()
+            || effective_plugins.is_some();
+
+        if has_overrides || req.alias.is_some() {
+            self.validate_ancestor_bind(
+                ctx,
+                effective_alias,
+                &BindOverrides {
+                    auth: effective_auth,
+                    rate_limit: effective_rate_limit,
+                    plugins: effective_plugins,
+                },
+            )
+            .await?;
+        }
+
+        if let Some(alias) = req.alias {
+            existing.alias = alias;
+        }
+        if let Some(auth) = req.auth {
+            existing.auth = Some(auth);
+        }
+        if let Some(headers) = req.headers {
+            existing.headers = Some(headers);
+        }
+        if let Some(plugins) = req.plugins {
+            existing.plugins = Some(plugins);
+        }
+        if let Some(rate_limit) = req.rate_limit {
+            existing.rate_limit = Some(rate_limit);
+        }
+        if let Some(tags) = req.tags {
+            existing.tags = tags;
+        }
+        if let Some(enabled) = req.enabled {
+            existing.enabled = enabled;
+        }
+
+        self.upstreams
+            .update(existing)
+            .await
+            .map_err(DomainError::from)
+    }
+
+    async fn delete_upstream(&self, ctx: &SecurityContext, id: Uuid) -> Result<(), DomainError> {
+        let tenant_id = ctx.subject_tenant_id();
+        // Cascade delete routes before removing the upstream.
+        self.routes
+            .delete_by_upstream(tenant_id, id)
+            .await
+            .map_err(DomainError::from)?;
+        self.upstreams
+            .delete(tenant_id, id)
+            .await
+            .map_err(|_| DomainError::not_found("upstream", id))
+    }
+
+    // -- Route CRUD --
+
+    async fn create_route(
+        &self,
+        ctx: &SecurityContext,
+        req: CreateRouteRequest,
+    ) -> Result<Route, DomainError> {
+        let tenant_id = ctx.subject_tenant_id();
+        // Validate that the upstream exists and belongs to this tenant.
+        self.upstreams
+            .get_by_id(tenant_id, req.upstream_id)
+            .await
+            .map_err(|_| {
+                DomainError::validation(format!(
+                    "upstream '{}' not found for this tenant",
+                    req.upstream_id
+                ))
+            })?;
+
+        let route = Route {
+            id: Uuid::new_v4(),
+            tenant_id,
+            upstream_id: req.upstream_id,
+            match_rules: req.match_rules,
+            plugins: req.plugins,
+            rate_limit: req.rate_limit,
+            tags: req.tags,
+            priority: req.priority,
+            enabled: req.enabled,
+        };
+
+        self.routes.create(route).await.map_err(DomainError::from)
+    }
+
+    async fn get_route(&self, ctx: &SecurityContext, id: Uuid) -> Result<Route, DomainError> {
+        let tenant_id = ctx.subject_tenant_id();
+        self.routes
+            .get_by_id(tenant_id, id)
+            .await
+            .map_err(|_| DomainError::not_found("route", id))
+    }
+
+    async fn list_routes(
+        &self,
+        ctx: &SecurityContext,
+        upstream_id: Uuid,
+        query: &ListQuery,
+    ) -> Result<Vec<Route>, DomainError> {
+        let tenant_id = ctx.subject_tenant_id();
+        self.routes
+            .list_by_upstream(tenant_id, upstream_id, query)
+            .await
+            .map_err(DomainError::from)
+    }
+
+    async fn update_route(
+        &self,
+        ctx: &SecurityContext,
+        id: Uuid,
+        req: UpdateRouteRequest,
+    ) -> Result<Route, DomainError> {
+        let tenant_id = ctx.subject_tenant_id();
+        let mut existing = self
+            .routes
+            .get_by_id(tenant_id, id)
+            .await
+            .map_err(|_| DomainError::not_found("route", id))?;
+
+        if let Some(match_rules) = req.match_rules {
+            existing.match_rules = match_rules;
+        }
+        if let Some(plugins) = req.plugins {
+            existing.plugins = Some(plugins);
+        }
+        if let Some(rate_limit) = req.rate_limit {
+            existing.rate_limit = Some(rate_limit);
+        }
+        if let Some(tags) = req.tags {
+            existing.tags = tags;
+        }
+        if let Some(priority) = req.priority {
+            existing.priority = priority;
+        }
+        if let Some(enabled) = req.enabled {
+            existing.enabled = enabled;
+        }
+
+        self.routes
+            .update(existing)
+            .await
+            .map_err(DomainError::from)
+    }
+
+    async fn delete_route(&self, ctx: &SecurityContext, id: Uuid) -> Result<(), DomainError> {
+        let tenant_id = ctx.subject_tenant_id();
+        self.routes
+            .delete(tenant_id, id)
+            .await
+            .map_err(|_| DomainError::not_found("route", id))
+    }
+
+    // -- Resolution --
+
+    async fn resolve_proxy_target(
+        &self,
+        ctx: &SecurityContext,
+        alias: &str,
+        method: &str,
+        path: &str,
+    ) -> Result<(Upstream, Route), DomainError> {
+        let tenant_chain = self.build_tenant_chain(ctx).await?;
+        let (effective, route) = self
+            .resolve_alias(ctx, &tenant_chain, alias, Some((method, path)))
+            .await?;
+        Ok((
+            effective,
+            route.expect("route always present when method+path provided"),
+        ))
+    }
+}
+
+// ===========================================================================
+// Private helpers on ControlPlaneServiceImpl
+// ===========================================================================
+
+impl ControlPlaneServiceImpl {
+    /// Validate bind constraints against the **closest** ancestor with a matching
+    /// alias. Delegates to [`validate_bind_constraints`] for policy permissions,
+    /// sharing mode enforcement, and `secret_ref` accessibility.
+    ///
+    /// Only the closest ancestor is checked — not the entire chain. This is
+    /// intentional: permission to bind is granted by the immediate owner of
+    /// the alias. Grandparent `enforce` constraints still propagate at runtime
+    /// through [`compute_effective_config`], which merges the full chain
+    /// root → descendant.
+    ///
+    /// No-op if no ancestor has the alias (fresh upstream, no bind needed).
+    async fn validate_ancestor_bind(
+        &self,
+        ctx: &SecurityContext,
+        alias: &str,
+        overrides: &BindOverrides<'_>,
+    ) -> Result<(), DomainError> {
+        let tenant_chain = self.build_tenant_chain(ctx).await?;
+
+        for &ancestor_tid in &tenant_chain[1..] {
+            if let Ok(ancestor_upstream) = self.upstreams.get_by_alias(ancestor_tid, alias).await {
+                validate_bind_constraints(
+                    &self.policy_enforcer,
+                    self.credstore.as_ref(),
+                    ctx,
+                    &ancestor_upstream,
+                    overrides,
+                )
+                .await?;
+                break; // Only check closest ancestor with matching alias.
+            }
+        }
+        Ok(())
+    }
+
+    /// Build the ordered tenant chain `[self, parent, ..., root]`.
+    ///
+    /// Index 0 is always the requesting tenant. Callers that only need
+    /// ancestors (e.g. permission checks) can skip `&chain[1..]`.
+    pub(crate) async fn build_tenant_chain(
+        &self,
+        ctx: &SecurityContext,
+    ) -> Result<Vec<Uuid>, DomainError> {
+        let tenant_id = ctx.subject_tenant_id();
+        let ancestors_resp = self
+            .tenant_resolver
+            .get_ancestors(
+                ctx,
+                tenant_id,
+                &tenant_resolver_sdk::GetAncestorsOptions::default(),
+            )
+            .await?;
+
+        let mut chain = Vec::with_capacity(1 + ancestors_resp.ancestors.len());
+        chain.push(tenant_id);
+        for ancestor in &ancestors_resp.ancestors {
+            chain.push(ancestor.id);
+        }
+        Ok(chain)
+    }
+
+    /// Alias resolution: find the winning upstream by alias across the tenant
+    /// chain, collect the merge chain, optionally resolve a route, and return
+    /// the effective config.
+    ///
+    /// Performs a **single walk** over the tenant chain, collecting all visible
+    /// upstreams in one pass. The winning (closest enabled) upstream is selected
+    /// and ancestors above it form the merge chain — no second pass needed.
+    ///
+    /// When `method_path` is `Some((method, path))`, a route is also resolved
+    /// across the tenant chain (searching by each ancestor upstream ID) and
+    /// folded into the effective config via `compute_effective_config`.
+    pub(crate) async fn resolve_alias(
+        &self,
+        ctx: &SecurityContext,
+        tenant_chain: &[Uuid],
+        alias: &str,
+        method_path: Option<(&str, &str)>,
+    ) -> Result<(Upstream, Option<Route>), DomainError> {
+        let tenant_id = ctx.subject_tenant_id();
+
+        // Single walk: collect all visible upstreams keyed by chain index.
+        let mut found: Vec<(usize, Upstream)> = Vec::new();
+        let mut disabled_alias: Option<String> = None;
+
+        for (i, &tid) in tenant_chain.iter().enumerate() {
+            match self.upstreams.get_by_alias(tid, alias).await {
+                Ok(upstream) => {
+                    if tid != tenant_id && !is_visible_to_descendant(&upstream) {
+                        continue;
+                    }
+                    if !upstream.enabled {
+                        if disabled_alias.is_none() {
+                            disabled_alias = Some(upstream.alias.clone());
+                        }
+                        continue;
+                    }
+                    found.push((i, upstream));
+                }
+                Err(_) => continue,
+            }
+        }
+
+        // The winning upstream is the closest (lowest index) enabled match.
+        let (_, selected_upstream) = match found.first() {
+            Some(pair) => pair.clone(),
+            None => {
+                if let Some(alias) = disabled_alias {
+                    return Err(DomainError::upstream_disabled(alias));
+                }
+                return Err(DomainError::not_found("upstream", Uuid::nil()));
+            }
+        };
+
+        // Ancestors above the selected one form the merge chain (already collected).
+        let merge_chain: Vec<&Upstream> = found[1..].iter().map(|(_, u)| u).collect();
+
+        // Resolve route if method+path provided.
+        // Search by each upstream ID in the chain — routes may be attached to
+        // the selected upstream or any ancestor upstream.
+        let route = if let Some((method, path)) = method_path {
+            let mut route_found: Option<Route> = None;
+
+            // Try selected upstream's ID first (most specific).
+            if let Ok(r) = Self::find_route_in_chain(
+                &*self.routes,
+                tenant_chain,
+                selected_upstream.id,
+                method,
+                path,
+            )
+            .await
+            {
+                route_found = Some(r);
+            }
+
+            // Fall back to ancestor upstream IDs (closest ancestor first).
+            if route_found.is_none() {
+                for ancestor in &merge_chain {
+                    if let Ok(r) = Self::find_route_in_chain(
+                        &*self.routes,
+                        tenant_chain,
+                        ancestor.id,
+                        method,
+                        path,
+                    )
+                    .await
+                    {
+                        route_found = Some(r);
+                        break;
+                    }
+                }
+            }
+
+            Some(route_found.ok_or_else(|| DomainError::not_found("route", Uuid::nil()))?)
+        } else {
+            None
+        };
+
+        // Build effective config.
+        if merge_chain.is_empty() {
+            // Single upstream → apply route overrides directly if present.
+            if let Some(ref route) = route {
+                let effective =
+                    compute_effective_config(std::slice::from_ref(&selected_upstream), Some(route));
+                return Ok((effective, Some(route.clone())));
+            }
+            return Ok((selected_upstream, None));
+        }
+
+        // Root-first order for merge: reverse ancestors, append selected.
+        let mut merge_vec: Vec<Upstream> = merge_chain.into_iter().rev().cloned().collect();
+        merge_vec.push(selected_upstream);
+
+        let effective = compute_effective_config(&merge_vec, route.as_ref());
+        Ok((effective, route))
+    }
+
+    /// Find a matching route for `upstream_id` by searching across tenant scopes.
+    pub(crate) async fn find_route_in_chain(
+        routes: &dyn RouteRepository,
+        tenant_chain: &[Uuid],
+        upstream_id: Uuid,
+        method: &str,
+        path: &str,
+    ) -> Result<Route, DomainError> {
+        for &tid in tenant_chain {
+            if let Ok(route) = routes.find_matching(tid, upstream_id, method, path).await {
+                return Ok(route);
+            }
+        }
+        Err(DomainError::not_found("route", Uuid::nil()))
+    }
+}
+
+// ===========================================================================
+// Free functions — validation, permissions, visibility, config merge, alias
+// ===========================================================================
 
 /// Validate the endpoint list for a server configuration.
 ///
@@ -143,265 +672,469 @@ fn generate_alias(upstream: &Upstream) -> String {
     endpoints[0].alias_contribution()
 }
 
-#[async_trait]
-impl ControlPlaneService for ControlPlaneServiceImpl {
-    // -- Upstream CRUD --
+// ---------------------------------------------------------------------------
+// Ancestor bind validation
+// ---------------------------------------------------------------------------
 
-    async fn create_upstream(
-        &self,
-        ctx: &SecurityContext,
-        req: CreateUpstreamRequest,
-    ) -> Result<Upstream, DomainError> {
-        validate_endpoints(&req.server.endpoints)?;
+/// Describes the override fields a descendant is attempting to set.
+/// Used by `validate_bind_constraints` so both create and update can share
+/// the same validation logic.
+#[allow(unknown_lints, de0309_must_have_domain_model)] // short-lived param container, not a domain entity
+struct BindOverrides<'a> {
+    auth: Option<&'a crate::domain::model::AuthConfig>,
+    rate_limit: Option<&'a crate::domain::model::RateLimitConfig>,
+    plugins: Option<&'a crate::domain::model::PluginsConfig>,
+}
 
-        let tenant_id = ctx.subject_tenant_id();
-        let id = Uuid::new_v4();
+/// Validate bind constraints when a descendant creates or updates an
+/// upstream whose alias matches an ancestor's upstream.
+///
+/// Per `cpt-cf-oagw-algo-tenant-permission-check`:
+/// - `oagw:upstream:bind` — required for any bind to ancestor upstream
+/// - `oagw:upstream:override_auth` — required if descendant provides auth config
+/// - `oagw:upstream:override_rate` — required if descendant provides rate_limit config
+/// - `oagw:upstream:add_plugins` — required if descendant provides plugins config
+///
+/// Also validates sharing modes:
+/// - `enforce` fields cannot be overridden (400 Validation)
+/// - `private` fields are not visible (400 Validation)
+async fn validate_bind_constraints(
+    enforcer: &PolicyEnforcer,
+    credstore: &dyn CredStoreClientV1,
+    ctx: &SecurityContext,
+    ancestor: &Upstream,
+    overrides: &BindOverrides<'_>,
+) -> Result<(), DomainError> {
+    use crate::domain::model::SharingMode;
 
-        let upstream = Upstream {
-            id,
-            tenant_id,
-            alias: String::new(),
-            server: req.server.clone(),
-            protocol: req.protocol.clone(),
-            enabled: req.enabled,
-            auth: req.auth.clone(),
-            headers: req.headers.clone(),
-            plugins: req.plugins.clone(),
-            rate_limit: req.rate_limit.clone(),
-            tags: req.tags.clone(),
-        };
+    // 1. Check bind permission.
+    let access_req = AccessRequest::new()
+        .resource_property("owner_tenant_id", ancestor.tenant_id)
+        .require_constraints(false);
+    enforcer
+        .access_scope_with(
+            ctx,
+            &UPSTREAM_RESOURCE,
+            bind_actions::BIND,
+            Some(ancestor.id),
+            &access_req,
+        )
+        .await?;
 
-        let alias = req
-            .alias
-            .clone()
-            .unwrap_or_else(|| generate_alias(&upstream));
+    // 2. Check per-field override permissions and sharing mode constraints.
 
-        validate_alias(&alias)?;
+    // Auth override
+    if let Some(auth_override) = overrides.auth {
+        match ancestor.auth.as_ref().map(|a| a.sharing) {
+            Some(SharingMode::Enforce) => {
+                return Err(DomainError::validation(
+                    "cannot override auth: ancestor upstream has sharing mode 'enforce'",
+                ));
+            }
+            Some(SharingMode::Private) => {
+                return Err(DomainError::validation(
+                    "cannot override auth: ancestor upstream field is private",
+                ));
+            }
+            _ => {
+                enforcer
+                    .access_scope_with(
+                        ctx,
+                        &UPSTREAM_RESOURCE,
+                        bind_actions::OVERRIDE_AUTH,
+                        Some(ancestor.id),
+                        &access_req,
+                    )
+                    .await?;
 
-        let upstream = Upstream { alias, ..upstream };
-
-        self.upstreams
-            .create(upstream)
-            .await
-            .map_err(DomainError::from)
+                // Validate secret_ref accessibility for the descendant tenant.
+                if let Some(ref config) = auth_override.config
+                    && let Some(raw_ref) = config.get("secret_ref")
+                {
+                    validate_secret_ref_accessible(credstore, ctx, raw_ref).await?;
+                }
+            }
+        }
     }
 
-    async fn get_upstream(&self, ctx: &SecurityContext, id: Uuid) -> Result<Upstream, DomainError> {
-        let tenant_id = ctx.subject_tenant_id();
-        self.upstreams
-            .get_by_id(tenant_id, id)
-            .await
-            .map_err(|_| DomainError::not_found("upstream", id))
+    // Rate limit override
+    if overrides.rate_limit.is_some() {
+        match ancestor.rate_limit.as_ref().map(|r| r.sharing) {
+            Some(SharingMode::Enforce) => {
+                return Err(DomainError::validation(
+                    "cannot override rate_limit: ancestor upstream has sharing mode 'enforce'",
+                ));
+            }
+            Some(SharingMode::Private) => {
+                return Err(DomainError::validation(
+                    "cannot override rate_limit: ancestor upstream field is private",
+                ));
+            }
+            _ => {
+                enforcer
+                    .access_scope_with(
+                        ctx,
+                        &UPSTREAM_RESOURCE,
+                        bind_actions::OVERRIDE_RATE,
+                        Some(ancestor.id),
+                        &access_req,
+                    )
+                    .await?;
+            }
+        }
     }
 
-    async fn list_upstreams(
-        &self,
-        ctx: &SecurityContext,
-        query: &ListQuery,
-    ) -> Result<Vec<Upstream>, DomainError> {
-        let tenant_id = ctx.subject_tenant_id();
-        self.upstreams
-            .list(tenant_id, query)
-            .await
-            .map_err(DomainError::from)
+    // Plugins override
+    if overrides.plugins.is_some() {
+        match ancestor.plugins.as_ref().map(|p| p.sharing) {
+            Some(SharingMode::Enforce) => {
+                return Err(DomainError::validation(
+                    "cannot override plugins: ancestor upstream has sharing mode 'enforce'",
+                ));
+            }
+            Some(SharingMode::Private) => {
+                return Err(DomainError::validation(
+                    "cannot override plugins: ancestor upstream field is private",
+                ));
+            }
+            _ => {
+                enforcer
+                    .access_scope_with(
+                        ctx,
+                        &UPSTREAM_RESOURCE,
+                        bind_actions::ADD_PLUGINS,
+                        Some(ancestor.id),
+                        &access_req,
+                    )
+                    .await?;
+            }
+        }
     }
 
-    async fn update_upstream(
-        &self,
-        ctx: &SecurityContext,
-        id: Uuid,
-        req: UpdateUpstreamRequest,
-    ) -> Result<Upstream, DomainError> {
-        let tenant_id = ctx.subject_tenant_id();
-        let mut existing = self
-            .upstreams
-            .get_by_id(tenant_id, id)
-            .await
-            .map_err(|_| DomainError::not_found("upstream", id))?;
+    Ok(())
+}
 
-        // Apply partial update.
-        if let Some(server) = req.server {
-            validate_endpoints(&server.endpoints)?;
-            existing.server = server;
+/// Validate that a `secret_ref` is accessible to the requesting tenant via
+/// `cred_store`. Per `cpt-cf-oagw-principle-cred-isolation`, if the secret
+/// is not accessible, the request is rejected (fail-closed).
+async fn validate_secret_ref_accessible(
+    credstore: &dyn CredStoreClientV1,
+    ctx: &SecurityContext,
+    raw_ref: &str,
+) -> Result<(), DomainError> {
+    let bare = raw_ref.strip_prefix("cred://").unwrap_or(raw_ref);
+    let key = credstore_sdk::SecretRef::new(bare)
+        .map_err(|e| DomainError::validation(format!("invalid secret_ref '{raw_ref}': {e}")))?;
+
+    match credstore.get(ctx, &key).await {
+        Ok(Some(_)) => Ok(()),
+        Ok(None) => Err(DomainError::validation(format!(
+            "secret_ref '{raw_ref}' is not accessible to this tenant"
+        ))),
+        Err(credstore_sdk::CredStoreError::Internal(msg)) => {
+            // Fail-closed: cred_store unavailability → reject.
+            tracing::warn!(secret_ref = raw_ref, error = %msg, "cred_store unavailable during secret_ref validation");
+            Err(DomainError::Internal {
+                message: format!("credential validation unavailable: {msg}"),
+            })
         }
-        if let Some(protocol) = req.protocol {
-            existing.protocol = protocol;
-        }
-        if let Some(alias) = req.alias {
-            validate_alias(&alias)?;
-            existing.alias = alias;
-        }
-        if let Some(auth) = req.auth {
-            existing.auth = Some(auth);
-        }
-        if let Some(headers) = req.headers {
-            existing.headers = Some(headers);
-        }
-        if let Some(plugins) = req.plugins {
-            existing.plugins = Some(plugins);
-        }
-        if let Some(rate_limit) = req.rate_limit {
-            existing.rate_limit = Some(rate_limit);
-        }
-        if let Some(tags) = req.tags {
-            existing.tags = tags;
-        }
-        if let Some(enabled) = req.enabled {
-            existing.enabled = enabled;
-        }
-
-        self.upstreams
-            .update(existing)
-            .await
-            .map_err(DomainError::from)
-    }
-
-    async fn delete_upstream(&self, ctx: &SecurityContext, id: Uuid) -> Result<(), DomainError> {
-        let tenant_id = ctx.subject_tenant_id();
-        // Cascade delete routes.
-        let _ = self.routes.delete_by_upstream(tenant_id, id).await;
-        self.upstreams
-            .delete(tenant_id, id)
-            .await
-            .map_err(|_| DomainError::not_found("upstream", id))
-    }
-
-    // -- Route CRUD --
-
-    async fn create_route(
-        &self,
-        ctx: &SecurityContext,
-        req: CreateRouteRequest,
-    ) -> Result<Route, DomainError> {
-        let tenant_id = ctx.subject_tenant_id();
-        // Validate that the upstream exists and belongs to this tenant.
-        self.upstreams
-            .get_by_id(tenant_id, req.upstream_id)
-            .await
-            .map_err(|_| {
-                DomainError::validation(format!(
-                    "upstream '{}' not found for this tenant",
-                    req.upstream_id
-                ))
-            })?;
-
-        let route = Route {
-            id: Uuid::new_v4(),
-            tenant_id,
-            upstream_id: req.upstream_id,
-            match_rules: req.match_rules,
-            plugins: req.plugins,
-            rate_limit: req.rate_limit,
-            tags: req.tags,
-            priority: req.priority,
-            enabled: req.enabled,
-        };
-
-        self.routes.create(route).await.map_err(DomainError::from)
-    }
-
-    async fn get_route(&self, ctx: &SecurityContext, id: Uuid) -> Result<Route, DomainError> {
-        let tenant_id = ctx.subject_tenant_id();
-        self.routes
-            .get_by_id(tenant_id, id)
-            .await
-            .map_err(|_| DomainError::not_found("route", id))
-    }
-
-    async fn list_routes(
-        &self,
-        ctx: &SecurityContext,
-        upstream_id: Uuid,
-        query: &ListQuery,
-    ) -> Result<Vec<Route>, DomainError> {
-        let tenant_id = ctx.subject_tenant_id();
-        self.routes
-            .list_by_upstream(tenant_id, upstream_id, query)
-            .await
-            .map_err(DomainError::from)
-    }
-
-    async fn update_route(
-        &self,
-        ctx: &SecurityContext,
-        id: Uuid,
-        req: UpdateRouteRequest,
-    ) -> Result<Route, DomainError> {
-        let tenant_id = ctx.subject_tenant_id();
-        let mut existing = self
-            .routes
-            .get_by_id(tenant_id, id)
-            .await
-            .map_err(|_| DomainError::not_found("route", id))?;
-
-        if let Some(match_rules) = req.match_rules {
-            existing.match_rules = match_rules;
-        }
-        if let Some(plugins) = req.plugins {
-            existing.plugins = Some(plugins);
-        }
-        if let Some(rate_limit) = req.rate_limit {
-            existing.rate_limit = Some(rate_limit);
-        }
-        if let Some(tags) = req.tags {
-            existing.tags = tags;
-        }
-        if let Some(priority) = req.priority {
-            existing.priority = priority;
-        }
-        if let Some(enabled) = req.enabled {
-            existing.enabled = enabled;
-        }
-
-        self.routes
-            .update(existing)
-            .await
-            .map_err(DomainError::from)
-    }
-
-    async fn delete_route(&self, ctx: &SecurityContext, id: Uuid) -> Result<(), DomainError> {
-        let tenant_id = ctx.subject_tenant_id();
-        self.routes
-            .delete(tenant_id, id)
-            .await
-            .map_err(|_| DomainError::not_found("route", id))
-    }
-
-    // -- Resolution --
-
-    async fn resolve_upstream(
-        &self,
-        ctx: &SecurityContext,
-        alias: &str,
-    ) -> Result<Upstream, DomainError> {
-        let tenant_id = ctx.subject_tenant_id();
-        let upstream = self
-            .upstreams
-            .get_by_alias(tenant_id, alias)
-            .await
-            .map_err(|_| DomainError::not_found("upstream", Uuid::nil()))?;
-
-        if !upstream.enabled {
-            return Err(DomainError::upstream_disabled(alias));
-        }
-
-        Ok(upstream)
-    }
-
-    async fn resolve_route(
-        &self,
-        ctx: &SecurityContext,
-        upstream_id: Uuid,
-        method: &str,
-        path: &str,
-    ) -> Result<Route, DomainError> {
-        let tenant_id = ctx.subject_tenant_id();
-        self.routes
-            .find_matching(tenant_id, upstream_id, method, path)
-            .await
-            .map_err(|_| DomainError::not_found("route", Uuid::nil()))
+        Err(e) => Err(DomainError::validation(format!(
+            "secret_ref '{raw_ref}' validation failed: {e}"
+        ))),
     }
 }
+
+// ---------------------------------------------------------------------------
+// Visibility and effective configuration merge
+// ---------------------------------------------------------------------------
+
+/// Check whether an upstream is visible to descendant tenants.
+///
+/// Per `cpt-cf-oagw-algo-tenant-alias-shadow` step 2b, an ancestor upstream is
+/// visible if its own tenant matches the requester OR any per-field sharing flag
+/// (`auth`, `rate_limit`, `plugins`) is not `private`.
+///
+/// Returns `false` when all shareable fields are `None` — this is intentional.
+/// An upstream with no auth, rate_limit, or plugins has no configuration to
+/// share with descendants, so it is treated as invisible. Fields without a
+/// sharing mode (e.g. `headers`) do not contribute to visibility.
+///
+/// TODO: when CORS sharing mode lands on the domain model, add `cors` to
+/// the visibility check per the spec (`cors_sharing` is listed in step 2b).
+fn is_visible_to_descendant(upstream: &Upstream) -> bool {
+    use crate::domain::model::SharingMode;
+
+    let auth_shared = upstream
+        .auth
+        .as_ref()
+        .is_some_and(|a| a.sharing != SharingMode::Private);
+    let rate_shared = upstream
+        .rate_limit
+        .as_ref()
+        .is_some_and(|r| r.sharing != SharingMode::Private);
+    let plugins_shared = upstream
+        .plugins
+        .as_ref()
+        .is_some_and(|p| p.sharing != SharingMode::Private);
+
+    auth_shared || rate_shared || plugins_shared
+}
+
+/// Compute the effective upstream configuration by merging ancestor upstreams
+/// in the tenant chain (root → descendant).
+///
+/// Per `cpt-cf-oagw-algo-tenant-config-merge`:
+/// - Auth:       `private` → local-only (blocked by ancestor `enforce`); `inherit` → override; `enforce` → sticky
+/// - Rate limit: `private` → local-only (constrained by ancestor `enforce` via `min()`); else `min(ancestor, descendant)`
+/// - Plugins:    `private` → local-only (ancestor `enforce` items preserved); else concatenate `ancestor + descendant`
+/// - Tags:       union (add-only)
+///
+/// `ancestor_chain` is ordered root-first: `[root, parent, ..., selected]`.
+/// The last element is the selected (resolved) upstream.
+pub(crate) fn compute_effective_config(
+    ancestor_chain: &[Upstream],
+    route: Option<&Route>,
+) -> Upstream {
+    use crate::domain::model::SharingMode;
+
+    assert!(
+        !ancestor_chain.is_empty(),
+        "ancestor_chain must not be empty"
+    );
+
+    // Start with the root upstream as the base.
+    let mut effective = ancestor_chain[0].clone();
+
+    // Walk root → descendant, merging each layer.
+    for layer in &ancestor_chain[1..] {
+        // Auth merge
+        merge_auth(&mut effective, layer);
+
+        // Rate limit merge
+        merge_rate_limit(&mut effective, layer);
+
+        // Plugins merge
+        merge_plugins(&mut effective, layer);
+
+        // Tags: union (add-only)
+        for tag in &layer.tags {
+            if !effective.tags.contains(tag) {
+                effective.tags.push(tag.clone());
+            }
+        }
+
+        // Server, protocol, enabled, alias: always use the selected upstream's values.
+        effective.id = layer.id;
+        effective.tenant_id = layer.tenant_id;
+        effective.alias = layer.alias.clone();
+        effective.server = layer.server.clone();
+        effective.protocol = layer.protocol.clone();
+        effective.enabled = layer.enabled;
+        effective.headers = layer.headers.clone().or(effective.headers);
+    }
+
+    // Route-level overrides (route > upstream base per config layering).
+    if let Some(route) = route {
+        // Route plugins: concatenate upstream + route plugins.
+        if let Some(ref route_plugins) = route.plugins {
+            match route_plugins.sharing {
+                SharingMode::Private => {}
+                SharingMode::Inherit | SharingMode::Enforce => {
+                    let mut merged_items = effective
+                        .plugins
+                        .as_ref()
+                        .map(|p| p.items.clone())
+                        .unwrap_or_default();
+                    for item in &route_plugins.items {
+                        if !merged_items.contains(item) {
+                            merged_items.push(item.clone());
+                        }
+                    }
+                    effective.plugins = Some(crate::domain::model::PluginsConfig {
+                        sharing: route_plugins.sharing,
+                        items: merged_items,
+                    });
+                }
+            }
+        }
+
+        // Route rate limit: min(effective, route).
+        if let Some(ref route_rl) = route.rate_limit {
+            match route_rl.sharing {
+                SharingMode::Private => {}
+                _ => {
+                    effective.rate_limit =
+                        Some(min_rate_limit(effective.rate_limit.as_ref(), route_rl));
+                }
+            }
+        }
+
+        // Route tags: union.
+        for tag in &route.tags {
+            if !effective.tags.contains(tag) {
+                effective.tags.push(tag.clone());
+            }
+        }
+    }
+
+    effective
+}
+
+/// Merge auth config from a descendant layer onto the effective config.
+///
+/// Key invariant: once an ancestor sets `enforce`, no descendant can override
+/// regardless of the descendant's own sharing mode.  This is defense-in-depth;
+/// `validate_bind_constraints` also guards this at create/update time.
+///
+/// Sharing semantics:
+/// - `Private` + ancestor enforced → keep ancestor (enforce is sticky)
+/// - `Private` + ancestor not enforced → descendant replaces (local-only)
+/// - `Inherit` → descendant overrides ancestor
+/// - `Enforce` → descendant's enforce becomes sticky for further descendants
+fn merge_auth(effective: &mut Upstream, layer: &Upstream) {
+    use crate::domain::model::SharingMode;
+
+    let effective_is_enforced = effective
+        .auth
+        .as_ref()
+        .is_some_and(|a| a.sharing == SharingMode::Enforce);
+
+    match &layer.auth {
+        None => {} // Absent → inherit from previous level (no-op).
+        Some(_) if effective_is_enforced => {
+            // Ancestor enforced — no descendant can change it regardless of sharing mode.
+        }
+        Some(descendant_auth) => {
+            // Private → local-only replace; Inherit → override; Enforce → becomes sticky.
+            effective.auth = Some(descendant_auth.clone());
+        }
+    }
+}
+
+/// Merge rate limit config: `min(ancestor_enforced, descendant)`.
+///
+/// Key invariant: if the effective rate limit is already `Enforce`, a
+/// descendant `Private` cannot drop it — `min()` is applied instead.
+/// This is defense-in-depth; `validate_bind_constraints` also guards
+/// this at create/update time.
+fn merge_rate_limit(effective: &mut Upstream, layer: &Upstream) {
+    use crate::domain::model::SharingMode;
+
+    let effective_is_enforced = effective
+        .rate_limit
+        .as_ref()
+        .is_some_and(|r| r.sharing == SharingMode::Enforce);
+
+    match &layer.rate_limit {
+        None => {} // Absent = inherit from previous level (no-op).
+        Some(descendant_rl) => match descendant_rl.sharing {
+            SharingMode::Private if effective_is_enforced => {
+                // Ancestor enforced — descendant cannot escape; apply min.
+                effective.rate_limit =
+                    Some(min_rate_limit(effective.rate_limit.as_ref(), descendant_rl));
+            }
+            SharingMode::Private => {
+                effective.rate_limit = Some(descendant_rl.clone());
+            }
+            SharingMode::Inherit | SharingMode::Enforce => {
+                effective.rate_limit =
+                    Some(min_rate_limit(effective.rate_limit.as_ref(), descendant_rl));
+            }
+        },
+    }
+}
+
+/// Return the stricter of two rate limit configs (lower rate wins).
+fn min_rate_limit(
+    a: Option<&crate::domain::model::RateLimitConfig>,
+    b: &crate::domain::model::RateLimitConfig,
+) -> crate::domain::model::RateLimitConfig {
+    match a {
+        None => b.clone(),
+        Some(a) => {
+            let a_rate = rate_per_second(a);
+            let b_rate = rate_per_second(b);
+            if b_rate < a_rate {
+                b.clone()
+            } else {
+                a.clone()
+            }
+        }
+    }
+}
+
+/// Normalize a rate limit to requests-per-second for comparison.
+fn rate_per_second(rl: &crate::domain::model::RateLimitConfig) -> f64 {
+    use crate::domain::model::Window;
+    let divisor = match rl.sustained.window {
+        Window::Second => 1.0,
+        Window::Minute => 60.0,
+        Window::Hour => 3600.0,
+        Window::Day => 86400.0,
+    };
+    f64::from(rl.sustained.rate) / divisor
+}
+
+/// Merge plugins config: concatenate ancestor + descendant; enforced can't be removed.
+///
+/// Key invariant: if the effective plugins are already `Enforce`, a
+/// descendant `Private` cannot drop enforced items — they are preserved
+/// and the descendant's items are appended.
+fn merge_plugins(effective: &mut Upstream, layer: &Upstream) {
+    use crate::domain::model::SharingMode;
+
+    let effective_is_enforced = effective
+        .plugins
+        .as_ref()
+        .is_some_and(|p| p.sharing == SharingMode::Enforce);
+
+    match &layer.plugins {
+        None => {} // Inherit from previous level.
+        Some(descendant_plugins) => match descendant_plugins.sharing {
+            SharingMode::Private if effective_is_enforced => {
+                // Ancestor enforced — preserve enforced items, append descendant.
+                let mut merged = effective
+                    .plugins
+                    .as_ref()
+                    .map(|p| p.items.clone())
+                    .unwrap_or_default();
+                for item in &descendant_plugins.items {
+                    if !merged.contains(item) {
+                        merged.push(item.clone());
+                    }
+                }
+                effective.plugins = Some(crate::domain::model::PluginsConfig {
+                    sharing: SharingMode::Enforce,
+                    items: merged,
+                });
+            }
+            SharingMode::Private => {
+                effective.plugins = Some(descendant_plugins.clone());
+            }
+            SharingMode::Inherit | SharingMode::Enforce => {
+                // Concatenate: ancestor + descendant (dedup).
+                let mut merged = effective
+                    .plugins
+                    .as_ref()
+                    .map(|p| p.items.clone())
+                    .unwrap_or_default();
+                for item in &descendant_plugins.items {
+                    if !merged.contains(item) {
+                        merged.push(item.clone());
+                    }
+                }
+                effective.plugins = Some(crate::domain::model::PluginsConfig {
+                    sharing: descendant_plugins.sharing,
+                    items: merged,
+                });
+            }
+        },
+    }
+}
+
+// ===========================================================================
+// Tests
+// ===========================================================================
 
 #[cfg(test)]
 mod tests {
@@ -412,12 +1145,41 @@ mod tests {
     };
 
     use super::*;
+    use crate::domain::test_support::{
+        MockCredStoreClient, MockTenantResolverClient, allow_all_enforcer,
+    };
     use crate::infra::storage::{InMemoryRouteRepo, InMemoryUpstreamRepo};
 
     fn make_service() -> ControlPlaneServiceImpl {
         ControlPlaneServiceImpl::new(
             Arc::new(InMemoryUpstreamRepo::new()),
             Arc::new(InMemoryRouteRepo::new()),
+            Arc::new(MockTenantResolverClient::single_tenant()),
+            allow_all_enforcer(),
+            Arc::new(MockCredStoreClient::empty()),
+        )
+    }
+
+    fn make_service_with_resolver(resolver: MockTenantResolverClient) -> ControlPlaneServiceImpl {
+        ControlPlaneServiceImpl::new(
+            Arc::new(InMemoryUpstreamRepo::new()),
+            Arc::new(InMemoryRouteRepo::new()),
+            Arc::new(resolver),
+            allow_all_enforcer(),
+            Arc::new(MockCredStoreClient::empty()),
+        )
+    }
+
+    fn make_service_with_resolver_and_creds(
+        resolver: MockTenantResolverClient,
+        creds: Vec<(String, String)>,
+    ) -> ControlPlaneServiceImpl {
+        ControlPlaneServiceImpl::new(
+            Arc::new(InMemoryUpstreamRepo::new()),
+            Arc::new(InMemoryRouteRepo::new()),
+            Arc::new(resolver),
+            allow_all_enforcer(),
+            Arc::new(MockCredStoreClient::with_secrets(creds)),
         )
     }
 
@@ -636,7 +1398,11 @@ mod tests {
             .await
             .unwrap();
 
-        let resolved = svc.resolve_upstream(&ctx, "openai").await.unwrap();
+        let chain = svc.build_tenant_chain(&ctx).await.unwrap();
+        let (resolved, _) = svc
+            .resolve_alias(&ctx, &chain, "openai", None)
+            .await
+            .unwrap();
         assert_eq!(resolved.id, u.id);
     }
 
@@ -663,7 +1429,11 @@ mod tests {
         .await
         .unwrap();
 
-        let err = svc.resolve_upstream(&ctx, "openai").await.unwrap_err();
+        let chain = svc.build_tenant_chain(&ctx).await.unwrap();
+        let err = svc
+            .resolve_alias(&ctx, &chain, "openai", None)
+            .await
+            .unwrap_err();
         assert!(matches!(err, DomainError::UpstreamDisabled { .. }));
     }
 
@@ -673,7 +1443,11 @@ mod tests {
         let tenant = Uuid::new_v4();
         let ctx = test_ctx(tenant);
 
-        let err = svc.resolve_upstream(&ctx, "nonexistent").await.unwrap_err();
+        let chain = svc.build_tenant_chain(&ctx).await.unwrap();
+        let err = svc
+            .resolve_alias(&ctx, &chain, "nonexistent", None)
+            .await
+            .unwrap_err();
         assert!(matches!(err, DomainError::NotFound { .. }));
     }
 
@@ -692,10 +1466,16 @@ mod tests {
             .await
             .unwrap();
 
-        let matched = svc
-            .resolve_route(&ctx, u.id, "POST", "/v1/chat/completions")
-            .await
-            .unwrap();
+        let chain = svc.build_tenant_chain(&ctx).await.unwrap();
+        let matched = ControlPlaneServiceImpl::find_route_in_chain(
+            &*svc.routes,
+            &chain,
+            u.id,
+            "POST",
+            "/v1/chat/completions",
+        )
+        .await
+        .unwrap();
         assert_eq!(matched.id, r.id);
     }
 
@@ -710,10 +1490,16 @@ mod tests {
             .await
             .unwrap();
 
-        let err = svc
-            .resolve_route(&ctx, u.id, "GET", "/v1/unknown")
-            .await
-            .unwrap_err();
+        let chain = svc.build_tenant_chain(&ctx).await.unwrap();
+        let err = ControlPlaneServiceImpl::find_route_in_chain(
+            &*svc.routes,
+            &chain,
+            u.id,
+            "GET",
+            "/v1/unknown",
+        )
+        .await
+        .unwrap_err();
         assert!(matches!(err, DomainError::NotFound { .. }));
     }
 
@@ -918,5 +1704,1208 @@ mod tests {
 
         // Route should be gone.
         assert!(svc.get_route(&ctx, r.id).await.is_err());
+    }
+
+    // -- Alias resolution tests --
+
+    #[tokio::test]
+    async fn resolve_alias_walks_tenant_chain_to_ancestor() {
+        use crate::domain::model::{AuthConfig, SharingMode};
+
+        let root = Uuid::new_v4();
+        let child = Uuid::new_v4();
+        let resolver = MockTenantResolverClient::with_hierarchy(vec![root, child]);
+        let svc = make_service_with_resolver(resolver);
+
+        // Create upstream in root tenant with inherit sharing (visible to descendants).
+        let root_ctx = test_ctx(root);
+        let mut req = make_create_upstream(Some("openai"));
+        req.auth = Some(AuthConfig {
+            plugin_type: "noop".into(),
+            sharing: SharingMode::Inherit,
+            config: None,
+        });
+        let root_upstream = svc.create_upstream(&root_ctx, req).await.unwrap();
+
+        // Child tenant should resolve the alias via tenant chain walk.
+        let child_ctx = test_ctx(child);
+        let chain = svc.build_tenant_chain(&child_ctx).await.unwrap();
+        let (resolved, _) = svc
+            .resolve_alias(&child_ctx, &chain, "openai", None)
+            .await
+            .unwrap();
+        assert_eq!(resolved.id, root_upstream.id);
+    }
+
+    #[tokio::test]
+    async fn resolve_alias_child_shadows_ancestor() {
+        use crate::domain::model::{AuthConfig, SharingMode};
+
+        let root = Uuid::new_v4();
+        let child = Uuid::new_v4();
+        let resolver = MockTenantResolverClient::with_hierarchy(vec![root, child]);
+        let svc = make_service_with_resolver(resolver);
+
+        // Create upstream in root with inherit sharing.
+        let root_ctx = test_ctx(root);
+        let mut req = make_create_upstream(Some("openai"));
+        req.auth = Some(AuthConfig {
+            plugin_type: "noop".into(),
+            sharing: SharingMode::Inherit,
+            config: None,
+        });
+        svc.create_upstream(&root_ctx, req).await.unwrap();
+
+        // Create upstream with same alias in child tenant (shadows root).
+        let child_ctx = test_ctx(child);
+        let child_upstream = svc
+            .create_upstream(&child_ctx, make_create_upstream(Some("openai")))
+            .await
+            .unwrap();
+
+        // Child resolves to its own upstream (shadow wins).
+        let chain = svc.build_tenant_chain(&child_ctx).await.unwrap();
+        let (resolved, _) = svc
+            .resolve_alias(&child_ctx, &chain, "openai", None)
+            .await
+            .unwrap();
+        assert_eq!(resolved.id, child_upstream.id);
+    }
+
+    #[tokio::test]
+    async fn resolve_alias_private_ancestor_not_visible() {
+        let root = Uuid::new_v4();
+        let child = Uuid::new_v4();
+        let resolver = MockTenantResolverClient::with_hierarchy(vec![root, child]);
+        let svc = make_service_with_resolver(resolver);
+
+        // Create upstream in root with all-private sharing (default).
+        let root_ctx = test_ctx(root);
+        svc.create_upstream(&root_ctx, make_create_upstream(Some("openai")))
+            .await
+            .unwrap();
+
+        // Child should NOT see the private upstream → NotFound.
+        let child_ctx = test_ctx(child);
+        let chain = svc.build_tenant_chain(&child_ctx).await.unwrap();
+        let err = svc
+            .resolve_alias(&child_ctx, &chain, "openai", None)
+            .await
+            .unwrap_err();
+        assert!(matches!(err, DomainError::NotFound { .. }));
+    }
+
+    #[tokio::test]
+    async fn resolve_alias_disabled_ancestor_falls_through() {
+        use crate::domain::model::{AuthConfig, SharingMode};
+
+        let root = Uuid::new_v4();
+        let parent = Uuid::new_v4();
+        let child = Uuid::new_v4();
+        let resolver = MockTenantResolverClient::with_hierarchy(vec![root, parent, child]);
+        let svc = make_service_with_resolver(resolver);
+
+        // Create disabled upstream in parent with inherit sharing.
+        let parent_ctx = test_ctx(parent);
+        let mut req = make_create_upstream(Some("openai"));
+        req.enabled = false;
+        req.auth = Some(AuthConfig {
+            plugin_type: "noop".into(),
+            sharing: SharingMode::Inherit,
+            config: None,
+        });
+        svc.create_upstream(&parent_ctx, req).await.unwrap();
+
+        // Create enabled upstream in root with inherit sharing.
+        let root_ctx = test_ctx(root);
+        let mut req2 = make_create_upstream(Some("openai"));
+        req2.auth = Some(AuthConfig {
+            plugin_type: "noop".into(),
+            sharing: SharingMode::Inherit,
+            config: None,
+        });
+        let root_upstream = svc.create_upstream(&root_ctx, req2).await.unwrap();
+
+        // Child resolves: parent disabled → falls through to root.
+        let child_ctx = test_ctx(child);
+        let chain = svc.build_tenant_chain(&child_ctx).await.unwrap();
+        let (resolved, _) = svc
+            .resolve_alias(&child_ctx, &chain, "openai", None)
+            .await
+            .unwrap();
+        assert_eq!(resolved.id, root_upstream.id);
+    }
+
+    #[tokio::test]
+    async fn resolve_alias_all_disabled_returns_upstream_disabled() {
+        use crate::domain::model::{AuthConfig, SharingMode};
+
+        let root = Uuid::new_v4();
+        let child = Uuid::new_v4();
+        let resolver = MockTenantResolverClient::with_hierarchy(vec![root, child]);
+        let svc = make_service_with_resolver(resolver);
+
+        // Create disabled upstream in root with inherit sharing.
+        let root_ctx = test_ctx(root);
+        let mut req = make_create_upstream(Some("openai"));
+        req.enabled = false;
+        req.auth = Some(AuthConfig {
+            plugin_type: "noop".into(),
+            sharing: SharingMode::Inherit,
+            config: None,
+        });
+        svc.create_upstream(&root_ctx, req).await.unwrap();
+
+        // Child resolves: only disabled match → UpstreamDisabled.
+        let child_ctx = test_ctx(child);
+        let chain = svc.build_tenant_chain(&child_ctx).await.unwrap();
+        let err = svc
+            .resolve_alias(&child_ctx, &chain, "openai", None)
+            .await
+            .unwrap_err();
+        assert!(matches!(err, DomainError::UpstreamDisabled { .. }));
+    }
+
+    #[tokio::test]
+    async fn resolve_alias_disabled_child_falls_through_to_ancestor() {
+        use crate::domain::model::{AuthConfig, SharingMode};
+
+        let root = Uuid::new_v4();
+        let child = Uuid::new_v4();
+        let resolver = MockTenantResolverClient::with_hierarchy(vec![root, child]);
+        let svc = make_service_with_resolver(resolver);
+
+        // Create enabled upstream in root with inherit sharing.
+        let root_ctx = test_ctx(root);
+        let mut root_req = make_create_upstream(Some("openai"));
+        root_req.auth = Some(AuthConfig {
+            plugin_type: "noop".into(),
+            sharing: SharingMode::Inherit,
+            config: None,
+        });
+        let root_upstream = svc.create_upstream(&root_ctx, root_req).await.unwrap();
+
+        // Create disabled upstream in child with same alias.
+        let child_ctx = test_ctx(child);
+        let mut child_req = make_create_upstream(Some("openai"));
+        child_req.enabled = false;
+        child_req.auth = Some(AuthConfig {
+            plugin_type: "noop".into(),
+            sharing: SharingMode::Inherit,
+            config: None,
+        });
+        svc.create_upstream(&child_ctx, child_req).await.unwrap();
+
+        // Child resolves: own upstream disabled → falls through to root ancestor.
+        let chain = svc.build_tenant_chain(&child_ctx).await.unwrap();
+        let (resolved, _) = svc
+            .resolve_alias(&child_ctx, &chain, "openai", None)
+            .await
+            .unwrap();
+        assert_eq!(resolved.id, root_upstream.id);
+    }
+
+    #[tokio::test]
+    async fn resolve_alias_no_match_in_tenant_chain_returns_not_found() {
+        let root = Uuid::new_v4();
+        let child = Uuid::new_v4();
+        let resolver = MockTenantResolverClient::with_hierarchy(vec![root, child]);
+        let svc = make_service_with_resolver(resolver);
+
+        // No upstreams created anywhere.
+        let child_ctx = test_ctx(child);
+        let chain = svc.build_tenant_chain(&child_ctx).await.unwrap();
+        let err = svc
+            .resolve_alias(&child_ctx, &chain, "nonexistent", None)
+            .await
+            .unwrap_err();
+        assert!(matches!(err, DomainError::NotFound { .. }));
+    }
+
+    // -- Effective config merge tests --
+
+    use crate::domain::model::{
+        AuthConfig, PluginsConfig, RateLimitAlgorithm, RateLimitConfig, RateLimitScope,
+        RateLimitStrategy, SharingMode, SustainedRate, Window,
+    };
+
+    fn make_upstream(
+        tenant_id: Uuid,
+        alias: &str,
+        auth: Option<AuthConfig>,
+        rate_limit: Option<RateLimitConfig>,
+        plugins: Option<PluginsConfig>,
+        tags: Vec<String>,
+    ) -> Upstream {
+        Upstream {
+            id: Uuid::new_v4(),
+            tenant_id,
+            alias: alias.into(),
+            server: Server {
+                endpoints: vec![Endpoint {
+                    scheme: Scheme::Https,
+                    host: "api.example.com".into(),
+                    port: 443,
+                }],
+            },
+            protocol: "http".into(),
+            enabled: true,
+            auth,
+            headers: None,
+            plugins,
+            rate_limit,
+            tags,
+        }
+    }
+
+    fn make_rate_limit(sharing: SharingMode, rate: u32, window: Window) -> RateLimitConfig {
+        RateLimitConfig {
+            sharing,
+            algorithm: RateLimitAlgorithm::TokenBucket,
+            sustained: SustainedRate { rate, window },
+            burst: None,
+            scope: RateLimitScope::Tenant,
+            strategy: RateLimitStrategy::Reject,
+            cost: 1,
+        }
+    }
+
+    #[test]
+    fn effective_config_single_upstream() {
+        let t = Uuid::new_v4();
+        let u = make_upstream(t, "openai", None, None, None, vec!["a".into()]);
+        let effective = compute_effective_config(std::slice::from_ref(&u), None);
+        assert_eq!(effective.id, u.id);
+        assert_eq!(effective.tags, vec!["a".to_string()]);
+    }
+
+    #[test]
+    fn effective_config_auth_inherit_descendant_overrides() {
+        let root_id = Uuid::new_v4();
+        let child_id = Uuid::new_v4();
+
+        let root_auth = AuthConfig {
+            plugin_type: "apikey".into(),
+            sharing: SharingMode::Inherit,
+            config: None,
+        };
+        let child_auth = AuthConfig {
+            plugin_type: "oauth2".into(),
+            sharing: SharingMode::Inherit,
+            config: None,
+        };
+
+        let root = make_upstream(root_id, "openai", Some(root_auth), None, None, vec![]);
+        let child = make_upstream(
+            child_id,
+            "openai",
+            Some(child_auth.clone()),
+            None,
+            None,
+            vec![],
+        );
+
+        let effective = compute_effective_config(&[root, child], None);
+        assert_eq!(effective.auth.unwrap().plugin_type, "oauth2");
+    }
+
+    #[test]
+    fn effective_config_auth_enforce_ancestor_wins() {
+        let root_id = Uuid::new_v4();
+        let child_id = Uuid::new_v4();
+
+        let root_auth = AuthConfig {
+            plugin_type: "apikey".into(),
+            sharing: SharingMode::Enforce,
+            config: None,
+        };
+        let child_auth = AuthConfig {
+            plugin_type: "oauth2".into(),
+            sharing: SharingMode::Inherit,
+            config: None,
+        };
+
+        let root = make_upstream(root_id, "openai", Some(root_auth), None, None, vec![]);
+        let child = make_upstream(child_id, "openai", Some(child_auth), None, None, vec![]);
+
+        let effective = compute_effective_config(&[root, child], None);
+        // Ancestor enforce wins — apikey stays.
+        assert_eq!(effective.auth.unwrap().plugin_type, "apikey");
+    }
+
+    #[test]
+    fn effective_config_rate_limit_min_wins() {
+        let root_id = Uuid::new_v4();
+        let child_id = Uuid::new_v4();
+
+        let root_rl = make_rate_limit(SharingMode::Enforce, 100, Window::Minute);
+        let child_rl = make_rate_limit(SharingMode::Inherit, 200, Window::Minute);
+
+        let root = make_upstream(root_id, "openai", None, Some(root_rl), None, vec![]);
+        let child = make_upstream(child_id, "openai", None, Some(child_rl), None, vec![]);
+
+        let effective = compute_effective_config(&[root, child], None);
+        // min(100/min, 200/min) = 100/min
+        assert_eq!(effective.rate_limit.unwrap().sustained.rate, 100);
+    }
+
+    #[test]
+    fn effective_config_rate_limit_descendant_stricter() {
+        let root_id = Uuid::new_v4();
+        let child_id = Uuid::new_v4();
+
+        let root_rl = make_rate_limit(SharingMode::Inherit, 1000, Window::Minute);
+        let child_rl = make_rate_limit(SharingMode::Inherit, 50, Window::Minute);
+
+        let root = make_upstream(root_id, "openai", None, Some(root_rl), None, vec![]);
+        let child = make_upstream(child_id, "openai", None, Some(child_rl), None, vec![]);
+
+        let effective = compute_effective_config(&[root, child], None);
+        assert_eq!(effective.rate_limit.unwrap().sustained.rate, 50);
+    }
+
+    #[test]
+    fn effective_config_plugins_concatenation() {
+        let root_id = Uuid::new_v4();
+        let child_id = Uuid::new_v4();
+
+        let root_plugins = PluginsConfig {
+            sharing: SharingMode::Inherit,
+            items: vec!["plugin-a".into(), "plugin-b".into()],
+        };
+        let child_plugins = PluginsConfig {
+            sharing: SharingMode::Inherit,
+            items: vec!["plugin-b".into(), "plugin-c".into()],
+        };
+
+        let root = make_upstream(root_id, "openai", None, None, Some(root_plugins), vec![]);
+        let child = make_upstream(child_id, "openai", None, None, Some(child_plugins), vec![]);
+
+        let effective = compute_effective_config(&[root, child], None);
+        let items = effective.plugins.unwrap().items;
+        // ancestor + descendant (dedup): [a, b, c]
+        assert_eq!(items, vec!["plugin-a", "plugin-b", "plugin-c"]);
+    }
+
+    #[test]
+    fn effective_config_enforced_plugins_cannot_be_removed() {
+        let root_id = Uuid::new_v4();
+        let child_id = Uuid::new_v4();
+
+        let root_plugins = PluginsConfig {
+            sharing: SharingMode::Enforce,
+            items: vec!["required-plugin".into()],
+        };
+        let child_plugins = PluginsConfig {
+            sharing: SharingMode::Enforce,
+            items: vec!["extra-plugin".into()],
+        };
+
+        let root = make_upstream(root_id, "openai", None, None, Some(root_plugins), vec![]);
+        let child = make_upstream(child_id, "openai", None, None, Some(child_plugins), vec![]);
+
+        let effective = compute_effective_config(&[root, child], None);
+        let items = effective.plugins.unwrap().items;
+        // Enforced plugins remain: required-plugin + extra-plugin.
+        assert!(items.contains(&"required-plugin".to_string()));
+        assert!(items.contains(&"extra-plugin".to_string()));
+    }
+
+    #[test]
+    fn effective_config_tags_union() {
+        let root_id = Uuid::new_v4();
+        let child_id = Uuid::new_v4();
+
+        let root = make_upstream(
+            root_id,
+            "openai",
+            None,
+            None,
+            None,
+            vec!["env:prod".into(), "team:platform".into()],
+        );
+        let child = make_upstream(
+            child_id,
+            "openai",
+            None,
+            None,
+            None,
+            vec!["team:platform".into(), "region:us".into()],
+        );
+
+        let effective = compute_effective_config(&[root, child], None);
+        assert!(effective.tags.contains(&"env:prod".to_string()));
+        assert!(effective.tags.contains(&"team:platform".to_string()));
+        assert!(effective.tags.contains(&"region:us".to_string()));
+        assert_eq!(effective.tags.len(), 3);
+    }
+
+    #[test]
+    fn effective_config_route_rate_limit_applies_min() {
+        let t = Uuid::new_v4();
+        let upstream_rl = make_rate_limit(SharingMode::Inherit, 100, Window::Minute);
+        let u = make_upstream(t, "openai", None, Some(upstream_rl), None, vec![]);
+
+        let route = Route {
+            id: Uuid::new_v4(),
+            tenant_id: t,
+            upstream_id: u.id,
+            match_rules: MatchRules {
+                http: None,
+                grpc: None,
+            },
+            plugins: None,
+            rate_limit: Some(make_rate_limit(SharingMode::Inherit, 50, Window::Minute)),
+            tags: vec![],
+            priority: 0,
+            enabled: true,
+        };
+
+        let effective = compute_effective_config(&[u], Some(&route));
+        // min(100/min, 50/min) = 50/min
+        assert_eq!(effective.rate_limit.unwrap().sustained.rate, 50);
+    }
+
+    #[test]
+    fn effective_config_three_layer_merge() {
+        let root_id = Uuid::new_v4();
+        let parent_id = Uuid::new_v4();
+        let child_id = Uuid::new_v4();
+
+        let root = make_upstream(
+            root_id,
+            "openai",
+            Some(AuthConfig {
+                plugin_type: "apikey".into(),
+                sharing: SharingMode::Enforce,
+                config: None,
+            }),
+            Some(make_rate_limit(SharingMode::Enforce, 1000, Window::Minute)),
+            Some(PluginsConfig {
+                sharing: SharingMode::Enforce,
+                items: vec!["audit-log".into()],
+            }),
+            vec!["env:prod".into()],
+        );
+        let parent = make_upstream(
+            parent_id,
+            "openai",
+            Some(AuthConfig {
+                plugin_type: "oauth2".into(),
+                sharing: SharingMode::Inherit,
+                config: None,
+            }),
+            Some(make_rate_limit(SharingMode::Inherit, 500, Window::Minute)),
+            Some(PluginsConfig {
+                sharing: SharingMode::Inherit,
+                items: vec!["rate-guard".into()],
+            }),
+            vec!["team:partner".into()],
+        );
+        let child = make_upstream(
+            child_id,
+            "openai",
+            None,
+            Some(make_rate_limit(SharingMode::Inherit, 200, Window::Minute)),
+            Some(PluginsConfig {
+                sharing: SharingMode::Inherit,
+                items: vec!["transform-x".into()],
+            }),
+            vec!["region:us".into()],
+        );
+
+        let child_id_val = child.id;
+        let effective = compute_effective_config(&[root, parent, child], None);
+
+        // Auth: root enforced → apikey wins even though parent set oauth2.
+        assert_eq!(effective.auth.unwrap().plugin_type, "apikey");
+
+        // Rate limit: min(1000, 500, 200) = 200/min.
+        assert_eq!(effective.rate_limit.unwrap().sustained.rate, 200);
+
+        // Plugins: enforced audit-log + rate-guard + transform-x.
+        let items = effective.plugins.unwrap().items;
+        assert!(items.contains(&"audit-log".to_string()));
+        assert!(items.contains(&"rate-guard".to_string()));
+        assert!(items.contains(&"transform-x".to_string()));
+
+        // Tags: union of all three.
+        assert!(effective.tags.contains(&"env:prod".to_string()));
+        assert!(effective.tags.contains(&"team:partner".to_string()));
+        assert!(effective.tags.contains(&"region:us".to_string()));
+
+        // Identity: uses child's id/tenant.
+        assert_eq!(effective.id, child_id_val);
+        assert_eq!(effective.tenant_id, child_id);
+    }
+
+    // -- Ancestor bind validation tests --
+
+    #[tokio::test]
+    async fn bind_rejects_auth_override_on_enforce() {
+        let root = Uuid::new_v4();
+        let child = Uuid::new_v4();
+        let resolver = MockTenantResolverClient::with_hierarchy(vec![root, child]);
+        let svc = make_service_with_resolver(resolver);
+
+        // Create upstream in root with auth sharing = enforce.
+        let root_ctx = test_ctx(root);
+        let mut root_req = make_create_upstream(Some("openai"));
+        root_req.auth = Some(AuthConfig {
+            plugin_type: "apikey".into(),
+            sharing: SharingMode::Enforce,
+            config: None,
+        });
+        svc.create_upstream(&root_ctx, root_req).await.unwrap();
+
+        // Child tries to create upstream with same alias AND auth override.
+        let child_ctx = test_ctx(child);
+        let mut child_req = make_create_upstream(Some("openai"));
+        child_req.auth = Some(AuthConfig {
+            plugin_type: "oauth2".into(),
+            sharing: SharingMode::Inherit,
+            config: None,
+        });
+        let err = svc
+            .create_upstream(&child_ctx, child_req)
+            .await
+            .unwrap_err();
+        match err {
+            DomainError::Validation { detail, .. } => {
+                assert!(
+                    detail.contains("enforce"),
+                    "expected enforce error, got: {detail}"
+                );
+            }
+            _ => panic!("expected Validation error, got: {err:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn bind_rejects_rate_limit_override_on_private() {
+        let root = Uuid::new_v4();
+        let child = Uuid::new_v4();
+        let resolver = MockTenantResolverClient::with_hierarchy(vec![root, child]);
+        let svc = make_service_with_resolver(resolver);
+
+        // Create upstream in root with rate_limit sharing = private.
+        let root_ctx = test_ctx(root);
+        let mut root_req = make_create_upstream(Some("openai"));
+        root_req.rate_limit = Some(make_rate_limit(SharingMode::Private, 100, Window::Minute));
+        // Need at least one non-private field so root upstream is visible.
+        root_req.auth = Some(AuthConfig {
+            plugin_type: "noop".into(),
+            sharing: SharingMode::Inherit,
+            config: None,
+        });
+        svc.create_upstream(&root_ctx, root_req).await.unwrap();
+
+        // Child tries to override rate_limit on private ancestor field.
+        let child_ctx = test_ctx(child);
+        let mut child_req = make_create_upstream(Some("openai"));
+        child_req.rate_limit = Some(make_rate_limit(SharingMode::Inherit, 50, Window::Minute));
+        let err = svc
+            .create_upstream(&child_ctx, child_req)
+            .await
+            .unwrap_err();
+        match err {
+            DomainError::Validation { detail, .. } => {
+                assert!(
+                    detail.contains("private"),
+                    "expected private error, got: {detail}"
+                );
+            }
+            _ => panic!("expected Validation error, got: {err:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn bind_allows_inherit_override_with_permissions() {
+        let root = Uuid::new_v4();
+        let child = Uuid::new_v4();
+        let resolver = MockTenantResolverClient::with_hierarchy(vec![root, child]);
+        let svc = make_service_with_resolver(resolver);
+
+        // Create upstream in root with inherit sharing.
+        let root_ctx = test_ctx(root);
+        let mut root_req = make_create_upstream(Some("openai"));
+        root_req.auth = Some(AuthConfig {
+            plugin_type: "apikey".into(),
+            sharing: SharingMode::Inherit,
+            config: None,
+        });
+        svc.create_upstream(&root_ctx, root_req).await.unwrap();
+
+        // Child creates upstream with same alias and overrides auth.
+        // With allow-all enforcer, bind + override_auth permissions pass.
+        let child_ctx = test_ctx(child);
+        let mut child_req = make_create_upstream(Some("openai"));
+        child_req.auth = Some(AuthConfig {
+            plugin_type: "oauth2".into(),
+            sharing: SharingMode::Inherit,
+            config: None,
+        });
+        let child_upstream = svc.create_upstream(&child_ctx, child_req).await.unwrap();
+        assert_eq!(child_upstream.alias, "openai");
+        assert_eq!(child_upstream.auth.unwrap().plugin_type, "oauth2");
+    }
+
+    #[tokio::test]
+    async fn bind_no_ancestor_match_creates_normally() {
+        let root = Uuid::new_v4();
+        let child = Uuid::new_v4();
+        let resolver = MockTenantResolverClient::with_hierarchy(vec![root, child]);
+        let svc = make_service_with_resolver(resolver);
+
+        // No upstream in root. Child creates fresh upstream — no permission checks needed.
+        let child_ctx = test_ctx(child);
+        let child_upstream = svc
+            .create_upstream(&child_ctx, make_create_upstream(Some("fresh-alias")))
+            .await
+            .unwrap();
+        assert_eq!(child_upstream.alias, "fresh-alias");
+    }
+
+    // -- Secret ref validation tests --
+
+    fn auth_with_secret_ref(secret_ref: &str) -> AuthConfig {
+        let mut config = std::collections::HashMap::new();
+        config.insert("header".into(), "authorization".into());
+        config.insert("secret_ref".into(), secret_ref.into());
+        AuthConfig {
+            plugin_type: "apikey".into(),
+            sharing: SharingMode::Inherit,
+            config: Some(config),
+        }
+    }
+
+    #[tokio::test]
+    async fn bind_rejects_inaccessible_secret_ref() {
+        let root = Uuid::new_v4();
+        let child = Uuid::new_v4();
+        let resolver = MockTenantResolverClient::with_hierarchy(vec![root, child]);
+        // No secrets in credstore.
+        let svc = make_service_with_resolver_and_creds(resolver, vec![]);
+
+        // Root upstream with auth inherit.
+        let root_ctx = test_ctx(root);
+        let mut root_req = make_create_upstream(Some("openai"));
+        root_req.auth = Some(AuthConfig {
+            plugin_type: "apikey".into(),
+            sharing: SharingMode::Inherit,
+            config: None,
+        });
+        svc.create_upstream(&root_ctx, root_req).await.unwrap();
+
+        // Child tries to bind with a secret_ref the credstore doesn't have.
+        let child_ctx = test_ctx(child);
+        let mut child_req = make_create_upstream(Some("openai"));
+        child_req.auth = Some(auth_with_secret_ref("cred://missing-key"));
+        let err = svc
+            .create_upstream(&child_ctx, child_req)
+            .await
+            .unwrap_err();
+        match err {
+            DomainError::Validation { detail, .. } => {
+                assert!(
+                    detail.contains("not accessible"),
+                    "expected 'not accessible' error, got: {detail}"
+                );
+            }
+            _ => panic!("expected Validation error, got: {err:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn bind_allows_accessible_secret_ref() {
+        let root = Uuid::new_v4();
+        let child = Uuid::new_v4();
+        let resolver = MockTenantResolverClient::with_hierarchy(vec![root, child]);
+        let svc = make_service_with_resolver_and_creds(
+            resolver,
+            vec![("my-key".into(), "secret-value".into())],
+        );
+
+        // Root upstream with auth inherit.
+        let root_ctx = test_ctx(root);
+        let mut root_req = make_create_upstream(Some("openai"));
+        root_req.auth = Some(AuthConfig {
+            plugin_type: "apikey".into(),
+            sharing: SharingMode::Inherit,
+            config: None,
+        });
+        svc.create_upstream(&root_ctx, root_req).await.unwrap();
+
+        // Child binds with accessible secret_ref.
+        let child_ctx = test_ctx(child);
+        let mut child_req = make_create_upstream(Some("openai"));
+        child_req.auth = Some(auth_with_secret_ref("cred://my-key"));
+        let child_upstream = svc.create_upstream(&child_ctx, child_req).await.unwrap();
+        assert_eq!(child_upstream.alias, "openai");
+    }
+
+    // -- Update upstream bind validation tests --
+
+    #[tokio::test]
+    async fn update_rejects_auth_override_on_enforce() {
+        let root = Uuid::new_v4();
+        let child = Uuid::new_v4();
+        let resolver = MockTenantResolverClient::with_hierarchy(vec![root, child]);
+        let svc = make_service_with_resolver(resolver);
+
+        // Root upstream with auth enforce.
+        let root_ctx = test_ctx(root);
+        let mut root_req = make_create_upstream(Some("openai"));
+        root_req.auth = Some(AuthConfig {
+            plugin_type: "apikey".into(),
+            sharing: SharingMode::Enforce,
+            config: None,
+        });
+        svc.create_upstream(&root_ctx, root_req).await.unwrap();
+
+        // Child creates upstream with same alias (no auth override on create).
+        let child_ctx = test_ctx(child);
+        let child_upstream = svc
+            .create_upstream(&child_ctx, make_create_upstream(Some("openai")))
+            .await
+            .unwrap();
+
+        // Child tries to update auth — should fail because ancestor is enforce.
+        let err = svc
+            .update_upstream(
+                &child_ctx,
+                child_upstream.id,
+                UpdateUpstreamRequest {
+                    auth: Some(AuthConfig {
+                        plugin_type: "oauth2".into(),
+                        sharing: SharingMode::Inherit,
+                        config: None,
+                    }),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap_err();
+        match err {
+            DomainError::Validation { detail, .. } => {
+                assert!(
+                    detail.contains("enforce"),
+                    "expected enforce error, got: {detail}"
+                );
+            }
+            _ => panic!("expected Validation error, got: {err:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn update_alias_to_ancestor_requires_bind() {
+        let root = Uuid::new_v4();
+        let child = Uuid::new_v4();
+        let resolver = MockTenantResolverClient::with_hierarchy(vec![root, child]);
+        let svc = make_service_with_resolver(resolver);
+
+        // Root upstream with inherit sharing.
+        let root_ctx = test_ctx(root);
+        let mut root_req = make_create_upstream(Some("openai"));
+        root_req.auth = Some(AuthConfig {
+            plugin_type: "apikey".into(),
+            sharing: SharingMode::Inherit,
+            config: None,
+        });
+        svc.create_upstream(&root_ctx, root_req).await.unwrap();
+
+        // Child creates upstream with different alias.
+        let child_ctx = test_ctx(child);
+        let child_upstream = svc
+            .create_upstream(&child_ctx, make_create_upstream(Some("other")))
+            .await
+            .unwrap();
+
+        // Child updates alias to match ancestor — with allow-all enforcer this passes.
+        let updated = svc
+            .update_upstream(
+                &child_ctx,
+                child_upstream.id,
+                UpdateUpstreamRequest {
+                    alias: Some("openai".into()),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+        assert_eq!(updated.alias, "openai");
+    }
+
+    #[tokio::test]
+    async fn update_alias_only_validates_existing_overrides_against_ancestor_enforce() {
+        let root = Uuid::new_v4();
+        let child = Uuid::new_v4();
+        let resolver = MockTenantResolverClient::with_hierarchy(vec![root, child]);
+        let svc = make_service_with_resolver(resolver);
+
+        // Root upstream with auth enforce.
+        let root_ctx = test_ctx(root);
+        let mut root_req = make_create_upstream(Some("openai"));
+        root_req.auth = Some(AuthConfig {
+            plugin_type: "apikey".into(),
+            sharing: SharingMode::Enforce,
+            config: None,
+        });
+        svc.create_upstream(&root_ctx, root_req).await.unwrap();
+
+        // Child creates upstream with a different alias but with auth already set.
+        let child_ctx = test_ctx(child);
+        let mut child_req = make_create_upstream(Some("other"));
+        child_req.auth = Some(AuthConfig {
+            plugin_type: "oauth2".into(),
+            sharing: SharingMode::Inherit,
+            config: None,
+        });
+        let child_upstream = svc.create_upstream(&child_ctx, child_req).await.unwrap();
+
+        // Alias-only update to match ancestor — must fail because the child's
+        // existing auth override conflicts with the ancestor's enforce mode.
+        let err = svc
+            .update_upstream(
+                &child_ctx,
+                child_upstream.id,
+                UpdateUpstreamRequest {
+                    alias: Some("openai".into()),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap_err();
+        match err {
+            DomainError::Validation { detail, .. } => {
+                assert!(
+                    detail.contains("enforce"),
+                    "expected enforce error, got: {detail}"
+                );
+            }
+            _ => panic!("expected Validation error, got: {err:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn update_no_ancestor_match_succeeds() {
+        let root = Uuid::new_v4();
+        let child = Uuid::new_v4();
+        let resolver = MockTenantResolverClient::with_hierarchy(vec![root, child]);
+        let svc = make_service_with_resolver(resolver);
+
+        // Child creates upstream.
+        let child_ctx = test_ctx(child);
+        let child_upstream = svc
+            .create_upstream(&child_ctx, make_create_upstream(Some("my-svc")))
+            .await
+            .unwrap();
+
+        // Update auth — no ancestor match, should succeed without permission checks.
+        let updated = svc
+            .update_upstream(
+                &child_ctx,
+                child_upstream.id,
+                UpdateUpstreamRequest {
+                    auth: Some(AuthConfig {
+                        plugin_type: "oauth2".into(),
+                        sharing: SharingMode::Inherit,
+                        config: None,
+                    }),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+        assert_eq!(updated.auth.unwrap().plugin_type, "oauth2");
+    }
+
+    // -- resolve_proxy_target tests --
+
+    #[tokio::test]
+    async fn proxy_target_resolves_route_from_ancestor_upstream() {
+        use crate::domain::model::{AuthConfig, SharingMode};
+
+        let root = Uuid::new_v4();
+        let child = Uuid::new_v4();
+        let resolver = MockTenantResolverClient::with_hierarchy(vec![root, child]);
+        let svc = make_service_with_resolver(resolver);
+
+        // Root creates upstream "openai" with auth inherit.
+        let root_ctx = test_ctx(root);
+        let mut root_req = make_create_upstream(Some("openai"));
+        root_req.auth = Some(AuthConfig {
+            plugin_type: "apikey".into(),
+            sharing: SharingMode::Inherit,
+            config: None,
+        });
+        let root_upstream = svc.create_upstream(&root_ctx, root_req).await.unwrap();
+
+        // Root creates a route on that upstream.
+        let route_req = CreateRouteRequest {
+            upstream_id: root_upstream.id,
+            match_rules: MatchRules {
+                http: Some(HttpMatch {
+                    path: "/v1/chat".into(),
+                    methods: vec![HttpMethod::Post],
+                    query_allowlist: vec![],
+                    path_suffix_mode: PathSuffixMode::default(),
+                }),
+                grpc: None,
+            },
+            plugins: None,
+            rate_limit: None,
+            tags: vec![],
+            priority: 0,
+            enabled: true,
+        };
+        let root_route = svc.create_route(&root_ctx, route_req).await.unwrap();
+
+        // Child creates upstream with same alias (bind to ancestor).
+        let child_ctx = test_ctx(child);
+        let _child_upstream = svc
+            .create_upstream(&child_ctx, make_create_upstream(Some("openai")))
+            .await
+            .unwrap();
+
+        // Child resolves proxy target — should find the route defined on
+        // the root's upstream ID, not the child's.
+        let (effective, route) = svc
+            .resolve_proxy_target(&child_ctx, "openai", "POST", "/v1/chat")
+            .await
+            .unwrap();
+
+        assert_eq!(route.id, root_route.id);
+        assert_eq!(effective.alias, "openai");
+    }
+
+    #[tokio::test]
+    async fn proxy_target_prefers_child_route_over_ancestor() {
+        use crate::domain::model::{AuthConfig, SharingMode};
+
+        let root = Uuid::new_v4();
+        let child = Uuid::new_v4();
+        let resolver = MockTenantResolverClient::with_hierarchy(vec![root, child]);
+        let svc = make_service_with_resolver(resolver);
+
+        // Root creates upstream "openai" with auth inherit.
+        let root_ctx = test_ctx(root);
+        let mut root_req = make_create_upstream(Some("openai"));
+        root_req.auth = Some(AuthConfig {
+            plugin_type: "apikey".into(),
+            sharing: SharingMode::Inherit,
+            config: None,
+        });
+        let root_upstream = svc.create_upstream(&root_ctx, root_req).await.unwrap();
+
+        // Root creates a route.
+        let root_route_req = CreateRouteRequest {
+            upstream_id: root_upstream.id,
+            match_rules: MatchRules {
+                http: Some(HttpMatch {
+                    path: "/v1/chat".into(),
+                    methods: vec![HttpMethod::Post],
+                    query_allowlist: vec![],
+                    path_suffix_mode: PathSuffixMode::default(),
+                }),
+                grpc: None,
+            },
+            plugins: None,
+            rate_limit: None,
+            tags: vec![],
+            priority: 0,
+            enabled: true,
+        };
+        svc.create_route(&root_ctx, root_route_req).await.unwrap();
+
+        // Child creates upstream with same alias.
+        let child_ctx = test_ctx(child);
+        let child_upstream = svc
+            .create_upstream(&child_ctx, make_create_upstream(Some("openai")))
+            .await
+            .unwrap();
+
+        // Child creates its own route on its own upstream.
+        let child_route_req = CreateRouteRequest {
+            upstream_id: child_upstream.id,
+            match_rules: MatchRules {
+                http: Some(HttpMatch {
+                    path: "/v1/chat".into(),
+                    methods: vec![HttpMethod::Post],
+                    query_allowlist: vec![],
+                    path_suffix_mode: PathSuffixMode::default(),
+                }),
+                grpc: None,
+            },
+            plugins: None,
+            rate_limit: None,
+            tags: vec![],
+            priority: 0,
+            enabled: true,
+        };
+        let child_route = svc.create_route(&child_ctx, child_route_req).await.unwrap();
+
+        // Child resolves — should prefer its own route (child upstream ID checked first).
+        let (_effective, route) = svc
+            .resolve_proxy_target(&child_ctx, "openai", "POST", "/v1/chat")
+            .await
+            .unwrap();
+
+        assert_eq!(route.id, child_route.id);
+    }
+
+    // -- Private sharing (no enforce ancestor) tests --
+
+    #[test]
+    fn merge_auth_private_replaces_when_ancestor_not_enforced() {
+        let root_id = Uuid::new_v4();
+        let child_id = Uuid::new_v4();
+
+        let root_auth = AuthConfig {
+            plugin_type: "apikey".into(),
+            sharing: SharingMode::Inherit,
+            config: None,
+        };
+        let child_auth = AuthConfig {
+            plugin_type: "oauth2".into(),
+            sharing: SharingMode::Private,
+            config: None,
+        };
+
+        let root = make_upstream(root_id, "openai", Some(root_auth), None, None, vec![]);
+        let child = make_upstream(child_id, "openai", Some(child_auth), None, None, vec![]);
+
+        let effective = compute_effective_config(&[root, child], None);
+        // Ancestor is Inherit (not Enforce) — Private descendant replaces.
+        let auth = effective.auth.unwrap();
+        assert_eq!(auth.plugin_type, "oauth2");
+        assert_eq!(auth.sharing, SharingMode::Private);
+    }
+
+    #[test]
+    fn route_private_plugins_are_skipped() {
+        let t = Uuid::new_v4();
+        let upstream_plugins = PluginsConfig {
+            sharing: SharingMode::Inherit,
+            items: vec!["upstream-plugin".into()],
+        };
+        let u = make_upstream(t, "openai", None, None, Some(upstream_plugins), vec![]);
+
+        let route = Route {
+            id: Uuid::new_v4(),
+            tenant_id: t,
+            upstream_id: u.id,
+            match_rules: MatchRules {
+                http: None,
+                grpc: None,
+            },
+            plugins: Some(PluginsConfig {
+                sharing: SharingMode::Private,
+                items: vec!["route-plugin".into()],
+            }),
+            rate_limit: None,
+            tags: vec![],
+            priority: 0,
+            enabled: true,
+        };
+
+        let effective = compute_effective_config(&[u], Some(&route));
+        let items = effective.plugins.unwrap().items;
+        // Route plugins with Private sharing are skipped — only upstream plugins remain.
+        assert_eq!(items, vec!["upstream-plugin".to_string()]);
+    }
+
+    #[test]
+    fn route_private_rate_limit_is_skipped() {
+        let t = Uuid::new_v4();
+        let upstream_rl = make_rate_limit(SharingMode::Inherit, 100, Window::Minute);
+        let u = make_upstream(t, "openai", None, Some(upstream_rl), None, vec![]);
+
+        let route = Route {
+            id: Uuid::new_v4(),
+            tenant_id: t,
+            upstream_id: u.id,
+            match_rules: MatchRules {
+                http: None,
+                grpc: None,
+            },
+            plugins: None,
+            rate_limit: Some(make_rate_limit(SharingMode::Private, 10, Window::Minute)),
+            tags: vec![],
+            priority: 0,
+            enabled: true,
+        };
+
+        let effective = compute_effective_config(&[u], Some(&route));
+        // Route rate_limit with Private sharing is skipped — upstream rate stays.
+        assert_eq!(effective.rate_limit.unwrap().sustained.rate, 100);
+    }
+
+    // -- Defense-in-depth: enforce vs private merge tests --
+
+    #[test]
+    fn merge_rate_limit_private_cannot_bypass_enforced_ancestor() {
+        let root_id = Uuid::new_v4();
+        let child_id = Uuid::new_v4();
+
+        let root_rl = make_rate_limit(SharingMode::Enforce, 100, Window::Minute);
+        let child_rl = make_rate_limit(SharingMode::Private, 9999, Window::Minute);
+
+        let root = make_upstream(root_id, "openai", None, Some(root_rl), None, vec![]);
+        let child = make_upstream(child_id, "openai", None, Some(child_rl), None, vec![]);
+
+        let effective = compute_effective_config(&[root, child], None);
+        // Enforced ancestor rate (100/min) must still constrain even though
+        // descendant declared Private with a much higher rate.
+        assert_eq!(effective.rate_limit.unwrap().sustained.rate, 100);
+    }
+
+    #[test]
+    fn merge_auth_private_cannot_bypass_enforced_ancestor() {
+        let root_id = Uuid::new_v4();
+        let child_id = Uuid::new_v4();
+
+        let root_auth = AuthConfig {
+            plugin_type: "apikey".into(),
+            sharing: SharingMode::Enforce,
+            config: None,
+        };
+        let child_auth = AuthConfig {
+            plugin_type: "oauth2".into(),
+            sharing: SharingMode::Private,
+            config: None,
+        };
+
+        let root = make_upstream(root_id, "openai", Some(root_auth), None, None, vec![]);
+        let child = make_upstream(child_id, "openai", Some(child_auth), None, None, vec![]);
+
+        let effective = compute_effective_config(&[root, child], None);
+        // Enforced ancestor auth (apikey) must survive even though
+        // descendant declared Private with oauth2.
+        assert_eq!(effective.auth.unwrap().plugin_type, "apikey");
+    }
+
+    #[test]
+    fn merge_plugins_private_cannot_drop_enforced_ancestor_plugins() {
+        let root_id = Uuid::new_v4();
+        let child_id = Uuid::new_v4();
+
+        let root_plugins = PluginsConfig {
+            sharing: SharingMode::Enforce,
+            items: vec!["audit-log".into()],
+        };
+        let child_plugins = PluginsConfig {
+            sharing: SharingMode::Private,
+            items: vec!["my-plugin".into()],
+        };
+
+        let root = make_upstream(root_id, "openai", None, None, Some(root_plugins), vec![]);
+        let child = make_upstream(child_id, "openai", None, None, Some(child_plugins), vec![]);
+
+        let effective = compute_effective_config(&[root, child], None);
+        let items = effective.plugins.unwrap().items;
+        // Enforced "audit-log" must survive even though descendant set Private.
+        assert!(items.contains(&"audit-log".to_string()));
+        assert!(items.contains(&"my-plugin".to_string()));
     }
 }

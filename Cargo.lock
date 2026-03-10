@@ -1684,6 +1684,7 @@ dependencies = [
  "cf-modkit-security",
  "cf-oagw",
  "cf-oagw-sdk",
+ "cf-tenant-resolver-sdk",
  "cf-types-registry-sdk",
  "dashmap",
  "form_urlencoded",

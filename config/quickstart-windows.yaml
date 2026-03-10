@@ -168,49 +168,48 @@ modules:
 
   tenant-resolver:
     config:
-      vendor: "Fabrikam"
-  contoso-tr-plugin:
-    config: {}
-  fabrikam-tr-plugin:
+      vendor: "hyperspot"
+  static-tr-plugin:
     config:
-      vendor: "Fabrikam"
+      vendor: "hyperspot"
       priority: 20
       # Tenant tree configuration (example: company with 2 divisions, each with departments)
       tenants:
         # Root tenant (company level)
-        - id: "00000000000000000000000000000001"
-          status: ACTIVE
-          is_accessible_by_parent: true
+        - id: "00000000-0000-0000-0000-000000000001"
+          name: "company-root"
+          parent_id: null
+          status: active
 
         # Division 1: Engineering
-        - id: "00000000000000000000000000000010"
-          parent_id: "00000000000000000000000000000001"
-          status: ACTIVE
-          is_accessible_by_parent: true
+        - id: "00000000-0000-0000-0000-000000000010"
+          name: "engineering"
+          parent_id: "00000000-0000-0000-0000-000000000001"
+          status: active
 
         # Division 2: Sales
-        - id: "00000000000000000000000000000011"
-          parent_id: "00000000000000000000000000000001"
-          status: ACTIVE
-          is_accessible_by_parent: true
+        - id: "00000000-0000-0000-0000-000000000011"
+          name: "sales"
+          parent_id: "00000000-0000-0000-0000-000000000001"
+          status: active
 
         # Department under Engineering: Backend
-        - id: "00000000000000000000000000000100"
-          parent_id: "00000000000000000000000000000010"
-          status: ACTIVE
-          is_accessible_by_parent: true
+        - id: "00000000-0000-0000-0000-000000000100"
+          name: "backend"
+          parent_id: "00000000-0000-0000-0000-000000000010"
+          status: active
 
-        # Department under Engineering: Frontend (soft-deleted, not accessible)
-        - id: "00000000000000000000000000000101"
-          parent_id: "00000000000000000000000000000010"
-          status: SOFT_DELETED
-          is_accessible_by_parent: false
+        # Department under Engineering: Frontend (soft-deleted)
+        - id: "00000000-0000-0000-0000-000000000101"
+          name: "frontend"
+          parent_id: "00000000-0000-0000-0000-000000000010"
+          status: deleted
 
         # Department under Sales: Enterprise
-        - id: "00000000000000000000000000000110"
-          parent_id: "00000000000000000000000000000011"
-          status: ACTIVE
-          is_accessible_by_parent: true
+        - id: "00000000-0000-0000-0000-000000000110"
+          name: "enterprise"
+          parent_id: "00000000-0000-0000-0000-000000000011"
+          status: active
 
   static-credstore-plugin:
     config:

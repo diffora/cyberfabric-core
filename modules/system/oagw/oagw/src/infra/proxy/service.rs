@@ -266,13 +266,10 @@ impl DataPlaneService for DataPlaneServiceImpl {
             Body::Stream(s) => (Bytes::new(), Some(s)),
         };
 
-        // 1. Resolve upstream by alias.
-        let upstream = self.cp.resolve_upstream(&ctx, &alias).await?;
-
-        // 2. Resolve route.
-        let route = self
+        // 1+2. Resolve upstream + route in one pass (single hierarchy walk).
+        let (upstream, route) = self
             .cp
-            .resolve_route(&ctx, upstream.id, method.as_ref(), &path_suffix)
+            .resolve_proxy_target(&ctx, &alias, method.as_ref(), &path_suffix)
             .await?;
 
         // 2b. Validate query parameters against route's allowlist.
@@ -843,20 +840,13 @@ mod tests {
             async fn delete_route(&self, _: &SecurityContext, _: Uuid) -> Result<(), DomainError> {
                 unimplemented!()
             }
-            async fn resolve_upstream(
+            async fn resolve_proxy_target(
                 &self,
                 _: &SecurityContext,
                 _: &str,
-            ) -> Result<Upstream, DomainError> {
-                unimplemented!()
-            }
-            async fn resolve_route(
-                &self,
-                _: &SecurityContext,
-                _: Uuid,
                 _: &str,
                 _: &str,
-            ) -> Result<Route, DomainError> {
+            ) -> Result<(Upstream, Route), DomainError> {
                 unimplemented!()
             }
         }
