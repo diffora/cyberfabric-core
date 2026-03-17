@@ -795,7 +795,7 @@ If any of the above validations fail, the request MUST be rejected with an appro
 | State | Server behavior |
 |-------|----------------|
 | Active generation exists for key | Return `409 Conflict` (JSON error response; no SSE stream is opened). (P2+: attach to existing stream.) |
-| Completed generation exists for key | Return a fast replay SSE stream without triggering a new provider request: one `delta` event containing the full persisted assistant text, then `citations` if available, then `done`. |
+| Completed generation exists for key | Return a fast replay SSE stream without triggering a new provider request: `stream_started` (with `is_new_turn: false`), one `delta` event containing the full persisted assistant text, then `citations` if available, then `done`. |
 | No record for key | Start a new generation normally (subject to the Parallel Turn Policy below). |
 
 If `request_id` is omitted in the request body, the server MUST generate a UUID v4 and assign it as the turn's `request_id`. The generated key participates in normal idempotency semantics: if the client persists the server-assigned value (e.g. from the SSE `done` event or Turn Status response), it can resubmit it for replay or recovery. In the public DTO, `request_id` is always present and non-null on every Message. Within a normal turn, the user message and assistant response always share the same `request_id` (turn correlation key). System/background messages (e.g. `doc_summary`, `thread_summary`) carry an independently server-generated UUID v4 and do not correspond to `chat_turns` rows.
@@ -878,15 +878,19 @@ UI guidance: if the SSE stream disconnects before a terminal event, the UI SHOUL
 
 #### SSE Event Definitions
 
-Seven event types. The stream always begins with `turn_started` (carrying the server-generated `request_id`) and ends with exactly one terminal event: `done` or `error`. Image-bearing turns use the same event types; no new SSE events are required for image support. The `citations` event MAY include items from both `file_search` (`source="file"`) and `web_search` (`source="web"`). Image inputs do not produce citations by themselves.
+Seven event types. The stream always begins with `stream_started` (carrying the resolved `request_id`, pre-generated `message_id`, and `is_new_turn` flag) and ends with exactly one terminal event: `done` or `error`. Image-bearing turns use the same event types; no new SSE events are required for image support. The `citations` event MAY include items from both `file_search` (`source="file"`) and `web_search` (`source="web"`). Image inputs do not produce citations by themselves.
 
-##### `event: turn_started`
+##### `event: stream_started`
 
-Emitted once at stream start, before any content events. Carries the server-generated `request_id` for this turn. Present on `POST /messages:stream`, `POST /turns/{id}/retry`, and `PATCH /turns/{id}`.
+Emitted once at stream start, before any content events. Present on all SSE streams: new generations (`POST /messages:stream`, `POST /turns/{id}/retry`, `PATCH /turns/{id}`) and idempotent replays.
+
+Carries the resolved `request_id` (client-provided when supplied, otherwise server-generated) and the assistant `message_id`. For new generations, `message_id` is a **pre-allocated UUID** — the assistant `messages` row does not yet exist in the database at this point; it will be persisted during finalization (see Content durability invariant, §5.8). For replays, `message_id` is the persisted assistant message ID. The `is_new_turn` flag distinguishes the two cases.
+
+This allows clients to reference the assistant message before the stream completes (e.g., for optimistic rendering, scroll-to-message, or cancellation) in all scenarios, including recovery after network interruption.
 
 ```
-event: turn_started
-data: {"request_id": "550e8400-e29b-41d4-a716-446655440000"}
+event: stream_started
+data: {"request_id": "550e8400-e29b-41d4-a716-446655440000", "message_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890", "is_new_turn": true}
 ```
 
 ##### `event: delta`
@@ -953,7 +957,6 @@ Finalizes the stream. Provides usage and model selection metadata.
 
 ```json
 {
-  "message_id": "uuid",
   "usage": {
     "input_tokens": 500,
     "output_tokens": 120,
@@ -969,7 +972,6 @@ Finalizes the stream. Provides usage and model selection metadata.
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `message_id` | UUID | Persisted assistant message ID. |
 | `usage.input_tokens` | number | Actual input tokens consumed. |
 | `usage.output_tokens` | number | Actual output tokens consumed. |
 | `usage.model` | string | Effective model used for generation (same value as top-level `effective_model`; kept for backward compatibility). |
@@ -1027,7 +1029,7 @@ A well-formed stream follows this ordering:
 **P1 normative ordering**:
 
 ```text
-turn_started  ping*  (delta | tool)*  citations?  (done | error)
+stream_started  ping*  (delta | tool)*  citations?  (done | error)
 ```
 
 - Zero or more `ping` events may appear at any point before terminal.
@@ -2643,7 +2645,7 @@ A turn is a user-message + assistant-response pair identified by `request_id` in
 3. Retry, edit, and delete are allowed only if the target turn is in a terminal state (`completed`, `failed`, or `cancelled`). If the turn is `running`, reject with `400 Bad Request` — the client must wait for completion or cancel by disconnecting the SSE stream (see `cpt-cf-mini-chat-seq-cancellation`).
 4. Retry and edit soft-delete the previous turn (set `deleted_at`) and set `replaced_by_request_id` on the old turn pointing to the new turn's `request_id`. Delete sets `deleted_at` only (no replacement turn). Mutation eligibility considers only non-deleted turns, so delete cannot target an already replaced (soft-deleted) turn.
 5. Soft-deleted turns (`deleted_at IS NOT NULL`) are excluded from active conversation history and context assembly but retained in storage for audit traceability.
-6. **New request_id invariant (normative)**: Both retry and edit create a new turn with a **new `request_id`** generated by the **server** (`Uuid::new_v4()`). The client does not provide the new `request_id` — the retry endpoint has no request body, and the edit endpoint body contains only `content`. The server-generated `request_id` is returned to the client via the SSE `event: turn_started` event (same contract as `sendMessage`). The old turn's `replaced_by_request_id` is set to the new `request_id` for audit traceability. The old `request_id` is no longer valid for idempotent replay — the soft-deleted turn is excluded from the replay path (replay requires `deleted_at IS NULL`). Audit events include both `original_request_id` and `new_request_id` (see audit event payloads for `turn_retry` and `turn_edit`).
+6. **New request_id invariant (normative)**: Both retry and edit create a new turn with a **new `request_id`** generated by the **server** (`Uuid::new_v4()`). The client does not provide the new `request_id` — the retry endpoint has no request body, and the edit endpoint body contains only `content`. The server-generated `request_id` is returned to the client via the SSE `event: stream_started` event (same contract as `sendMessage`). The old turn's `replaced_by_request_id` is set to the new `request_id` for audit traceability. The old `request_id` is no longer valid for idempotent replay — the soft-deleted turn is excluded from the replay path (replay requires `deleted_at IS NULL`). Audit events include both `original_request_id` and `new_request_id` (see audit event payloads for `turn_retry` and `turn_edit`).
 7. **Atomicity invariant (normative)**: The "latest turn" identity check (rule 1), the terminal state check (rule 3), the soft-delete of the old turn, and the INSERT of the new `running` turn MUST all execute within a single DB transaction using `SELECT FOR UPDATE` or equivalent serializable isolation. Without this, two concurrent retry/edit requests for the same turn can both pass the validation checks simultaneously, both soft-delete the old turn (the second soft-delete is a no-op since `deleted_at` is already set), and both attempt to INSERT a new running turn — which violates the `UNIQUE(chat_id) WHERE state = 'running' AND deleted_at IS NULL` index. If the new running turn INSERT fails due to this unique constraint (concurrent race condition), the mutation MUST return `409 Conflict` with `code = "generation_in_progress"` (not HTTP 500).
 
 #### Turn Mutation API Contracts

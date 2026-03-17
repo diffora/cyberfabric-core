@@ -78,6 +78,15 @@ def parse_sse(text: str) -> list[SSEEvent]:
     return events
 
 
+def expect_stream_started(events: list[SSEEvent]) -> SSEEvent:
+    """Find the 'stream_started' event or fail with diagnostics."""
+    for e in events:
+        if e.event == "stream_started":
+            return e
+    event_types = [e.event for e in events]
+    raise AssertionError(f"No 'stream_started' event. Events received: {event_types}")
+
+
 def expect_done(events: list[SSEEvent]) -> SSEEvent:
     """Find the 'done' event or fail with diagnostics."""
     for e in events:

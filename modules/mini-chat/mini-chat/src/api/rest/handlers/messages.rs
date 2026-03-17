@@ -265,6 +265,7 @@ async fn replay_response(
 
     let (tx, rx) = mpsc::channel::<StreamEvent>(4);
     tokio::spawn(async move {
+        drop(tx.send(events.stream_started).await);
         drop(tx.send(events.delta).await);
         drop(tx.send(events.done).await);
     });
@@ -405,7 +406,7 @@ impl Stream for SseRelay {
             Poll::Pending => {
                 // No event ready — check if ping timer fired
                 if this.ping_timer.poll_tick(cx).is_ready() {
-                    // Only emit pings in Idle or Pinging phase
+                    // Only emit pings in Started or Pinging phase
                     let kind = StreamEventKind::Ping;
                     match this.phase.try_advance(kind) {
                         Ok(new_phase) => {

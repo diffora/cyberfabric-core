@@ -20,7 +20,7 @@ use crate::domain::repos::{
     MessageAttachmentRepository, MessageRepository, QuotaUsageRepository, SnapshotBoundary,
     ThreadSummaryRepository, TurnRepository, VectorStoreRepository,
 };
-use crate::domain::stream_events::{DoneData, ErrorData, StreamEvent, TurnStartedData};
+use crate::domain::stream_events::{DoneData, ErrorData, StreamEvent, StreamStartedData};
 use crate::infra::db::entity::chat_turn::{Model as TurnModel, TurnState};
 use crate::infra::llm::{
     ClientSseEvent, LlmMessage, LlmProvider, LlmProviderError, LlmRequestBuilder, LlmTool,
@@ -175,7 +175,7 @@ struct FinalizationCtx<TR: TurnRepository + 'static, MR: MessageRepository + 'st
     chat_id: Uuid,
     request_id: Uuid,
     user_id: Uuid,
-    /// Pre-generated assistant message ID, also sent in `DoneData`.
+    /// Pre-generated assistant message ID, sent in `StreamStartedData` (`stream_started` event).
     message_id: Uuid,
     // ── Quota/preflight fields (from PreflightDecision) ──
     effective_model: String,
@@ -706,7 +706,7 @@ impl<
             }
         }
 
-        // Pre-generate assistant message ID (sent in DoneData and used in CAS)
+        // Pre-generate assistant message ID (sent in StreamStartedData and used in CAS)
         let message_id = Uuid::new_v4();
 
         let finalization_ctx = FinalizationCtx {
@@ -772,14 +772,7 @@ impl<
             .replace("{model}", &provider_model_id);
         let proxy_path = format!("{}{api_path}", resolved_provider.upstream_alias);
 
-        // Emit turn_started before handing tx to the provider task (D3).
-        if tx
-            .send(StreamEvent::TurnStarted(TurnStartedData { request_id }))
-            .await
-            .is_err()
-        {
-            warn!(%request_id, "turn_started send failed (client disconnected before first event)");
-        }
+        emit_stream_started(&tx, request_id, message_id).await;
 
         Ok(spawn_provider_task(
             resolved_provider.adapter,
@@ -1352,14 +1345,7 @@ impl<
             .replace("{model}", &provider_model_id);
         let proxy_path = format!("{}{api_path}", resolved_provider.upstream_alias);
 
-        // Emit turn_started before handing tx to the provider task (D3).
-        if tx
-            .send(StreamEvent::TurnStarted(TurnStartedData { request_id }))
-            .await
-            .is_err()
-        {
-            warn!(%request_id, "turn_started send failed (client disconnected before first event)");
-        }
+        emit_stream_started(&tx, request_id, message_id).await;
 
         Ok(spawn_provider_task(
             resolved_provider.adapter,
@@ -1384,6 +1370,21 @@ impl<
 /// a [`StreamOutcome`]. After the stream ends, atomically finalizes the turn
 /// via `FinalizationService::finalize_turn_cas()` if a context is provided.
 ///
+/// Emit `stream_started` before handing `tx` to the provider task (D3).
+async fn emit_stream_started(tx: &mpsc::Sender<StreamEvent>, request_id: Uuid, message_id: Uuid) {
+    if tx
+        .send(StreamEvent::StreamStarted(StreamStartedData {
+            request_id,
+            message_id,
+            is_new_turn: true,
+        }))
+        .await
+        .is_err()
+    {
+        warn!(%request_id, "stream_started send failed (client disconnected before first event)");
+    }
+}
+
 /// All five terminal paths (provider done, incomplete, provider error,
 /// client disconnect, pre-stream error) route through `finalize_turn_cas()`.
 /// SSE terminal events (Done/Error) are emitted only after the CAS winner
@@ -1426,7 +1427,6 @@ fn spawn_provider_task<TR: TurnRepository + 'static, MR: MessageRepository + 'st
     tokio::spawn(async move {
         let stream_start = std::time::Instant::now();
         let mut first_token_time: Option<std::time::Duration> = None;
-        let msg_id_str = fin_ctx.as_ref().map(|p| p.message_id.to_string());
 
         // ── Metrics: stream started + active gauge ──
         // ActiveStreamGuard ensures decrement on every exit path (Drop-based).
@@ -1860,7 +1860,6 @@ fn spawn_provider_task<TR: TurnRepository + 'static, MR: MessageRepository + 'st
                             };
                             let _ = tx
                                 .send(StreamEvent::Done(Box::new(DoneData {
-                                    message_id: msg_id_str.clone(),
                                     usage: Some(usage),
                                     effective_model: fctx.effective_model.clone(),
                                     selected_model: fctx.selected_model.clone(),
@@ -1877,7 +1876,6 @@ fn spawn_provider_task<TR: TurnRepository + 'static, MR: MessageRepository + 'st
                             // Emit Done anyway so client isn't left hanging
                             let _ = tx
                                 .send(StreamEvent::Done(Box::new(DoneData {
-                                    message_id: msg_id_str.clone(),
                                     usage: Some(usage),
                                     effective_model: fctx.effective_model.clone(),
                                     selected_model: fctx.selected_model.clone(),
@@ -1904,7 +1902,6 @@ fn spawn_provider_task<TR: TurnRepository + 'static, MR: MessageRepository + 'st
                     }
                     let _ = tx
                         .send(StreamEvent::Done(Box::new(DoneData {
-                            message_id: msg_id_str.clone(),
                             usage: Some(usage),
                             effective_model: model.clone(),
                             selected_model: model.clone(),
@@ -1970,7 +1967,6 @@ fn spawn_provider_task<TR: TurnRepository + 'static, MR: MessageRepository + 'st
                             };
                             let _ = tx
                                 .send(StreamEvent::Done(Box::new(DoneData {
-                                    message_id: msg_id_str.clone(),
                                     usage: Some(usage),
                                     effective_model: fctx.effective_model.clone(),
                                     selected_model: fctx.selected_model.clone(),
@@ -1986,7 +1982,6 @@ fn spawn_provider_task<TR: TurnRepository + 'static, MR: MessageRepository + 'st
                             warn!(error = %fe, "finalization failed on incomplete stream");
                             let _ = tx
                                 .send(StreamEvent::Done(Box::new(DoneData {
-                                    message_id: msg_id_str.clone(),
                                     usage: Some(usage),
                                     effective_model: fctx.effective_model.clone(),
                                     selected_model: fctx.selected_model.clone(),
@@ -2001,7 +1996,6 @@ fn spawn_provider_task<TR: TurnRepository + 'static, MR: MessageRepository + 'st
                 } else {
                     let _ = tx
                         .send(StreamEvent::Done(Box::new(DoneData {
-                            message_id: msg_id_str.clone(),
                             usage: Some(usage),
                             effective_model: model.clone(),
                             selected_model: model.clone(),
@@ -3410,9 +3404,9 @@ mod tests {
             .await
             .expect("should start stream");
 
-        // Read the turn_started event, then the first delta
-        let started = rx.recv().await.expect("should get turn_started");
-        assert!(matches!(started, StreamEvent::TurnStarted(_)));
+        // Read the stream_started event, then the first delta
+        let started = rx.recv().await.expect("should get stream_started");
+        assert!(matches!(started, StreamEvent::StreamStarted(_)));
         let first = rx.recv().await.expect("should get delta");
         assert!(matches!(first, StreamEvent::Delta(_)));
 
@@ -5460,9 +5454,9 @@ mod tests {
             .await
             .expect("should succeed");
 
-        // Wait for turn_started and first delta to arrive, then cancel
-        let started = rx.recv().await.expect("should get turn_started");
-        assert!(matches!(started, StreamEvent::TurnStarted(_)));
+        // Wait for stream_started and first delta to arrive, then cancel
+        let started = rx.recv().await.expect("should get stream_started");
+        assert!(matches!(started, StreamEvent::StreamStarted(_)));
         let ev = rx.recv().await.expect("should receive delta");
         assert!(
             matches!(ev, StreamEvent::Delta(_)),

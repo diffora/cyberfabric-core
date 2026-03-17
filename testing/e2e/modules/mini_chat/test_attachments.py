@@ -12,7 +12,7 @@ import zlib
 import pytest
 import httpx
 
-from .conftest import API_PREFIX, AZURE_MODEL, SSEEvent, expect_done, stream_message
+from .conftest import API_PREFIX, AZURE_MODEL, SSEEvent, expect_done, expect_stream_started, stream_message
 
 FIXTURES_DIR = pathlib.Path(__file__).parent / "fixtures"
 
@@ -207,8 +207,9 @@ class TestSendMessageWithAttachments:
             attachment_ids=att_ids,
         )
         assert status == 200, f"Stream failed: {status} {raw[:500]}"
-        done = expect_done(events)
-        assert done.data.get("message_id")
+        expect_done(events)
+        ss = expect_stream_started(events)
+        assert ss.data.get("message_id")
 
 
 # ---------------------------------------------------------------------------
@@ -315,8 +316,9 @@ class TestAzureSendMessageWithAttachment:
             attachment_ids=[att_id],
         )
         assert status == 200, f"Stream failed: {status} {raw[:500]}"
-        done = expect_done(events)
-        assert done.data.get("message_id")
+        expect_done(events)
+        ss = expect_stream_started(events)
+        assert ss.data.get("message_id")
 
 
 @pytest.mark.openai
@@ -351,8 +353,9 @@ def upload_and_stream(chat_id: str, filename: str, content: bytes, question: str
     att_id = upload_and_verify(chat_id, filename, content)
     status, events, raw = stream_message(chat_id, question, attachment_ids=[att_id])
     assert status == 200, f"Stream failed: {status} {raw[:500]}"
+    ss = expect_stream_started(events)
+    assert ss.data.get("message_id")
     done = expect_done(events)
-    assert done.data.get("message_id")
     usage = done.data.get("usage", {})
     assert usage.get("input_tokens", 0) > 0, "Expected non-zero input_tokens"
     assert usage.get("output_tokens", 0) > 0, "Expected non-zero output_tokens"
@@ -457,8 +460,9 @@ class TestImageUploadAndSend:
             attachment_ids=[att_id],
         )
         assert status == 200, f"Stream failed: {status} {raw[:500]}"
-        done = expect_done(events)
-        assert done.data.get("message_id"), "Expected message_id in done event"
+        expect_done(events)
+        ss = expect_stream_started(events)
+        assert ss.data.get("message_id"), "Expected message_id in stream_started event"
 
         # Collect delta text to see what the LLM said
         delta_text = ""

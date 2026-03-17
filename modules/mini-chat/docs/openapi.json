@@ -268,7 +268,7 @@
         "operationId": "sendMessage",
         "tags": ["messages"],
         "summary": "Send message and receive streamed AI response",
-        "description": "Sends a user message and opens an SSE stream for the assistant response. If `request_id` matches an active generation, returns 409 Conflict (JSON, no SSE). If `request_id` matches a completed generation, replays the response as SSE (side-effect-free: no new quota reserve, no billing events).\n\nThe optional `web_search` parameter enables web search for this turn (disabled by default, backward compatible).\n\n**Attachment fields**: `attachment_ids` identifies attachments explicitly attached to this message (persisted into `message_attachments`, returned in message `attachments[]`; images included in multimodal input for the current turn). In P1, retrieval always covers all documents in the chat vector store — `attachment_ids` does not scope or filter retrieval. `file_search` is only included when the chat has at least one ready document attachment.\n\n**SSE event ordering**: `turn_started ping* (delta | tool)* citations? (done | error)`. `delta` and `tool` may interleave; at most one `citations` event, emitted after all `delta` events and before the terminal event.\n\nExactly one terminal event (`done` or `error`) ends the stream.\n\n**SSE event types and payloads**:\n- `event: turn_started` — first event, carries `request_id`. Payload: `SseTurnStartedEvent`.\n- `event: ping` — keepalive, payload: `{}`. Clients MUST ignore.\n- `event: delta` — incremental text. Payload: `SseDeltaEvent`.\n- `event: tool` — tool activity (file_search, web_search at P1). Payload: `SseToolEvent`.\n- `event: citations` — source references (file and web). Payload: `SseCitationsEvent`.\n- `event: done` — terminal success with usage and quota_decision. Emitted for both full completions and truncated-but-successful completions (provider `response.incomplete`). Payload: `SseDoneEvent`.\n- `event: error` — terminal failure. Payload: `SseErrorEvent`.\n\nSee component schemas for payload definitions.\n\n**Pre-stream errors**: If validation, authorization, or quota preflight fails before streaming, a JSON error response with the appropriate HTTP status is returned and no SSE stream is opened.\n\n**Cancellation**: If the client disconnects mid-stream, the server cancels the in-flight provider request and applies a bounded best-effort debit for quota. No SSE error event is emitted (the stream is already broken). The Turn Status API is authoritative for final state after disconnect.",
+        "description": "Sends a user message and opens an SSE stream for the assistant response. If `request_id` matches an active generation, returns 409 Conflict (JSON, no SSE). If `request_id` matches a completed generation, replays the response as SSE (side-effect-free: no new quota reserve, no billing events).\n\nThe optional `web_search` parameter enables web search for this turn (disabled by default, backward compatible).\n\n**Attachment fields**: `attachment_ids` identifies attachments explicitly attached to this message (persisted into `message_attachments`, returned in message `attachments[]`; images included in multimodal input for the current turn). In P1, retrieval always covers all documents in the chat vector store — `attachment_ids` does not scope or filter retrieval. `file_search` is only included when the chat has at least one ready document attachment.\n\n**SSE event ordering**: `stream_started ping* (delta | tool)* citations? (done | error)`. `delta` and `tool` may interleave; at most one `citations` event, emitted after all `delta` events and before the terminal event.\n\nExactly one terminal event (`done` or `error`) ends the stream.\n\n**SSE event types and payloads**:\n- `event: stream_started` — first event, carries `request_id`, assistant `message_id`, and `is_new_turn` flag. Payload: `SseStreamStartedEvent`.\n- `event: ping` — keepalive, payload: `{}`. Clients MUST ignore.\n- `event: delta` — incremental text. Payload: `SseDeltaEvent`.\n- `event: tool` — tool activity (file_search, web_search at P1). Payload: `SseToolEvent`.\n- `event: citations` — source references (file and web). Payload: `SseCitationsEvent`.\n- `event: done` — terminal success with usage and quota_decision. Emitted for both full completions and truncated-but-successful completions (provider `response.incomplete`). Payload: `SseDoneEvent`.\n- `event: error` — terminal failure. Payload: `SseErrorEvent`.\n\nSee component schemas for payload definitions.\n\n**Pre-stream errors**: If validation, authorization, or quota preflight fails before streaming, a JSON error response with the appropriate HTTP status is returned and no SSE stream is opened.\n\n**Cancellation**: If the client disconnects mid-stream, the server cancels the in-flight provider request and applies a bounded best-effort debit for quota. No SSE error event is emitted (the stream is already broken). The Turn Status API is authoritative for final state after disconnect.",
         "requestBody": {
           "required": true,
           "content": {
@@ -305,9 +305,9 @@
             "content": {
               "text/event-stream": {
                 "schema": {
-                  "description": "Server-Sent Events stream. Each line is `event: <type>\\ndata: <JSON>\\n\\n`. Event ordering: `turn_started ping* (delta | tool)* citations? (done | error)`. Exactly one terminal event ends the stream.",
+                  "description": "Server-Sent Events stream. Each line is `event: <type>\\ndata: <JSON>\\n\\n`. Event ordering: `stream_started ping* (delta | tool)* citations? (done | error)`. Exactly one terminal event ends the stream.",
                   "oneOf": [
-                    { "$ref": "#/components/schemas/SseTurnStartedEvent" },
+                    { "$ref": "#/components/schemas/SseStreamStartedEvent" },
                     { "$ref": "#/components/schemas/SseDeltaEvent" },
                     { "$ref": "#/components/schemas/SseToolEvent" },
                     { "$ref": "#/components/schemas/SseCitationsEvent" },
@@ -794,9 +794,9 @@
             "content": {
               "text/event-stream": {
                 "schema": {
-                  "description": "Server-Sent Events stream. Each line is `event: <type>\\ndata: <JSON>\\n\\n`. Event ordering: `turn_started ping* (delta | tool)* citations? (done | error)`. Exactly one terminal event ends the stream.",
+                  "description": "Server-Sent Events stream. Each line is `event: <type>\\ndata: <JSON>\\n\\n`. Event ordering: `stream_started ping* (delta | tool)* citations? (done | error)`. Exactly one terminal event ends the stream.",
                   "oneOf": [
-                    { "$ref": "#/components/schemas/SseTurnStartedEvent" },
+                    { "$ref": "#/components/schemas/SseStreamStartedEvent" },
                     { "$ref": "#/components/schemas/SseDeltaEvent" },
                     { "$ref": "#/components/schemas/SseToolEvent" },
                     { "$ref": "#/components/schemas/SseCitationsEvent" },
@@ -956,9 +956,9 @@
             "content": {
               "text/event-stream": {
                 "schema": {
-                  "description": "Server-Sent Events stream. Each line is `event: <type>\\ndata: <JSON>\\n\\n`. Event ordering: `turn_started ping* (delta | tool)* citations? (done | error)`. Exactly one terminal event ends the stream.",
+                  "description": "Server-Sent Events stream. Each line is `event: <type>\\ndata: <JSON>\\n\\n`. Event ordering: `stream_started ping* (delta | tool)* citations? (done | error)`. Exactly one terminal event ends the stream.",
                   "oneOf": [
-                    { "$ref": "#/components/schemas/SseTurnStartedEvent" },
+                    { "$ref": "#/components/schemas/SseStreamStartedEvent" },
                     { "$ref": "#/components/schemas/SseDeltaEvent" },
                     { "$ref": "#/components/schemas/SseToolEvent" },
                     { "$ref": "#/components/schemas/SseCitationsEvent" },
@@ -1750,15 +1750,24 @@
           }
         }
       },
-      "SseTurnStartedEvent": {
+      "SseStreamStartedEvent": {
         "type": "object",
-        "required": ["request_id"],
-        "description": "SSE `event: turn_started` payload. First event in the stream, emitted exactly once. Carries the server-assigned request_id for correlation.",
+        "required": ["request_id", "message_id", "is_new_turn"],
+        "description": "SSE `event: stream_started` payload. First event in every SSE stream (both new generations and replays). Carries the server-assigned request_id, assistant message_id, and is_new_turn flag.",
         "properties": {
           "request_id": {
             "type": "string",
             "format": "uuid",
             "description": "Server-assigned request ID for this turn."
+          },
+          "message_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Assistant message ID. Pre-allocated for new generations; persisted ID for replays. Allows clients to reference the assistant message before the stream completes."
+          },
+          "is_new_turn": {
+            "type": "boolean",
+            "description": "true for a live generation (new turn); false when the stream replays an already-completed turn (idempotent replay)."
           }
         }
       },
@@ -1872,16 +1881,13 @@
       },
       "SseDoneEvent": {
         "type": "object",
-        "required": ["message_id", "usage", "effective_model", "selected_model", "quota_decision"],
-        "description": "SSE `event: done` payload. Terminal event finalizing the stream with usage and model selection metadata. Used for both full completions and truncated-but-successful completions (provider `response.incomplete`).",
+        "required": ["usage", "effective_model", "selected_model", "quota_decision"],
+        "description": "SSE `event: done` payload. Terminal event finalizing the stream with usage and model selection metadata. Used for both full completions and truncated-but-successful completions (provider `response.incomplete`). The assistant message_id is provided in the preceding `stream_started` event.",
         "properties": {
-          "message_id": {
-            "type": "string",
-            "format": "uuid",
-            "description": "Persisted assistant message ID."
-          },
           "usage": {
-            "$ref": "#/components/schemas/SseUsage"
+            "nullable": true,
+            "description": "Token usage for this turn. Null when usage is unavailable (e.g. provider error before any tokens were consumed).",
+            "allOf": [{ "$ref": "#/components/schemas/SseUsage" }]
           },
           "effective_model": {
             "type": "string",

@@ -9,7 +9,7 @@ import uuid
 import pytest
 import httpx
 
-from .conftest import API_PREFIX, DEFAULT_MODEL, STANDARD_MODEL, expect_done, parse_sse, stream_message
+from .conftest import API_PREFIX, DEFAULT_MODEL, STANDARD_MODEL, expect_done, expect_stream_started, parse_sse, stream_message
 
 
 
@@ -67,12 +67,18 @@ class TestStreamDoneEvent:
         assert usage["input_tokens"] > 0
         assert usage["output_tokens"] > 0
 
-    def test_done_has_message_id(self, provider_chat):
+    def test_done_does_not_have_message_id(self, provider_chat):
+        """message_id moved to stream_started; done should not carry it."""
         _, events, _ = stream_message(provider_chat["id"], "Say OK.")
         done = expect_done(events)
-        msg_id = done.data.get("message_id")
+        assert "message_id" not in done.data
+
+    def test_stream_started_has_message_id(self, provider_chat):
+        """message_id is now in stream_started."""
+        _, events, _ = stream_message(provider_chat["id"], "Say OK.")
+        ss = expect_stream_started(events)
+        msg_id = ss.data.get("message_id")
         assert msg_id is not None
-        # Should be a valid UUID
         uuid.UUID(msg_id)
 
     def test_done_effective_model_matches_chat(self, provider_chat):

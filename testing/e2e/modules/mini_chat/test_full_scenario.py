@@ -13,7 +13,7 @@ import uuid
 import pytest
 import httpx
 
-from .conftest import API_PREFIX, DB_PATH, DEFAULT_MODEL, STANDARD_MODEL, expect_done, stream_message
+from .conftest import API_PREFIX, DB_PATH, DEFAULT_MODEL, STANDARD_MODEL, expect_done, expect_stream_started, stream_message
 
 pytestmark = pytest.mark.openai
 
@@ -62,10 +62,13 @@ class TestFullConversationScenario:
         s1, ev1, _ = stream_message(chat_id, "What is 2+2? Reply with just the number.", request_id=rid1)
         assert s1 == 200
 
+        ss1 = expect_stream_started(ev1)
+        msg_id1 = ss1.data["message_id"]
+        assert ss1.data["is_new_turn"] is True
+
         done1 = expect_done(ev1)
         assert done1.data["quota_decision"] == "allow"
         assert done1.data["effective_model"] == DEFAULT_MODEL
-        msg_id1 = done1.data["message_id"]
         usage1 = done1.data["usage"]
         assert usage1["input_tokens"] > 0
         assert usage1["output_tokens"] > 0
@@ -79,8 +82,11 @@ class TestFullConversationScenario:
         s2, ev2, _ = stream_message(chat_id, "Now multiply that result by 10.", request_id=rid2)
         assert s2 == 200
 
+        ss2 = expect_stream_started(ev2)
+        msg_id2 = ss2.data["message_id"]
+        assert ss2.data["is_new_turn"] is True
+
         done2 = expect_done(ev2)
-        msg_id2 = done2.data["message_id"]
         usage2 = done2.data["usage"]
 
         # Input tokens should be higher (conversation context grows)
@@ -97,8 +103,10 @@ class TestFullConversationScenario:
         s3, ev3, _ = stream_message(chat_id, "What was my first question?", request_id=rid3)
         assert s3 == 200
 
-        done3 = expect_done(ev3)
-        msg_id3 = done3.data["message_id"]
+        ss3 = expect_stream_started(ev3)
+        msg_id3 = ss3.data["message_id"]
+        assert ss3.data["is_new_turn"] is True
+        expect_done(ev3)
 
         # ── 5. Verify message history via API ────────────────────────────
         resp = httpx.get(f"{API_PREFIX}/chats/{chat_id}/messages")
@@ -180,9 +188,10 @@ class TestFullConversationScenario:
             chat_id, "What is 2+2? Reply with just the number.", request_id=rid1,
         )
         assert s_replay == 200
-        # Replay should return done event with same message_id
-        done_replay = expect_done(ev_replay)
-        assert done_replay.data["message_id"] == msg_id1
+        # Replay should return stream_started with same message_id and is_new_turn=false
+        ss_replay = expect_stream_started(ev_replay)
+        assert ss_replay.data["message_id"] == msg_id1
+        assert ss_replay.data["is_new_turn"] is False
 
         # ── 12. Delete chat ──────────────────────────────────────────────
         resp = httpx.delete(f"{API_PREFIX}/chats/{chat_id}")

@@ -1,9 +1,11 @@
-"""Tests for the turn_started SSE lifecycle event and cancelled message persistence.
+"""Tests for the stream_started SSE lifecycle event and cancelled message persistence.
 
 Covers:
-- turn_started as first SSE event on initial send, retry, and edit
-- turn_started.request_id matches Turn Status API
-- Full event grammar ordering with turn_started
+- stream_started as first SSE event on initial send, retry, and edit
+- stream_started.request_id / message_id / is_new_turn fields
+- stream_started.request_id matches Turn Status API
+- Full event grammar ordering with stream_started
+- stream_started emitted on replay with is_new_turn=false
 - Cancelled stream persists partial assistant message
 - Cancelled message appears in GET /messages
 - Retry of cancelled turn replaces partial message
@@ -15,22 +17,13 @@ import uuid
 import pytest
 import httpx
 
-from .conftest import API_PREFIX, expect_done, parse_sse, stream_message
+from .conftest import API_PREFIX, expect_done, expect_stream_started, parse_sse, stream_message
 
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-def expect_turn_started(events):
-    """Find the 'turn_started' event or fail."""
-    for e in events:
-        if e.event == "turn_started":
-            return e
-    event_types = [e.event for e in events]
-    raise AssertionError(f"No 'turn_started' event. Events: {event_types}")
-
 
 def stream_message_raw_partial(chat_id: str, content: str, read_bytes: int = 512):
     """Start a streaming request, read a small chunk, then close the connection.
@@ -79,38 +72,51 @@ def poll_turn_status(chat_id: str, request_id: str, target_state: str,
 
 
 # ---------------------------------------------------------------------------
-# Tests: turn_started event on initial send
+# Tests: stream_started event on initial send
 # ---------------------------------------------------------------------------
 
-class TestTurnStartedOnSend:
-    """turn_started is the first SSE event on POST /messages:stream."""
+class TestStreamStartedOnSend:
+    """stream_started is the first SSE event on POST /messages:stream."""
 
-    def test_turn_started_is_first_event(self, provider_chat):
+    def test_stream_started_is_first_event(self, provider_chat):
         _, events, _ = stream_message(provider_chat["id"], "Say OK.")
         assert len(events) >= 2, f"Expected >=2 events, got {len(events)}"
-        assert events[0].event == "turn_started", (
-            f"First event should be turn_started, got {events[0].event}"
+        assert events[0].event == "stream_started", (
+            f"First event should be stream_started, got {events[0].event}"
         )
 
-    def test_turn_started_has_request_id(self, provider_chat):
+    def test_stream_started_has_request_id(self, provider_chat):
         _, events, _ = stream_message(provider_chat["id"], "Say OK.")
-        ts = expect_turn_started(events)
-        rid = ts.data.get("request_id")
-        assert rid is not None, "turn_started should have request_id"
+        ss = expect_stream_started(events)
+        rid = ss.data.get("request_id")
+        assert rid is not None, "stream_started should have request_id"
         uuid.UUID(rid)  # validates it's a UUID
 
-    def test_turn_started_request_id_matches_client_id(self, provider_chat):
-        """When client provides request_id, turn_started echoes it back."""
+    def test_stream_started_has_message_id(self, provider_chat):
+        _, events, _ = stream_message(provider_chat["id"], "Say OK.")
+        ss = expect_stream_started(events)
+        mid = ss.data.get("message_id")
+        assert mid is not None, "stream_started should have message_id"
+        uuid.UUID(mid)  # validates it's a UUID
+
+    def test_stream_started_is_new_turn_true_on_send(self, provider_chat):
+        """Live generation should have is_new_turn=true."""
+        _, events, _ = stream_message(provider_chat["id"], "Say OK.")
+        ss = expect_stream_started(events)
+        assert ss.data.get("is_new_turn") is True
+
+    def test_stream_started_request_id_matches_client_id(self, provider_chat):
+        """When client provides request_id, stream_started echoes it back."""
         request_id = str(uuid.uuid4())
         _, events, _ = stream_message(provider_chat["id"], "Say OK.", request_id=request_id)
-        ts = expect_turn_started(events)
-        assert ts.data["request_id"] == request_id
+        ss = expect_stream_started(events)
+        assert ss.data["request_id"] == request_id
 
-    def test_turn_started_request_id_matches_turn_status(self, provider_chat):
-        """request_id from turn_started matches GET /turns/{request_id}."""
+    def test_stream_started_request_id_matches_turn_status(self, provider_chat):
+        """request_id from stream_started matches GET /turns/{request_id}."""
         _, events, _ = stream_message(provider_chat["id"], "Say OK.")
-        ts = expect_turn_started(events)
-        rid = ts.data["request_id"]
+        ss = expect_stream_started(events)
+        rid = ss.data["request_id"]
 
         resp = httpx.get(f"{API_PREFIX}/chats/{provider_chat['id']}/turns/{rid}")
         assert resp.status_code == 200
@@ -123,27 +129,27 @@ class TestTurnStartedOnSend:
 # Tests: event ordering grammar
 # ---------------------------------------------------------------------------
 
-class TestTurnStartedOrdering:
-    """Grammar: turn_started ping* (delta | tool)* citations? (done | error)."""
+class TestStreamStartedOrdering:
+    """Grammar: stream_started ping* (delta | tool)* citations? (done | error)."""
 
-    def test_turn_started_before_deltas_before_done(self, provider_chat):
+    def test_stream_started_before_deltas_before_done(self, provider_chat):
         _, events, _ = stream_message(provider_chat["id"], "Say hello briefly.")
         types = [e.event for e in events]
 
-        # turn_started must be first
-        assert types[0] == "turn_started"
+        # stream_started must be first
+        assert types[0] == "stream_started"
 
         # done must be last
         assert types[-1] == "done"
 
-        # No turn_started after the first one
-        assert types.count("turn_started") == 1
+        # No stream_started after the first one
+        assert types.count("stream_started") == 1
 
-        # Deltas between turn_started and done
+        # Deltas between stream_started and done
         deltas = [e for e in events if e.event == "delta"]
         assert len(deltas) > 0
 
-    def test_pings_only_between_turn_started_and_first_content(self, provider_chat):
+    def test_pings_only_between_stream_started_and_first_content(self, provider_chat):
         """Pings should only appear before the first delta/tool."""
         _, events, _ = stream_message(provider_chat["id"], "Say hi.")
         first_content_idx = None
@@ -157,13 +163,13 @@ class TestTurnStartedOrdering:
 
 
 # ---------------------------------------------------------------------------
-# Tests: turn_started on retry and edit
+# Tests: stream_started on retry and edit
 # ---------------------------------------------------------------------------
 
-class TestTurnStartedOnMutation:
-    """turn_started carries a NEW request_id on retry and edit."""
+class TestStreamStartedOnMutation:
+    """stream_started carries a NEW request_id on retry and edit."""
 
-    def test_retry_emits_turn_started_with_new_request_id(self, provider_chat):
+    def test_retry_emits_stream_started_with_new_request_id(self, provider_chat):
         chat_id = provider_chat["id"]
 
         # Complete a turn
@@ -184,15 +190,15 @@ class TestTurnStartedOnMutation:
         assert resp.status_code == 200, f"Retry failed: {resp.status_code} {resp.text}"
         retry_events = parse_sse(resp.text)
 
-        ts = expect_turn_started(retry_events)
-        new_rid = ts.data["request_id"]
+        ss = expect_stream_started(retry_events)
+        new_rid = ss.data["request_id"]
         assert new_rid != orig_rid, "Retry should generate a new request_id"
         uuid.UUID(new_rid)
 
         # Verify done event present
         expect_done(retry_events)
 
-    def test_edit_emits_turn_started_with_new_request_id(self, provider_chat):
+    def test_edit_emits_stream_started_with_new_request_id(self, provider_chat):
         chat_id = provider_chat["id"]
 
         # Complete a turn
@@ -214,12 +220,39 @@ class TestTurnStartedOnMutation:
         assert resp.status_code == 200, f"Edit failed: {resp.status_code} {resp.text}"
         edit_events = parse_sse(resp.text)
 
-        ts = expect_turn_started(edit_events)
-        new_rid = ts.data["request_id"]
+        ss = expect_stream_started(edit_events)
+        new_rid = ss.data["request_id"]
         assert new_rid != orig_rid, "Edit should generate a new request_id"
         uuid.UUID(new_rid)
 
         expect_done(edit_events)
+
+
+# ---------------------------------------------------------------------------
+# Tests: stream_started on replay (idempotent)
+# ---------------------------------------------------------------------------
+
+class TestStreamStartedOnReplay:
+    """Replay of a completed turn emits stream_started with is_new_turn=false."""
+
+    def test_replay_emits_stream_started_with_is_new_turn_false(self, provider_chat):
+        chat_id = provider_chat["id"]
+
+        # Complete a turn
+        rid = str(uuid.uuid4())
+        status, events, _ = stream_message(chat_id, "Say OK.", request_id=rid)
+        assert status == 200
+        ss_orig = expect_stream_started(events)
+        orig_msg_id = ss_orig.data["message_id"]
+
+        # Replay same request_id
+        status2, events2, _ = stream_message(chat_id, "Say OK.", request_id=rid)
+        assert status2 == 200
+
+        ss_replay = expect_stream_started(events2)
+        assert ss_replay.data["is_new_turn"] is False
+        assert ss_replay.data["message_id"] == orig_msg_id
+        assert ss_replay.data["request_id"] == rid
 
 
 # ---------------------------------------------------------------------------
@@ -234,7 +267,7 @@ class TestCancelledMessagePersistence:
         chat_id = provider_chat["id"]
 
         # Use a long prompt to trigger slow-response scenario in mock.
-        # read_bytes=256 reads just turn_started + first deltas, then disconnects.
+        # read_bytes=256 reads just stream_started + first deltas, then disconnects.
         request_id, _ = stream_message_raw_partial(
             chat_id,
             "Write a detailed 500-word essay about the history of computing.",
@@ -301,21 +334,21 @@ class TestCancelledMessagePersistence:
         assert resp.status_code == 200, f"Retry failed: {resp.status_code} {resp.text}"
         retry_events = parse_sse(resp.text)
 
-        # Retry should emit turn_started with a new request_id
-        ts = expect_turn_started(retry_events)
-        new_rid = ts.data["request_id"]
+        # Retry should emit stream_started with a new request_id and message_id
+        ss = expect_stream_started(retry_events)
+        new_rid = ss.data["request_id"]
+        new_msg_id = ss.data["message_id"]
         assert new_rid != request_id, "Retry should use a new request_id"
-
-        # Retry should complete with a done event
-        retry_done = expect_done(retry_events)
-        new_msg_id = retry_done.data.get("message_id")
-        assert new_msg_id is not None, "Retry done should have message_id"
+        assert new_msg_id is not None, "stream_started should have message_id"
 
         # The new message should be different from the partial one
         if partial_msg_id is not None:
             assert new_msg_id != partial_msg_id, (
                 "Retry should produce a new message, not reuse the partial"
             )
+
+        # Retry should complete with a done event
+        expect_done(retry_events)
 
         # Verify the new turn is in 'done' state
         new_turn = poll_turn_status(chat_id, new_rid, "done")
