@@ -97,6 +97,16 @@
           },
           "403": {
             "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "description": "Internal server error while creating the chat.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
           }
         }
       },
@@ -127,11 +137,31 @@
               }
             }
           },
+          "400": {
+            "description": "Bad request, for example an invalid pagination or OData query.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
           "401": {
             "$ref": "#/components/responses/Unauthorized"
           },
           "403": {
             "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "description": "Internal server error while listing chats.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
           }
         }
       }
@@ -167,6 +197,16 @@
               }
             }
           },
+          "400": {
+            "description": "Invalid request, for example an invalid `id` path parameter format.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
           "401": {
             "$ref": "#/components/responses/Unauthorized"
           },
@@ -175,6 +215,16 @@
           },
           "404": {
             "$ref": "#/components/responses/NotFound"
+          },
+          "500": {
+            "description": "Internal server error while fetching the chat.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
           }
         }
       },
@@ -195,6 +245,16 @@
           },
           "404": {
             "$ref": "#/components/responses/NotFound"
+          },
+          "500": {
+            "description": "Internal server error while deleting the chat.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
           }
         }
       },
@@ -254,6 +314,16 @@
           },
           "404": {
             "$ref": "#/components/responses/NotFound"
+          },
+          "500": {
+            "description": "Internal server error while updating the chat title.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
           }
         }
       }
@@ -333,7 +403,7 @@
             }
           },
           "400": {
-            "description": "Bad request. Possible codes: `too_many_images` (exceeds per-message image input limit), `web_search_disabled` (web search requested but kill switch is active).",
+            "description": "Bad request detected before the SSE stream opens. Possible causes include empty message content, invalid model resolution, invalid attachment references, or `web_search_disabled`.",
             "content": {
               "application/json": {
                 "schema": {
@@ -361,6 +431,16 @@
               }
             }
           },
+          "422": {
+            "description": "Context budget exceeded before generation starts. Code: `context_budget_exceeded`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
           "413": {
             "description": "Image bytes exceeded per-turn limit. Code: `image_bytes_exceeded`.",
             "content": {
@@ -372,7 +452,7 @@
             }
           },
           "415": {
-            "description": "Effective model does not support multimodal input. Validation occurs after downgrade decision and before provider call. Code: `unsupported_media`. Defensive: under the P1 catalog invariant (all enabled models include VISION_INPUT) this response is not expected; it activates if a future catalog introduces a non-vision model or on catalog misconfiguration.",
+            "description": "Effective model does not support multimodal input. Code: `unsupported_media`. Defensive: under the P1 catalog invariant (all enabled models include VISION_INPUT) this response is not expected; it activates if a future catalog introduces a non-vision model or on catalog misconfiguration.",
             "content": {
               "application/json": {
                 "schema": {
@@ -382,14 +462,21 @@
             }
           },
           "429": {
-            "description": "Quota or rate limit exceeded. Code: `quota_exceeded` (with mandatory `quota_scope`: `tokens`, `web_search`, or `image_inputs`) for user quota exhaustion (always pre-stream), or `rate_limited` for upstream provider throttling after OAGW retry exhaustion. `rate_limited` may also appear as a terminal SSE `event: error` if the provider returns 429 mid-stream (HTTP status remains 200 in that case). Clients MUST use the `code` field to distinguish the two.",
+            "description": "Quota or rate limit exceeded. Runtime responses use the Problem format. In current handlers, `title` is typically `quota_exceeded` for user quota exhaustion (always pre-stream) or `rate_limited` for upstream provider throttling after OAGW retry exhaustion. `rate_limited` may also appear as a terminal SSE `event: error` if the provider returns 429 mid-stream (HTTP status remains 200 in that case). `quota_scope` is tracked internally but is not currently included in the response body.",
             "content": {
               "application/json": {
                 "schema": {
-                  "oneOf": [
-                    { "$ref": "#/components/schemas/QuotaExceededError" },
-                    { "$ref": "#/components/schemas/GenericError" }
-                  ]
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error before the SSE stream opens. Problem title is typically `internal_server_error`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
                 }
               }
             }
@@ -468,6 +555,16 @@
               }
             }
           },
+          "400": {
+            "description": "Bad request, for example malformed multipart data, missing `file` field, missing file bytes, or other request validation failures.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
           "401": {
             "$ref": "#/components/responses/Unauthorized"
           },
@@ -498,7 +595,17 @@
             }
           },
           "429": {
-            "description": "Daily upload quota exceeded. Code: `quota_exceeded`, `quota_scope`: `uploads`.",
+            "description": "Daily upload quota exceeded. Runtime responses use the Problem format; `title` is typically `quota_exceeded`. Upload quota scope is enforced internally and is not currently included in the response body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error while uploading the attachment.",
             "content": {
               "application/json": {
                 "schema": {
@@ -609,6 +716,16 @@
               }
             }
           },
+          "400": {
+            "description": "Bad request, for example an invalid pagination or OData query.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
           "401": {
             "$ref": "#/components/responses/Unauthorized"
           },
@@ -617,6 +734,16 @@
           },
           "404": {
             "$ref": "#/components/responses/NotFound"
+          },
+          "500": {
+            "description": "Internal server error while listing messages.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
           }
         }
       }
@@ -693,6 +820,16 @@
           },
           "404": {
             "$ref": "#/components/responses/NotFound"
+          },
+          "500": {
+            "description": "Internal server error while fetching the attachment.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
           }
         }
       },
@@ -716,6 +853,16 @@
           },
           "409": {
             "description": "Attachment cannot be deleted because it is referenced by a submitted message. Code: `attachment_locked`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error while deleting the attachment.",
             "content": {
               "application/json": {
                 "schema": {
@@ -767,6 +914,16 @@
           },
           "404": {
             "$ref": "#/components/responses/NotFound"
+          },
+          "500": {
+            "description": "Internal server error while fetching the turn status.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
           }
         }
       },
@@ -808,7 +965,7 @@
             }
           },
           "400": {
-            "description": "Turn not in terminal state. Code: `invalid_turn_state`.",
+            "description": "Bad request. Possible causes include empty edited content, invalid turn state, invalid model resolution, or invalid attachment validation.",
             "content": {
               "application/json": {
                 "schema": {
@@ -836,21 +993,18 @@
               }
             }
           },
+          "422": {
+            "description": "Context budget exceeded before regeneration starts. Code: `context_budget_exceeded`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
           "429": {
-            "description": "Quota or rate limit exceeded for regeneration. Code: `quota_exceeded` (with mandatory `quota_scope`: `tokens` or `image_inputs`) for user quota exhaustion (always pre-stream), or `rate_limited` for upstream provider throttling. `rate_limited` may also appear as a terminal SSE `event: error` mid-stream (HTTP 200). Same semantics as sendMessage.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "oneOf": [
-                    { "$ref": "#/components/schemas/QuotaExceededError" },
-                    { "$ref": "#/components/schemas/GenericError" }
-                  ]
-                }
-              }
-            }
-          },
-          "413": {
-            "description": "Image bytes exceeded per-turn limit. Code: `image_bytes_exceeded`.",
+            "description": "Quota or rate limit exceeded for regeneration. Runtime responses use the Problem format; `title` is typically `quota_exceeded` for user quota exhaustion (always pre-stream) or `rate_limited` for upstream provider throttling. `quota_scope` is tracked internally but is not currently included in the response body. Same semantics as sendMessage.",
             "content": {
               "application/json": {
                 "schema": {
@@ -859,28 +1013,8 @@
               }
             }
           },
-          "415": {
-            "description": "Effective model does not support multimodal input. Code: `unsupported_media`. Same semantics as sendMessage.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "502": {
-            "description": "LLM provider error. Code: `provider_error`. Same semantics as sendMessage.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "504": {
-            "description": "LLM provider timeout. Code: `provider_timeout`. Same semantics as sendMessage.",
+          "500": {
+            "description": "Internal error before the regeneration SSE stream opens. Titles may be `Internal Error` or a generic initialization failure.",
             "content": {
               "application/json": {
                 "schema": {
@@ -921,6 +1055,16 @@
           },
           "409": {
             "description": "Conflict. Codes: `not_latest_turn` (target request_id is not the most recent turn) or `generation_in_progress` (another turn is already running for this chat).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error while deleting the turn.",
             "content": {
               "application/json": {
                 "schema": {
@@ -970,7 +1114,7 @@
             }
           },
           "400": {
-            "description": "Turn not in terminal state. Code: `invalid_turn_state`.",
+            "description": "Bad request before the SSE stream opens. Possible causes include `invalid_turn_state` or model resolution failure.",
             "content": {
               "application/json": {
                 "schema": {
@@ -998,15 +1142,32 @@
               }
             }
           },
-          "429": {
-            "description": "Quota or rate limit exceeded for regeneration. Code: `quota_exceeded` (with mandatory `quota_scope`: `tokens` or `image_inputs`) for user quota exhaustion (always pre-stream), or `rate_limited` for upstream provider throttling. `rate_limited` may also appear as a terminal SSE `event: error` mid-stream (HTTP 200). Same semantics as sendMessage.",
+          "422": {
+            "description": "Context budget exceeded before regeneration starts. Code: `context_budget_exceeded`.",
             "content": {
               "application/json": {
                 "schema": {
-                  "oneOf": [
-                    { "$ref": "#/components/schemas/QuotaExceededError" },
-                    { "$ref": "#/components/schemas/GenericError" }
-                  ]
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Quota or rate limit exceeded for regeneration. Runtime responses use the Problem format; `title` is typically `quota_exceeded` for user quota exhaustion (always pre-stream) or `rate_limited` for upstream provider throttling. `quota_scope` is tracked internally but is not currently included in the response body. Same semantics as sendMessage.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error before the retry SSE stream opens. Titles may be `Internal Error` or a generic initialization failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
                 }
               }
             }
@@ -1058,7 +1219,7 @@
             }
           },
           "400": {
-            "description": "Target is not an assistant message. Code: `invalid_reaction_target`.",
+            "description": "Invalid reaction value or invalid reaction target. Examples: unsupported reaction value validation failure or code `invalid_reaction_target`.",
             "content": {
               "application/json": {
                 "schema": {
@@ -1075,6 +1236,16 @@
           },
           "404": {
             "description": "Chat or message not found. Code: `chat_not_found` or `message_not_found`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error while setting the reaction.",
             "content": {
               "application/json": {
                 "schema": {
@@ -1109,6 +1280,16 @@
                 }
               }
             }
+          },
+          "500": {
+            "description": "Internal server error while removing the reaction.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
           }
         }
       }
@@ -1135,6 +1316,16 @@
           },
           "403": {
             "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "description": "Internal server error while listing models.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
           }
         }
       }
@@ -1169,6 +1360,16 @@
           },
           "404": {
             "$ref": "#/components/responses/ModelNotFound"
+          },
+          "500": {
+            "description": "Internal server error while fetching model details.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
           }
         }
       }
@@ -1250,6 +1451,16 @@
           },
           "403": {
             "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "description": "Internal server error while fetching quota status.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
           }
         }
       }
@@ -1398,68 +1609,63 @@
     },
     "schemas": {
       "ErrorResponse": {
-        "description": "Standard error envelope for JSON error responses and SSE terminal error events. Error messages and codes MUST NOT contain provider-scoped identifiers (provider_file_id, vector_store_id, deployment names). All error codes are stable internal codes.",
-        "oneOf": [
-          { "$ref": "#/components/schemas/QuotaExceededError" },
-          { "$ref": "#/components/schemas/GenericError" }
-        ]
-      },
-      "GenericError": {
         "type": "object",
-        "required": ["code", "message"],
-        "description": "Error response for all non-quota error codes. No provider identifiers in any field.",
+        "required": ["type", "title", "status", "detail", "instance", "code"],
+        "description": "Problem Details error envelope returned by mini-chat JSON errors and SSE terminal error events. Matches the runtime `Problem` serialization. In current handlers, the stable application error token is often carried in `title`; `code` may be an empty string unless explicitly populated. Error text MUST NOT contain provider-scoped identifiers (provider_file_id, vector_store_id, deployment names, upstream error bodies).",
         "properties": {
+          "type": {
+            "type": "string",
+            "description": "Problem type URI. Current handlers typically return `about:blank`."
+          },
+          "title": {
+            "type": "string",
+            "description": "Short problem summary. In current mini-chat handlers this often carries the application error token, for example `invalid_attachment`, `quota_exceeded`, or `web_search_disabled`."
+          },
+          "status": {
+            "type": "integer",
+            "description": "HTTP status code for this occurrence of the problem."
+          },
+          "detail": {
+            "type": "string",
+            "description": "Human-readable explanation specific to this occurrence of the problem."
+          },
+          "instance": {
+            "type": "string",
+            "description": "Problem instance URI. Current handlers typically return an empty string."
+          },
           "code": {
             "type": "string",
-            "description": "Canonical error code.",
-            "enum": [
-              "invalid_request",
-              "feature_not_licensed",
-              "insufficient_permissions",
-              "chat_not_found",
-              "message_not_found",
-              "model_not_found",
-              "generation_in_progress",
-              "request_id_conflict",
-              "rate_limited",
-              "web_search_disabled",
-              "file_too_large",
-              "unsupported_file_type",
-              "too_many_images",
-              "image_bytes_exceeded",
-              "unsupported_media",
-              "provider_error",
-              "provider_timeout",
-              "not_latest_turn",
-              "invalid_turn_state",
-              "invalid_reaction_target",
-              "attachment_locked",
-              "web_search_calls_exceeded"
-            ]
+            "description": "Machine-readable application code. Always present in the payload; may be an empty string when the handler does not populate it explicitly."
           },
-          "message": {
-            "type": "string",
-            "description": "Human-readable error description. MUST NOT contain provider-scoped identifiers (provider_file_id, vector_store_id, deployment names, upstream error bodies)."
+          "trace_id": {
+            "type": ["string", "null"],
+            "description": "Trace identifier useful for correlating server logs."
+          },
+          "errors": {
+            "type": ["array", "null"],
+            "description": "Optional list of validation violations for validation-style errors.",
+            "items": {
+              "$ref": "#/components/schemas/ValidationViolation"
+            }
           }
         }
       },
-      "QuotaExceededError": {
+      "ValidationViolation": {
         "type": "object",
-        "required": ["code", "message", "quota_scope"],
-        "description": "Error response for quota exhaustion. The quota_scope field is REQUIRED and distinguishes token quota exhaustion, upload quota exhaustion, web search quota exhaustion, and image input quota exhaustion. No provider identifiers in any field.",
+        "required": ["field", "message"],
+        "description": "Single validation violation entry included in `ErrorResponse.errors` when field-level validation details are available.",
         "properties": {
-          "code": {
+          "field": {
             "type": "string",
-            "enum": ["quota_exceeded"]
+            "description": "Field path, for example `email` or `user.email`."
           },
           "message": {
             "type": "string",
-            "description": "Human-readable error description. MUST NOT contain provider-scoped identifiers."
+            "description": "Human-readable message describing the validation error."
           },
-          "quota_scope": {
-            "type": "string",
-            "enum": ["tokens", "uploads", "web_search", "image_inputs"],
-            "description": "Distinguishes token quota exhaustion (tokens), upload quota exhaustion (uploads), web search quota exhaustion (web_search), and image input quota exhaustion (image_inputs). Clients MUST use this field, not message parsing, to determine quota scope."
+          "code": {
+            "type": ["string", "null"],
+            "description": "Optional machine-readable validation code for this violation."
           }
         }
       },
@@ -1640,7 +1846,7 @@
           "error_code": {
             "type": "string",
             "nullable": true,
-            "description": "Terminal error code when state is 'error'. Disambiguates failure cause. Common values: 'provider_error' (LLM provider returned terminal error), 'provider_timeout' (provider request timed out), 'orphan_timeout' (turn stuck beyond watchdog timeout — system timeout, NOT provider failure; stream ended without provider terminal event), 'context_length_exceeded' (preflight rejection), 'quota_overshoot_exceeded' (actual usage exceeded overshoot tolerance). Null for non-error terminal states and while running. CRITICAL: 'orphan_timeout' indicates a SYSTEM timeout (pod crash, network partition, orphan watchdog cleanup), not a provider-side error. UX SHOULD display 'Request timed out. Please try again.' for orphan_timeout, NOT 'Provider error.' Support and analytics: orphan_timeout metrics should be tracked separately from provider_error to distinguish infrastructure issues from LLM provider issues. Mapped from internal chat_turns.error_code. Provider identifiers and billing outcome are not exposed."
+            "description": "Terminal error code when state is 'error'. Disambiguates failure cause. Common values: 'provider_error' (LLM provider returned terminal error), 'provider_timeout' (provider request timed out), 'orphan_timeout' (turn stuck beyond watchdog timeout — system timeout, NOT provider failure; stream ended without provider terminal event), 'context_budget_exceeded' (preflight rejection), 'quota_overshoot_exceeded' (actual usage exceeded overshoot tolerance). Null for non-error terminal states and while running. CRITICAL: 'orphan_timeout' indicates a SYSTEM timeout (pod crash, network partition, orphan watchdog cleanup), not a provider-side error. UX SHOULD display 'Request timed out. Please try again.' for orphan_timeout, NOT 'Provider error.' Support and analytics: orphan_timeout metrics should be tracked separately from provider_error to distinguish infrastructure issues from LLM provider issues. Mapped from internal chat_turns.error_code. Provider identifiers and billing outcome are not exposed."
           },
           "assistant_message_id": {
             "type": "string",
@@ -1970,11 +2176,8 @@
         }
       },
       "SseErrorEvent": {
-        "description": "SSE `event: error` payload. Terminal event indicating a failure after the stream has started. Shares the same error envelope as JSON error responses: GenericError for all non-quota errors, QuotaExceededError (with required quota_scope) when code is quota_exceeded. Error messages MUST NOT contain provider-scoped identifiers.",
-        "oneOf": [
-          { "$ref": "#/components/schemas/QuotaExceededError" },
-          { "$ref": "#/components/schemas/GenericError" }
-        ]
+        "description": "SSE `event: error` payload. Terminal event indicating a failure after the stream has started. Uses the same Problem Details envelope as JSON error responses.",
+        "$ref": "#/components/schemas/ErrorResponse"
       },
       "WebSearchOption": {
         "type": "object",

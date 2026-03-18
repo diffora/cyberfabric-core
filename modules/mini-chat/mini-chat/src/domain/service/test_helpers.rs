@@ -438,14 +438,13 @@ pub fn test_catalog_entry(params: TestCatalogEntryParams) -> ModelCatalogEntry {
         max_tool_calls: 2,
         general_config: ModelGeneralConfig {
             config_type: String::new(),
-            model_credential_id: Uuid::nil(),
-            credential_tenant_id: Uuid::nil(),
             available_from: OffsetDateTime::UNIX_EPOCH,
             max_file_size_mb: 25,
             api_params: ModelApiParams {
                 temperature: 0.7,
                 top_p: 1.0,
                 frequency_penalty: 0.0,
+
                 presence_penalty: 0.0,
                 stop: vec![],
             },

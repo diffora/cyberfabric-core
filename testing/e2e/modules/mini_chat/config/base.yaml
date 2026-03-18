@@ -181,8 +181,6 @@ modules:
             sort_order: 1
           general_config:
             type: "chat"
-            model_credential_id: "00000000-0000-0000-0000-000000000000"
-            credential_tenant_id: "00000000-0000-0000-0000-000000000000"
             tier: "premium"
             available_from: "2025-01-01T00:00:00Z"
             max_file_size_mb: 50
@@ -268,8 +266,6 @@ modules:
             sort_order: 2
           general_config:
             type: "chat"
-            model_credential_id: "00000000-0000-0000-0000-000000000000"
-            credential_tenant_id: "00000000-0000-0000-0000-000000000000"
             tier: "standard"
             available_from: "2025-01-01T00:00:00Z"
             max_file_size_mb: 50
@@ -355,8 +351,6 @@ modules:
             sort_order: 3
           general_config:
             type: "chat"
-            model_credential_id: "00000000-0000-0000-0000-000000000000"
-            credential_tenant_id: "00000000-0000-0000-0000-000000000000"
             tier: "standard"
             available_from: "2025-01-01T00:00:00Z"
             max_file_size_mb: 25
@@ -442,8 +436,6 @@ modules:
             sort_order: 4
           general_config:
             type: "chat"
-            model_credential_id: "00000000-0000-0000-0000-000000000000"
-            credential_tenant_id: "00000000-0000-0000-0000-000000000000"
             tier: "standard"
             available_from: "2025-01-01T00:00:00Z"
             max_file_size_mb: 50

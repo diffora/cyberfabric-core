@@ -220,10 +220,6 @@ pub struct ModelGeneralConfig {
     /// CTI type identifier of the config.
     #[serde(rename = "type")]
     pub config_type: String,
-    /// Credential UUID used for this model.
-    pub model_credential_id: Uuid,
-    /// Tenant ID of the credential used for this model.
-    pub credential_tenant_id: Uuid,
     #[serde(with = "time::serde::rfc3339")]
     pub available_from: OffsetDateTime,
     pub max_file_size_mb: u32,
@@ -386,8 +382,6 @@ mod tests {
     fn sample_general_config() -> ModelGeneralConfig {
         ModelGeneralConfig {
             config_type: "model.general.v1".to_owned(),
-            model_credential_id: Uuid::nil(),
-            credential_tenant_id: Uuid::nil(),
             available_from: OffsetDateTime::UNIX_EPOCH,
             max_file_size_mb: 25,
             api_params: ModelApiParams {
@@ -468,10 +462,6 @@ mod tests {
         let deserialized: ModelGeneralConfig = serde_json::from_value(json).unwrap();
 
         assert_eq!(deserialized.config_type, original.config_type);
-        assert_eq!(
-            deserialized.credential_tenant_id,
-            original.credential_tenant_id
-        );
     }
 
     // ── ModelCatalogEntry: optional fields default when absent ──

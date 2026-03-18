@@ -6570,7 +6570,6 @@ All fields below are per-model entries inside the catalog.
 | `input_type.*` | object | **CCM API**: `GET /policies/{v}` | `snapshot.model_catalog[].general_config.input_type` |
 | `tool_support.*` | object | **CCM API**: `GET /policies/{v}` | `snapshot.model_catalog[].general_config.tool_support` |
 | `supported_endpoints.*` | object | **CCM API**: `GET /policies/{v}` | `snapshot.model_catalog[].general_config.supported_endpoints` |
-| `model_credential_id` | `string` | **CCM API**: `GET /policies/{v}` | `snapshot.model_catalog[].general_config.model_credential_id` |
 | `sort_order` | `integer` | **CCM API**: `GET /policies/{v}` | `snapshot.model_catalog[].preference.sort_order` |
 
 ### B.2.3 Kill switches / emergency flags
