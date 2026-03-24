@@ -163,6 +163,7 @@ gts-docs-vendor:
 		--exclude "target/*" \
 		--exclude "docs/api/*" \
 		--exclude "modules/chat-engine/*" \
+		--exclude "**/helm/*/templates/*" \
 		docs modules libs examples
 
 ## Validate GTS identifiers (release build)
@@ -171,6 +172,7 @@ gts-docs-release:
 		--exclude "target/*" \
 		--exclude "docs/api/*" \
 		--exclude "modules/chat-engine/*" \
+		--exclude "**/helm/*/templates/*" \
 		docs modules libs examples
 
 ## Validate GTS docs with vendor check (release build)
@@ -180,6 +182,7 @@ gts-docs-vendor-release:
 		--exclude "target/*" \
 		--exclude "docs/api/*" \
 		--exclude "modules/chat-engine/*" \
+		--exclude "*/helm/*/templates/*" \
 		docs modules libs examples
 
 ## Run tests for GTS documentation validator
