@@ -19,7 +19,7 @@ import httpx
 
 from .conftest import (
     API_PREFIX, DB_PATH, DEFAULT_MODEL, STANDARD_MODEL, PROVIDER_DEFAULT_MODEL,
-    expect_done, stream_message,
+    expect_done, parse_sse,
 )
 
 
@@ -78,13 +78,14 @@ def expected_credits_micro(input_tokens: int, output_tokens: int, in_mult: int, 
 
 
 MODEL_MULTIPLIERS = {
-    "gpt-5.2": (3_000_000, 15_000_000),
+    "gpt-5.2": (1_000_000, 3_000_000),
     "gpt-5-mini": (1_000_000, 3_000_000),
     "gpt-5-nano": (500_000, 1_500_000),
-    "azure-gpt-4.1-mini": (1_000_000, 3_000_000),
+    "azure-gpt-4.1": (3_000_000, 15_000_000),
 }
 
 
+@pytest.mark.multi_provider
 class TestWebSearchUsageAccounting:
     """Verify that web search turns produce correct quota and message records."""
 
@@ -103,12 +104,10 @@ class TestWebSearchUsageAccounting:
         chat_id = chat["id"]
 
         rid = str(uuid.uuid4())
-        status, events, _ = stream_message(
-            chat_id,
-            "SEARCH: current population of Tokyo",
-            web_search={"enabled": True},
-            request_id=rid,
-        )
+        _url = f"{API_PREFIX}/chats/{chat_id}/messages:stream"
+        _resp = httpx.post(_url, json={"content": "SEARCH: current population of Tokyo", "web_search": {"enabled": True}, "request_id": rid}, headers={"Accept": "text/event-stream"}, timeout=90)
+        status = _resp.status_code
+        events = parse_sse(_resp.text) if status == 200 else []
         assert status == 200
         done = expect_done(events)
 
@@ -187,9 +186,7 @@ class TestWebSearchUsageAccounting:
         )
 
         # ws_delta via tool events
-        if ws_tool_dones:
-            # Can't check ws_calls via API (not exposed), but tool events confirm it happened
-            pass
+        assert len(ws_tool_dones) > 0, "Expected web_search tool done events"
 
         # No stuck reserves
         for tier in after["tiers"]:
@@ -199,7 +196,7 @@ class TestWebSearchUsageAccounting:
                     f"Stuck reserve in {tier['tier']}/{p['period']}"
                 )
 
-    def test_non_websearch_has_zero_ws_calls(self, provider, server):
+    def test_non_websearch_turn_has_no_tool_events(self, provider, server):
         """A normal turn (no web_search) should not change credits more than expected."""
         model = PROVIDER_DEFAULT_MODEL[provider]
 
@@ -208,9 +205,13 @@ class TestWebSearchUsageAccounting:
         spent_before = before_td["used_credits_micro"]
 
         resp = httpx.post(f"{API_PREFIX}/chats", json={"model": model})
+        assert resp.status_code == 201
         chat_id = resp.json()["id"]
 
-        status, events, _ = stream_message(chat_id, "What is 2+2? Answer in one word.")
+        _url2 = f"{API_PREFIX}/chats/{chat_id}/messages:stream"
+        _resp2 = httpx.post(_url2, json={"content": "What is 2+2? Answer in one word."}, headers={"Accept": "text/event-stream"}, timeout=90)
+        status = _resp2.status_code
+        events = parse_sse(_resp2.text) if status == 200 else []
         assert status == 200
         done = expect_done(events)
 
@@ -241,12 +242,10 @@ class TestWebSearchUsageAccounting:
         spent_before = before_td["used_credits_micro"]
 
         rid = str(uuid.uuid4())
-        status, events, _ = stream_message(
-            chat_id,
-            "Search the web: who invented the telephone?",
-            web_search={"enabled": True},
-            request_id=rid,
-        )
+        _url3 = f"{API_PREFIX}/chats/{chat_id}/messages:stream"
+        _resp3 = httpx.post(_url3, json={"content": "Search the web: who invented the telephone?", "web_search": {"enabled": True}, "request_id": rid}, headers={"Accept": "text/event-stream"}, timeout=90)
+        status = _resp3.status_code
+        events = parse_sse(_resp3.text) if status == 200 else []
         assert status == 200
         done = expect_done(events)
 

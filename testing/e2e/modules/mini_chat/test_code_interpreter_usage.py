@@ -9,6 +9,7 @@ Falls back to direct SQLite only for turn-level fields not exposed via REST
 Follows the same patterns as test_web_search_usage.py.
 """
 
+import io
 import os
 import sqlite3
 import time
@@ -20,9 +21,8 @@ import httpx
 
 from .conftest import (
     API_PREFIX, DB_PATH, DEFAULT_MODEL, PROVIDER_DEFAULT_MODEL,
-    expect_done, stream_message,
+    expect_done, poll_until, stream_message,
 )
-from .test_attachments import poll_until_ready, upload_file
 from .test_code_interpreter import XLSX_CONTENT_TYPE, _make_minimal_xlsx
 
 
@@ -121,10 +121,10 @@ def expected_credits_micro(input_tokens: int, output_tokens: int, in_mult: int, 
 
 
 MODEL_MULTIPLIERS = {
-    "gpt-5.2": (3_000_000, 15_000_000),
+    "gpt-5.2": (1_000_000, 3_000_000),
     "gpt-5-mini": (1_000_000, 3_000_000),
     "gpt-5-nano": (500_000, 1_500_000),
-    "azure-gpt-4.1-mini": (1_000_000, 3_000_000),
+    "azure-gpt-4.1": (3_000_000, 15_000_000),
 }
 
 
@@ -140,15 +140,18 @@ def xlsx_chat(provider):
     chat_id = chat["id"]
 
     xlsx = _make_minimal_xlsx()
-    resp = upload_file(
-        chat_id,
-        content=xlsx,
-        filename="data.xlsx",
-        content_type=XLSX_CONTENT_TYPE,
+    resp = httpx.post(
+        f"{API_PREFIX}/chats/{chat_id}/attachments",
+        files={"file": ("data.xlsx", io.BytesIO(xlsx), XLSX_CONTENT_TYPE)},
+        timeout=60,
     )
     assert resp.status_code == 201
     att_id = resp.json()["id"]
-    poll_until_ready(chat_id, att_id)
+    resp = poll_until(
+        lambda: httpx.get(f"{API_PREFIX}/chats/{chat_id}/attachments/{att_id}", timeout=10),
+        until=lambda r: r.json()["status"] in ("ready", "failed"),
+    )
+    assert resp.json()["status"] == "ready", "Attachment did not become ready"
 
     return {"chat_id": chat_id, "att_id": att_id, "model": model}
 
@@ -296,6 +299,7 @@ class TestCodeInterpreterUsageAccounting:
         model = PROVIDER_DEFAULT_MODEL[provider]
 
         resp = httpx.post(f"{API_PREFIX}/chats", json={"model": model})
+        assert resp.status_code == 201
         chat_id = resp.json()["id"]
 
         ci_before = _query_ci_calls(chat_id)

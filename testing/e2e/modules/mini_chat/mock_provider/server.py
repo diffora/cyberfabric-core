@@ -79,6 +79,14 @@ class _Handler(BaseHTTPRequestHandler):
             user_input = extract_last_user_message(body)
             scenario = match_scenario(user_input)
 
+        # HTTP-level error — return JSON instead of SSE
+        if scenario.http_error_status is not None:
+            error_body = scenario.http_error_body if scenario.http_error_body is not None else {
+                "error": {"message": "Mock error", "type": "mock_error"}
+            }
+            self._json_response(scenario.http_error_status, error_body)
+            return
+
         sse_bytes = build_sse_stream(scenario, model, response_id, request_body=body)
 
         self.send_response(200)

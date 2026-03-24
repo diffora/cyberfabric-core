@@ -18,7 +18,7 @@ database:
         synchronous: "NORMAL"
         busy_timeout: "5000"
       pool:
-        max_conns: 5
+        max_conns: 1  # SQLite is single-writer; >1 causes SQLITE_BUSY_SNAPSHOT (517) under load
         acquire_timeout: "30s"
 
 logging:
@@ -151,24 +151,27 @@ modules:
     config:
       vendor: "hyperspot"
       priority: 100
+      # NOTE: model_id is unique across providers in this test catalog by convention,
+      # not by system design. The production model policy plugin could map the same
+      # model_id to different providers. Tests rely on this uniqueness for simplicity.
       model_catalog:
         - model_id: "gpt-5.2"
           provider_model_id: "gpt-5.2"
           display_name: "GPT-5.2"
-          tier: Premium
+          tier: Standard
           enabled: true
           system_prompt: "You are a helpful assistant. IMPORTANT RULE: When the user says exactly 'PING', you MUST respond with exactly 'PONG' and nothing else."
-          input_tokens_credit_multiplier_micro: 3000000
-          output_tokens_credit_multiplier_micro: 15000000
+          input_tokens_credit_multiplier_micro: 1000000
+          output_tokens_credit_multiplier_micro: 3000000
           multimodal_capabilities: ["VISION_INPUT"]
           context_window: 128000
           max_output_tokens: 8192
           max_input_tokens: 120000
-          description: "Most capable model"
+          description: "Most capable OpenAI model"
           version: "2025-01"
           icon: ""
           provider_display_name: "OpenAI"
-          multiplier_display: "3x"
+          multiplier_display: "1x"
           provider_id: "openai"
           max_retrieved_chunks_per_turn: 10
           max_tool_calls: 2
@@ -182,11 +185,11 @@ modules:
             code_interpreter_surcharge_tokens: 1000
             minimal_generation_floor: 100
           preference:
-            is_default: true
-            sort_order: 1
+            is_default: false
+            sort_order: 2
           general_config:
             type: "chat"
-            tier: "premium"
+            tier: "standard"
             available_from: "2025-01-01T00:00:00Z"
             max_file_size_mb: 50
             api_params:
@@ -232,8 +235,8 @@ modules:
               moderations: false
               completions: false
             token_policy:
-              input_tokens_credit_multiplier: 3.0
-              output_tokens_credit_multiplier: 15.0
+              input_tokens_credit_multiplier: 1.0
+              output_tokens_credit_multiplier: 3.0
             performance:
               response_latency_ms: 2000
               speed_tokens_per_second: 80
@@ -269,7 +272,7 @@ modules:
             minimal_generation_floor: 100
           preference:
             is_default: false
-            sort_order: 2
+            sort_order: 3
           general_config:
             type: "chat"
             tier: "standard"
@@ -355,7 +358,7 @@ modules:
             minimal_generation_floor: 100
           preference:
             is_default: false
-            sort_order: 3
+            sort_order: 4
           general_config:
             type: "chat"
             tier: "standard"
@@ -410,23 +413,23 @@ modules:
               response_latency_ms: 500
               speed_tokens_per_second: 200
 
-        - model_id: "azure-gpt-4.1-mini"
-          provider_model_id: "gpt-4.1-mini"
-          display_name: "Azure GPT-4.1 Mini"
-          tier: Standard
+        - model_id: "azure-gpt-4.1"
+          provider_model_id: "gpt-4.1"
+          display_name: "Azure GPT-4.1"
+          tier: Premium
           enabled: true
           system_prompt: "You are a helpful assistant. IMPORTANT RULE: When the user says exactly 'PING', you MUST respond with exactly 'PONG' and nothing else."
-          input_tokens_credit_multiplier_micro: 1000000
-          output_tokens_credit_multiplier_micro: 3000000
+          input_tokens_credit_multiplier_micro: 3000000
+          output_tokens_credit_multiplier_micro: 15000000
           multimodal_capabilities: ["VISION_INPUT"]
           context_window: 128000
-          max_output_tokens: 4096
+          max_output_tokens: 8192
           max_input_tokens: 120000
-          description: "Azure-hosted GPT-4.1 Mini"
+          description: "Azure-hosted GPT-4.1 — primary production model"
           version: "2025-01"
           icon: ""
           provider_display_name: "Azure OpenAI"
-          multiplier_display: "1x"
+          multiplier_display: "3x"
           provider_id: "azure_openai"
           max_retrieved_chunks_per_turn: 10
           max_tool_calls: 2
@@ -440,11 +443,11 @@ modules:
             code_interpreter_surcharge_tokens: 1000
             minimal_generation_floor: 100
           preference:
-            is_default: false
-            sort_order: 4
+            is_default: true
+            sort_order: 1
           general_config:
             type: "chat"
-            tier: "standard"
+            tier: "premium"
             available_from: "2025-01-01T00:00:00Z"
             max_file_size_mb: 50
             api_params:
@@ -490,8 +493,8 @@ modules:
               moderations: false
               completions: false
             token_policy:
-              input_tokens_credit_multiplier: 1.0
-              output_tokens_credit_multiplier: 3.0
+              input_tokens_credit_multiplier: 3.0
+              output_tokens_credit_multiplier: 15.0
             performance:
               response_latency_ms: 1000
               speed_tokens_per_second: 120

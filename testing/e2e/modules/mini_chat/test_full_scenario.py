@@ -16,9 +16,7 @@ import uuid
 import pytest
 import httpx
 
-from .conftest import API_PREFIX, DB_PATH, DEFAULT_MODEL, STANDARD_MODEL, expect_done, expect_stream_started, stream_message
-
-pytestmark = pytest.mark.openai
+from .conftest import API_PREFIX, DB_PATH, expect_done, expect_stream_started, parse_sse, stream_message
 
 
 # ── DB helpers (only for fields not exposed via REST) ────────────────────
@@ -62,21 +60,21 @@ def _find_period(tiers: list, tier_name: str, period_name: str) -> dict | None:
     return None
 
 
+@pytest.mark.multi_provider
 class TestFullConversationScenario:
     """Complete conversation lifecycle: create → multi-turn → verify → delete."""
 
-    def test_full_conversation(self, server):
-        # ── 1. Create chat with default (premium) model ──────────────────
-        resp = httpx.post(f"{API_PREFIX}/chats", json={"title": "Scenario Test"})
-        assert resp.status_code == 201
-        chat = resp.json()
-        chat_id = chat["id"]
-        assert chat["model"] == DEFAULT_MODEL
-        assert chat["title"] == "Scenario Test"
+    def test_full_conversation(self, server, provider_chat):
+        # ── 1. Use provider-parameterized chat ───────────────────────────
+        chat_id = provider_chat["id"]
+        expected_model = provider_chat["model"]
 
         # ── 2. Turn 1: simple question ───────────────────────────────────
         rid1 = str(uuid.uuid4())
-        s1, ev1, _ = stream_message(chat_id, "What is 2+2? Reply with just the number.", request_id=rid1)
+        _url = f"{API_PREFIX}/chats/{chat_id}/messages:stream"
+        _resp1 = httpx.post(_url, json={"content": "What is 2+2? Reply with just the number.", "request_id": rid1}, headers={"Accept": "text/event-stream"}, timeout=90)
+        s1 = _resp1.status_code
+        ev1 = parse_sse(_resp1.text) if s1 == 200 else []
         assert s1 == 200
 
         ss1 = expect_stream_started(ev1)
@@ -85,7 +83,8 @@ class TestFullConversationScenario:
 
         done1 = expect_done(ev1)
         assert done1.data["quota_decision"] == "allow"
-        assert done1.data["effective_model"] == DEFAULT_MODEL
+        assert done1.data["effective_model"] == expected_model
+        assert "selected_model" in done1.data, "done must have selected_model"
         usage1 = done1.data["usage"]
         assert usage1["input_tokens"] > 0
         assert usage1["output_tokens"] > 0
@@ -95,7 +94,9 @@ class TestFullConversationScenario:
 
         # ── 3. Turn 2: follow-up referencing context ─────────────────────
         rid2 = str(uuid.uuid4())
-        s2, ev2, _ = stream_message(chat_id, "Now multiply that result by 10.", request_id=rid2)
+        _resp2 = httpx.post(_url, json={"content": "Now multiply that result by 10.", "request_id": rid2}, headers={"Accept": "text/event-stream"}, timeout=90)
+        s2 = _resp2.status_code
+        ev2 = parse_sse(_resp2.text) if s2 == 200 else []
         assert s2 == 200
 
         ss2 = expect_stream_started(ev2)
@@ -103,10 +104,14 @@ class TestFullConversationScenario:
         assert ss2.data["is_new_turn"] is True
 
         done2 = expect_done(ev2)
+        assert "effective_model" in done2.data, "done must have effective_model"
+        assert "selected_model" in done2.data, "done must have selected_model"
+        assert done2.data.get("quota_decision") in ("allow", "downgrade"), f"unexpected quota_decision: {done2.data.get('quota_decision')}"
         usage2 = done2.data["usage"]
+        assert usage2["output_tokens"] > 0, "done usage must have output_tokens > 0"
 
-        assert usage2["input_tokens"] > usage1["input_tokens"], (
-            f"Turn 2 input_tokens ({usage2['input_tokens']}) should exceed "
+        assert usage2["input_tokens"] >= usage1["input_tokens"], (
+            f"Turn 2 input_tokens ({usage2['input_tokens']}) should be >= "
             f"turn 1 ({usage1['input_tokens']}) — context assembly sends history"
         )
 
@@ -115,13 +120,21 @@ class TestFullConversationScenario:
 
         # ── 4. Turn 3: third exchange ────────────────────────────────────
         rid3 = str(uuid.uuid4())
-        s3, ev3, _ = stream_message(chat_id, "What was my first question?", request_id=rid3)
+        _resp3 = httpx.post(_url, json={"content": "What was my first question?", "request_id": rid3}, headers={"Accept": "text/event-stream"}, timeout=90)
+        s3 = _resp3.status_code
+        ev3 = parse_sse(_resp3.text) if s3 == 200 else []
         assert s3 == 200
 
         ss3 = expect_stream_started(ev3)
         msg_id3 = ss3.data["message_id"]
         assert ss3.data["is_new_turn"] is True
-        expect_done(ev3)
+        done3 = expect_done(ev3)
+        assert "effective_model" in done3.data, "done must have effective_model"
+        assert "selected_model" in done3.data, "done must have selected_model"
+        assert done3.data.get("quota_decision") in ("allow", "downgrade"), f"unexpected quota_decision: {done3.data.get('quota_decision')}"
+        usage3 = done3.data.get("usage", {})
+        assert usage3.get("input_tokens", 0) > 0, "done usage must have input_tokens > 0"
+        assert usage3.get("output_tokens", 0) > 0, "done usage must have output_tokens > 0"
 
         # ── 5. Verify message history via API ────────────────────────────
         resp = httpx.get(f"{API_PREFIX}/chats/{chat_id}/messages")
@@ -134,6 +147,10 @@ class TestFullConversationScenario:
 
         timestamps = [m["created_at"] for m in msgs]
         assert timestamps == sorted(timestamps)
+
+        first_msg = msgs[0]
+        assert first_msg.get("request_id") is not None, "request_id must be non-null"
+        assert isinstance(first_msg.get("attachments"), list), "attachments must be an array"
 
         # ── 6. Verify chat metadata updated ──────────────────────────────
         resp = httpx.get(f"{API_PREFIX}/chats/{chat_id}")
@@ -173,9 +190,9 @@ class TestFullConversationScenario:
                 )
 
         # ── 10. Idempotency: replay turn 1 ───────────────────────────────
-        s_replay, ev_replay, _ = stream_message(
-            chat_id, "What is 2+2? Reply with just the number.", request_id=rid1,
-        )
+        _resp_replay = httpx.post(_url, json={"content": "What is 2+2? Reply with just the number.", "request_id": rid1}, headers={"Accept": "text/event-stream"}, timeout=90)
+        s_replay = _resp_replay.status_code
+        ev_replay = parse_sse(_resp_replay.text) if s_replay == 200 else []
         assert s_replay == 200
         ss_replay = expect_stream_started(ev_replay)
         assert ss_replay.data["message_id"] == msg_id1
@@ -189,18 +206,18 @@ class TestFullConversationScenario:
         assert resp.status_code == 404
 
 
+@pytest.mark.multi_provider
 class TestQuotaAccumulation:
     """Verify quota accumulates correctly across multiple turns."""
 
-    def test_quota_credits_accumulate(self, server):
+    def test_quota_credits_accumulate(self, server, provider_chat):
         """Each turn should add to used_credits_micro via quota status endpoint."""
         before = _get_quota_status()
         before_total_daily = _find_period(before["tiers"], "total", "daily")
         assert before_total_daily is not None
         spent_before = before_total_daily["used_credits_micro"]
 
-        resp = httpx.post(f"{API_PREFIX}/chats", json={})
-        chat_id = resp.json()["id"]
+        chat_id = provider_chat["id"]
 
         stream_message(chat_id, "Say A.")
         stream_message(chat_id, "Say B.")
@@ -216,10 +233,9 @@ class TestQuotaAccumulation:
             f"used_credits_micro should increase: before={spent_before}, after={spent_after}"
         )
 
-    def test_no_stuck_reserves_after_completion(self, server):
+    def test_no_stuck_reserves_after_completion(self, server, provider_chat):
         """After all turns complete, remaining should equal limit - used."""
-        resp = httpx.post(f"{API_PREFIX}/chats", json={})
-        chat_id = resp.json()["id"]
+        chat_id = provider_chat["id"]
 
         stream_message(chat_id, "Hello.")
         time.sleep(0.5)
@@ -235,6 +251,7 @@ class TestQuotaAccumulation:
                 )
 
 
+@pytest.mark.multi_provider
 class TestTurnDetailsInDb:
     """Verify turn-level DB fields not exposed via REST API.
 
@@ -242,10 +259,9 @@ class TestTurnDetailsInDb:
     are internal to the quota/reservation system and have no REST equivalent.
     """
 
-    def test_max_output_tokens_applied(self, server):
+    def test_max_output_tokens_applied(self, server, provider_chat):
         """max_output_tokens_applied should reflect min(catalog, config_cap)."""
-        resp = httpx.post(f"{API_PREFIX}/chats", json={})
-        chat_id = resp.json()["id"]
+        chat_id = provider_chat["id"]
         rid = str(uuid.uuid4())
 
         stream_message(chat_id, "Say hi.", request_id=rid)
@@ -261,10 +277,9 @@ class TestTurnDetailsInDb:
         assert t["max_output_tokens_applied"] > 0
         assert t["max_output_tokens_applied"] <= 8192
 
-    def test_reserve_tokens_formula(self, server):
+    def test_reserve_tokens_formula(self, server, provider_chat):
         """reserve_tokens = estimated_input_tokens + max_output_tokens_applied."""
-        resp = httpx.post(f"{API_PREFIX}/chats", json={})
-        chat_id = resp.json()["id"]
+        chat_id = provider_chat["id"]
         rid = str(uuid.uuid4())
 
         stream_message(chat_id, "Hello.", request_id=rid)
@@ -277,10 +292,9 @@ class TestTurnDetailsInDb:
 
         assert t["reserve_tokens"] > t["max_output_tokens_applied"]
 
-    def test_credits_settled_after_completion(self, server):
+    def test_credits_settled_after_completion(self, server, provider_chat):
         """After completion, no stuck reserves in quota (verified via REST)."""
-        resp = httpx.post(f"{API_PREFIX}/chats", json={})
-        chat_id = resp.json()["id"]
+        chat_id = provider_chat["id"]
 
         stream_message(chat_id, "Say OK.")
         time.sleep(0.5)

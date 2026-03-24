@@ -31,6 +31,10 @@ class Scenario:
     incomplete_reason: str | None = None
     # Seconds to sleep between SSE events (0 = instant). Used for cancellation tests.
     slow: float = 0
+    # HTTP-level error: return this status code + JSON body instead of SSE stream.
+    # When set, no SSE is produced — the mock returns a plain JSON error response.
+    http_error_status: int | None = None
+    http_error_body: dict | None = None
 
 
 # ── Built-in scenario registry ─────────────────────────────────────────────

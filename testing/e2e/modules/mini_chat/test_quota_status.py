@@ -46,6 +46,7 @@ def find_period(tiers: list, tier_name: str, period_name: str) -> dict | None:
 # Tests: GET /v1/quota/status endpoint
 # ---------------------------------------------------------------------------
 
+@pytest.mark.multi_provider
 class TestQuotaStatusEndpoint:
     """GET /v1/quota/status returns quota breakdown."""
 
@@ -98,6 +99,7 @@ class TestQuotaStatusEndpoint:
 # Tests: Quota changes after sending a message
 # ---------------------------------------------------------------------------
 
+@pytest.mark.multi_provider
 class TestQuotaUsageTracking:
     """Quota usage increases after sending messages."""
 
@@ -134,7 +136,8 @@ class TestQuotaUsageTracking:
         before_pct = before_total_daily["remaining_percentage"]
 
         # Send a message
-        stream_message(chat_id, "Say hi.")
+        status, _, _ = stream_message(chat_id, "Say hi.")
+        assert status == 200
 
         time.sleep(0.5)
 
@@ -152,6 +155,7 @@ class TestQuotaUsageTracking:
 # Tests: SSE done event includes quota_warnings
 # ---------------------------------------------------------------------------
 
+@pytest.mark.multi_provider
 class TestQuotaWarningsInDoneEvent:
     """SSE done event carries quota_warnings array."""
 

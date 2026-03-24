@@ -12,75 +12,29 @@ import zlib
 import pytest
 import httpx
 
-from .conftest import API_PREFIX, AZURE_MODEL, SSEEvent, expect_done, expect_stream_started, stream_message
+from .conftest import API_PREFIX, DEFAULT_MODEL, STANDARD_MODEL, SSEEvent, expect_done, expect_stream_started, parse_sse, poll_until, stream_message
 
 FIXTURES_DIR = pathlib.Path(__file__).parent / "fixtures"
 
 
 # ---------------------------------------------------------------------------
-# Helpers
+# 10-01, 10-02: Upload and get attachment
 # ---------------------------------------------------------------------------
 
-def upload_file(
-    chat_id: str,
-    content: bytes = b"Hello, world!",
-    filename: str = "test.txt",
-    content_type: str = "text/plain",
-) -> httpx.Response:
-    """Upload a file to a chat via multipart."""
-    return httpx.post(
-        f"{API_PREFIX}/chats/{chat_id}/attachments",
-        files={"file": (filename, io.BytesIO(content), content_type)},
-        timeout=60,
-    )
-
-
-def get_attachment(chat_id: str, attachment_id: str) -> httpx.Response:
-    return httpx.get(
-        f"{API_PREFIX}/chats/{chat_id}/attachments/{attachment_id}",
-        timeout=10,
-    )
-
-
-def delete_attachment(chat_id: str, attachment_id: str) -> httpx.Response:
-    return httpx.delete(
-        f"{API_PREFIX}/chats/{chat_id}/attachments/{attachment_id}",
-        timeout=10,
-    )
-
-
-def poll_until_ready(chat_id: str, attachment_id: str, timeout: int = 60) -> dict:
-    """Poll GET attachment until status is terminal (ready/failed) or timeout."""
-    import time
-
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        resp = get_attachment(chat_id, attachment_id)
-        assert resp.status_code == 200, f"GET failed: {resp.status_code} {resp.text}"
-        body = resp.json()
-        if body["status"] in ("ready", "failed"):
-            return body
-        time.sleep(1)
-    raise TimeoutError(
-        f"Attachment {attachment_id} did not reach terminal status within {timeout}s. "
-        f"Last status: {body['status']}"
-    )
-
-
-# ---------------------------------------------------------------------------
-# P5-N1: Upload and get attachment
-# ---------------------------------------------------------------------------
-
-@pytest.mark.openai
+@pytest.mark.multi_provider
 class TestUploadAndGet:
     """Upload a file, poll until ready, GET returns full detail."""
 
-    def test_upload_and_get_attachment(self, chat):
-        chat_id = chat["id"]
+    def test_upload_and_get_attachment(self, provider_chat):
+        chat_id = provider_chat["id"]
         content = b"This is a test document for RAG."
 
         # Upload
-        resp = upload_file(chat_id, content=content, filename="notes.txt")
+        resp = httpx.post(
+            f"{API_PREFIX}/chats/{chat_id}/attachments",
+            files={"file": ("notes.txt", io.BytesIO(content), "text/plain")},
+            timeout=60,
+        )
         assert resp.status_code == 201, f"Upload failed: {resp.status_code} {resp.text}"
         body = resp.json()
         att_id = body["id"]
@@ -88,75 +42,98 @@ class TestUploadAndGet:
         assert body["content_type"] == "text/plain"
         assert body["size_bytes"] == len(content)
         assert body["kind"] == "document"
-        assert body["status"] in ("pending", "uploaded", "ready")
+        assert body["status"] == "pending" or body["status"] == "ready"
 
         # Poll until ready
-        detail = poll_until_ready(chat_id, att_id)
+        resp = poll_until(
+            lambda: httpx.get(f"{API_PREFIX}/chats/{chat_id}/attachments/{att_id}", timeout=10),
+            until=lambda r: r.json()["status"] in ("ready", "failed"),
+        )
+        detail = resp.json()
         assert detail["status"] == "ready", f"Expected ready, got: {detail}"
         assert detail["id"] == att_id
 
 
 # ---------------------------------------------------------------------------
-# P5-N3: Upload invalid type rejected
+# 10-05: Unsupported MIME → 415
 # ---------------------------------------------------------------------------
 
-@pytest.mark.openai
+@pytest.mark.multi_provider
 class TestUploadInvalidType:
     """Upload an unsupported MIME type."""
 
-    def test_upload_invalid_type_rejected(self, chat):
-        chat_id = chat["id"]
-        resp = upload_file(
-            chat_id,
-            content=b"PK\x03\x04fake zip",
-            filename="archive.zip",
-            content_type="application/zip",
+    def test_upload_invalid_type_rejected(self, provider_chat):
+        chat_id = provider_chat["id"]
+        resp = httpx.post(
+            f"{API_PREFIX}/chats/{chat_id}/attachments",
+            files={"file": ("archive.zip", io.BytesIO(b"PK\x03\x04fake zip"), "application/zip")},
+            timeout=60,
         )
         assert resp.status_code == 415, f"Expected 415, got {resp.status_code}: {resp.text}"
 
 
 # ---------------------------------------------------------------------------
-# P5-N4: Delete and verify gone
+# 10-03: DELETE Attachment → 204, GET → 404
 # ---------------------------------------------------------------------------
 
-@pytest.mark.openai
+@pytest.mark.multi_provider
 class TestDeleteAndVerifyGone:
     """Upload, delete, GET returns 404."""
 
-    def test_delete_and_verify_gone(self, chat):
-        chat_id = chat["id"]
+    def test_delete_and_verify_gone(self, provider_chat):
+        chat_id = provider_chat["id"]
 
         # Upload and wait for ready
-        resp = upload_file(chat_id, content=b"delete me", filename="gone.txt")
+        resp = httpx.post(
+            f"{API_PREFIX}/chats/{chat_id}/attachments",
+            files={"file": ("gone.txt", io.BytesIO(b"delete me"), "text/plain")},
+            timeout=60,
+        )
         assert resp.status_code == 201
         att_id = resp.json()["id"]
-        poll_until_ready(chat_id, att_id)
+        poll_until(
+            lambda: httpx.get(f"{API_PREFIX}/chats/{chat_id}/attachments/{att_id}", timeout=10),
+            until=lambda r: r.json()["status"] in ("ready", "failed"),
+        )
 
         # Delete
-        resp = delete_attachment(chat_id, att_id)
+        resp = httpx.delete(
+            f"{API_PREFIX}/chats/{chat_id}/attachments/{att_id}",
+            timeout=10,
+        )
         assert resp.status_code == 204
 
         # Verify gone
-        resp = get_attachment(chat_id, att_id)
+        resp = httpx.get(
+            f"{API_PREFIX}/chats/{chat_id}/attachments/{att_id}",
+            timeout=10,
+        )
         assert resp.status_code == 404
 
 
 # ---------------------------------------------------------------------------
-# P5-N5: Delete referenced attachment → 409
+# 10-04: DELETE Referenced Attachment → 409
 # ---------------------------------------------------------------------------
 
-@pytest.mark.openai
+@pytest.mark.multi_provider
 class TestDeleteReferencedAttachment:
     """Upload, attach to a message, then delete → 409."""
 
-    def test_delete_referenced_attachment_409(self, chat):
-        chat_id = chat["id"]
+    def test_delete_referenced_attachment_409(self, provider_chat):
+        chat_id = provider_chat["id"]
 
         # Upload and wait for ready
-        resp = upload_file(chat_id, content=b"referenced doc", filename="ref.txt")
+        resp = httpx.post(
+            f"{API_PREFIX}/chats/{chat_id}/attachments",
+            files={"file": ("ref.txt", io.BytesIO(b"referenced doc"), "text/plain")},
+            timeout=60,
+        )
         assert resp.status_code == 201
         att_id = resp.json()["id"]
-        detail = poll_until_ready(chat_id, att_id)
+        detail = poll_until(
+            lambda: httpx.get(f"{API_PREFIX}/chats/{chat_id}/attachments/{att_id}", timeout=10),
+            until=lambda r: r.json()["status"] in ("ready", "failed"),
+        ).json()
         assert detail["status"] == "ready"
 
         # Send a message with this attachment
@@ -169,83 +146,100 @@ class TestDeleteReferencedAttachment:
         expect_done(events)
 
         # Now try to delete — should be 409 (locked by message reference)
-        resp = delete_attachment(chat_id, att_id)
+        resp = httpx.delete(
+            f"{API_PREFIX}/chats/{chat_id}/attachments/{att_id}",
+            timeout=10,
+        )
         assert resp.status_code == 409, (
             f"Expected 409 conflict, got {resp.status_code}: {resp.text}"
         )
 
 
 # ---------------------------------------------------------------------------
-# P5-N6: Send message with attachments
+# 10-22: Stream with Document → file_search Tool Events
 # ---------------------------------------------------------------------------
 
-@pytest.mark.openai
+@pytest.mark.multi_provider
 class TestSendMessageWithAttachments:
     """Upload 2 files, send message with attachment_ids, verify stream completes."""
 
-    def test_send_message_with_attachments(self, chat):
-        chat_id = chat["id"]
+    def test_send_message_with_attachments(self, provider_chat):
+        chat_id = provider_chat["id"]
 
         # Upload two files
         att_ids = []
         for i in range(2):
-            resp = upload_file(
-                chat_id,
-                content=f"Document {i}: The answer is {42 + i}.".encode(),
-                filename=f"doc{i}.txt",
+            resp = httpx.post(
+                f"{API_PREFIX}/chats/{chat_id}/attachments",
+                files={"file": (f"doc{i}.txt", io.BytesIO(f"Document {i}: The answer is {42 + i}.".encode()), "text/plain")},
+                timeout=60,
             )
             assert resp.status_code == 201, f"Upload {i} failed: {resp.status_code}"
             att_id = resp.json()["id"]
-            detail = poll_until_ready(chat_id, att_id)
+            detail = poll_until(
+                lambda cid=chat_id, aid=att_id: httpx.get(f"{API_PREFIX}/chats/{cid}/attachments/{aid}", timeout=10),
+                until=lambda r: r.json()["status"] in ("ready", "failed"),
+            ).json()
             assert detail["status"] == "ready"
             att_ids.append(att_id)
 
         # Send message referencing both attachments
-        status, events, raw = stream_message(
-            chat_id,
-            "What answers are in the attached documents?",
-            attachment_ids=att_ids,
+        resp = httpx.post(
+            f"{API_PREFIX}/chats/{chat_id}/messages:stream",
+            json={"content": "What answers are in the attached documents?", "attachment_ids": att_ids},
+            headers={"Accept": "text/event-stream"},
+            timeout=90,
         )
-        assert status == 200, f"Stream failed: {status} {raw[:500]}"
+        assert resp.status_code == 200, f"Stream failed: {resp.status_code} {resp.text[:500]}"
+        events = parse_sse(resp.text)
         expect_done(events)
         ss = expect_stream_started(events)
         assert ss.data.get("message_id")
 
 
 # ---------------------------------------------------------------------------
-# P5-N2: Upload, search, citation flow
+# Citation format verification (supplements 10-22 with UUID mapping check)
 # ---------------------------------------------------------------------------
 
-@pytest.mark.openai
+@pytest.mark.multi_provider
 @pytest.mark.online_only
 class TestUploadSearchCitationFlow:
     """Upload file, send message triggering file search, verify SSE citations contain UUID."""
 
-    def test_upload_search_citation_flow(self, chat):
-        chat_id = chat["id"]
+    def test_upload_search_citation_flow(self, provider_chat):
+        chat_id = provider_chat["id"]
 
         # Upload a document with distinctive content
         content = (
             b"The capital of the fictional country Zembla is Kinbote City. "
             b"It was founded in 1742 by King Charles the Beloved."
         )
-        resp = upload_file(chat_id, content=content, filename="zembla.txt")
+        resp = httpx.post(
+            f"{API_PREFIX}/chats/{chat_id}/attachments",
+            files={"file": ("zembla.txt", io.BytesIO(content), "text/plain")},
+            timeout=60,
+        )
         assert resp.status_code == 201
         att_id = resp.json()["id"]
-        detail = poll_until_ready(chat_id, att_id)
+        detail = poll_until(
+            lambda: httpx.get(f"{API_PREFIX}/chats/{chat_id}/attachments/{att_id}", timeout=10),
+            until=lambda r: r.json()["status"] in ("ready", "failed"),
+        ).json()
         assert detail["status"] == "ready"
 
         # Send message that should trigger file search
-        status, events, raw = stream_message(
-            chat_id,
-            "What is the capital of Zembla? Use the attached document.",
-            attachment_ids=[att_id],
+        resp = httpx.post(
+            f"{API_PREFIX}/chats/{chat_id}/messages:stream",
+            json={"content": "What is the capital of Zembla? Use the attached document.", "attachment_ids": [att_id]},
+            headers={"Accept": "text/event-stream"},
+            timeout=90,
         )
-        assert status == 200, f"Stream failed: {status} {raw[:500]}"
+        assert resp.status_code == 200, f"Stream failed: {resp.status_code} {resp.text[:500]}"
+        events = parse_sse(resp.text)
         done = expect_done(events)
 
-        # Check for citations event — may or may not be present depending on
-        # whether the LLM actually cited the file. If present, verify format.
+        # Citations are not guaranteed — the LLM may answer from retrieved context
+        # without emitting structured citations. Verify format if present.
         citation_events = [e for e in events if e.event == "citations"]
         if citation_events:
             data = citation_events[0].data
@@ -266,100 +260,70 @@ class TestUploadSearchCitationFlow:
 # Azure provider: upload, get, send-message with attachments
 # ---------------------------------------------------------------------------
 
-@pytest.mark.azure
-class TestAzureUploadAndGet:
-    """Upload a file to a chat using the Azure model, verify storage_backend = 'azure'."""
+@pytest.mark.multi_provider
+class TestProviderUploadAndGet:
+    """Upload a file to a chat per provider, verify upload + poll works."""
 
-    def test_azure_upload_and_get_attachment(self, chat_with_model):
-        chat = chat_with_model(AZURE_MODEL)
-        chat_id = chat["id"]
-        content = b"This is a test document for Azure RAG."
+    def test_upload_and_get_attachment(self, provider_chat):
+        chat_id = provider_chat["id"]
+        content = b"This is a test document for RAG."
 
         # Upload
-        resp = upload_file(chat_id, content=content, filename="azure-notes.txt")
+        resp = httpx.post(
+            f"{API_PREFIX}/chats/{chat_id}/attachments",
+            files={"file": ("notes.txt", io.BytesIO(content), "text/plain")},
+            timeout=60,
+        )
         assert resp.status_code == 201, f"Upload failed: {resp.status_code} {resp.text}"
         body = resp.json()
         att_id = body["id"]
-        assert body["filename"] == "azure-notes.txt"
+        assert body["filename"] == "notes.txt"
         assert body["kind"] == "document"
-        assert body["status"] in ("pending", "uploaded", "ready")
+        assert body["status"] == "pending" or body["status"] == "ready"
 
         # Poll until ready
-        detail = poll_until_ready(chat_id, att_id)
+        resp = poll_until(
+            lambda: httpx.get(f"{API_PREFIX}/chats/{chat_id}/attachments/{att_id}", timeout=10),
+            until=lambda r: r.json()["status"] in ("ready", "failed"),
+        )
+        detail = resp.json()
         assert detail["status"] == "ready", f"Expected ready, got: {detail}"
 
 
-@pytest.mark.azure
+@pytest.mark.multi_provider
 @pytest.mark.online_only
-class TestAzureSendMessageWithAttachment:
-    """Upload a file to Azure chat, send message, verify stream completes."""
+class TestProviderSendMessageWithAttachment:
+    """Upload a file per provider, send message, verify stream completes."""
 
-    def test_azure_send_message_with_attachment(self, chat_with_model):
-        chat = chat_with_model(AZURE_MODEL)
-        chat_id = chat["id"]
+    def test_send_message_with_attachment(self, provider_chat):
+        chat_id = provider_chat["id"]
 
         # Upload
-        resp = upload_file(
-            chat_id,
-            content=b"The secret code is AZURE-42.",
-            filename="azure-doc.txt",
+        resp = httpx.post(
+            f"{API_PREFIX}/chats/{chat_id}/attachments",
+            files={"file": ("doc.txt", io.BytesIO(b"The secret code is PROVIDER-42."), "text/plain")},
+            timeout=60,
         )
         assert resp.status_code == 201
         att_id = resp.json()["id"]
-        detail = poll_until_ready(chat_id, att_id)
+        detail = poll_until(
+            lambda: httpx.get(f"{API_PREFIX}/chats/{chat_id}/attachments/{att_id}", timeout=10),
+            until=lambda r: r.json()["status"] in ("ready", "failed"),
+        ).json()
         assert detail["status"] == "ready"
 
         # Send message referencing the attachment
-        status, events, raw = stream_message(
-            chat_id,
-            "What is the secret code in the attached document?",
-            attachment_ids=[att_id],
+        resp = httpx.post(
+            f"{API_PREFIX}/chats/{chat_id}/messages:stream",
+            json={"content": "What is the secret code in the attached document?", "attachment_ids": [att_id]},
+            headers={"Accept": "text/event-stream"},
+            timeout=90,
         )
-        assert status == 200, f"Stream failed: {status} {raw[:500]}"
+        assert resp.status_code == 200, f"Stream failed: {resp.status_code} {resp.text[:500]}"
+        events = parse_sse(resp.text)
         expect_done(events)
         ss = expect_stream_started(events)
         assert ss.data.get("message_id")
-
-
-@pytest.mark.openai
-class TestOpenAIStorageBackend:
-    """Upload to default (OpenAI) chat, verify storage_backend = 'openai'."""
-
-    def test_openai_storage_backend(self, chat):
-        chat_id = chat["id"]
-        resp = upload_file(chat_id, content=b"openai doc", filename="oa.txt")
-        assert resp.status_code == 201
-        att_id = resp.json()["id"]
-        detail = poll_until_ready(chat_id, att_id)
-        assert detail["status"] == "ready"
-
-
-# ---------------------------------------------------------------------------
-# Helpers — upload-and-verify, upload-and-stream
-# ---------------------------------------------------------------------------
-
-def upload_and_verify(chat_id: str, filename: str, content: bytes) -> str:
-    """Upload a file, poll until ready. Returns attachment_id."""
-    resp = upload_file(chat_id, content=content, filename=filename)
-    assert resp.status_code == 201, f"Upload failed: {resp.status_code} {resp.text}"
-    att_id = resp.json()["id"]
-    detail = poll_until_ready(chat_id, att_id)
-    assert detail["status"] == "ready", f"Expected ready, got: {detail}"
-    return att_id
-
-
-def upload_and_stream(chat_id: str, filename: str, content: bytes, question: str) -> SSEEvent:
-    """Upload a file, poll until ready, send a message, return the done event."""
-    att_id = upload_and_verify(chat_id, filename, content)
-    status, events, raw = stream_message(chat_id, question, attachment_ids=[att_id])
-    assert status == 200, f"Stream failed: {status} {raw[:500]}"
-    ss = expect_stream_started(events)
-    assert ss.data.get("message_id")
-    done = expect_done(events)
-    usage = done.data.get("usage", {})
-    assert usage.get("input_tokens", 0) > 0, "Expected non-zero input_tokens"
-    assert usage.get("output_tokens", 0) > 0, "Expected non-zero output_tokens"
-    return done
 
 
 # ---------------------------------------------------------------------------
@@ -371,15 +335,40 @@ class TestDualProviderUpload:
     """Upload the same content to an OpenAI chat and an Azure chat.
     Proves DispatchingFileStorage routes to the correct provider-specific impl."""
 
-    def test_dual_provider_upload(self, chat, chat_with_model):
+    def test_dual_provider_upload(self, chat_with_model):
         content = b"Dual-provider test document content."
 
-        # OpenAI chat (default model gpt-5.2 → provider_id "openai")
-        upload_and_verify(chat["id"], "dual-oa.txt", content)
+        # OpenAI chat (STANDARD_MODEL = gpt-5.2 → provider_id "openai")
+        openai_chat = chat_with_model(STANDARD_MODEL)
+        openai_chat_id = openai_chat["id"]
+        resp = httpx.post(
+            f"{API_PREFIX}/chats/{openai_chat_id}/attachments",
+            files={"file": ("dual-oa.txt", io.BytesIO(content), "text/plain")},
+            timeout=60,
+        )
+        assert resp.status_code == 201, f"Upload failed: {resp.status_code} {resp.text}"
+        oa_att_id = resp.json()["id"]
+        resp = poll_until(
+            lambda: httpx.get(f"{API_PREFIX}/chats/{openai_chat_id}/attachments/{oa_att_id}", timeout=10),
+            until=lambda r: r.json()["status"] in ("ready", "failed"),
+        )
+        assert resp.json()["status"] == "ready", f"Expected ready, got: {resp.json()}"
 
-        # Azure chat (azure-gpt-4.1-mini → provider_id "azure_openai")
-        azure_chat = chat_with_model(AZURE_MODEL)
-        upload_and_verify(azure_chat["id"], "dual-az.txt", content)
+        # Azure chat (DEFAULT_MODEL = azure-gpt-4.1-mini → provider_id "azure_openai")
+        azure_chat = chat_with_model(DEFAULT_MODEL)
+        azure_chat_id = azure_chat["id"]
+        resp = httpx.post(
+            f"{API_PREFIX}/chats/{azure_chat_id}/attachments",
+            files={"file": ("dual-az.txt", io.BytesIO(content), "text/plain")},
+            timeout=60,
+        )
+        assert resp.status_code == 201, f"Upload failed: {resp.status_code} {resp.text}"
+        az_att_id = resp.json()["id"]
+        resp = poll_until(
+            lambda: httpx.get(f"{API_PREFIX}/chats/{azure_chat_id}/attachments/{az_att_id}", timeout=10),
+            until=lambda r: r.json()["status"] in ("ready", "failed"),
+        )
+        assert resp.json()["status"] == "ready", f"Expected ready, got: {resp.json()}"
 
 
 @pytest.mark.multi_provider
@@ -389,16 +378,69 @@ class TestDualProviderRAGStream:
     Proves end-to-end RAG (file_search) works through both provider-specific
     file + vector store implementations in the same server instance."""
 
-    def test_dual_provider_rag_stream(self, chat, chat_with_model):
+    def test_dual_provider_rag_stream(self, chat_with_model):
         content = b"The secret passphrase is DUAL-PROVIDER-42."
         question = "What is the secret passphrase in the attached document?"
 
-        # OpenAI chat — routes through OpenAiFileStorage + OpenAiVectorStore
-        upload_and_stream(chat["id"], "rag-oa.txt", content, question)
+        # OpenAI chat (STANDARD_MODEL = gpt-5.2) — routes through OpenAiFileStorage + OpenAiVectorStore
+        openai_chat = chat_with_model(STANDARD_MODEL)
+        openai_chat_id = openai_chat["id"]
+        resp = httpx.post(
+            f"{API_PREFIX}/chats/{openai_chat_id}/attachments",
+            files={"file": ("rag-oa.txt", io.BytesIO(content), "text/plain")},
+            timeout=60,
+        )
+        assert resp.status_code == 201, f"Upload failed: {resp.status_code} {resp.text}"
+        oa_att_id = resp.json()["id"]
+        resp = poll_until(
+            lambda: httpx.get(f"{API_PREFIX}/chats/{openai_chat_id}/attachments/{oa_att_id}", timeout=10),
+            until=lambda r: r.json()["status"] in ("ready", "failed"),
+        )
+        assert resp.json()["status"] == "ready", f"Expected ready, got: {resp.json()}"
+        resp = httpx.post(
+            f"{API_PREFIX}/chats/{openai_chat_id}/messages:stream",
+            json={"content": question, "attachment_ids": [oa_att_id]},
+            headers={"Accept": "text/event-stream"},
+            timeout=90,
+        )
+        assert resp.status_code == 200, f"Stream failed: {resp.status_code} {resp.text[:500]}"
+        oa_events = parse_sse(resp.text)
+        ss = expect_stream_started(oa_events)
+        assert ss.data.get("message_id")
+        done = expect_done(oa_events)
+        usage = done.data.get("usage", {})
+        assert usage.get("input_tokens", 0) > 0, "Expected non-zero input_tokens"
+        assert usage.get("output_tokens", 0) > 0, "Expected non-zero output_tokens"
 
-        # Azure chat — routes through AzureFileStorage + AzureVectorStore
-        azure_chat = chat_with_model(AZURE_MODEL)
-        upload_and_stream(azure_chat["id"], "rag-az.txt", content, question)
+        # Azure chat (DEFAULT_MODEL = azure-gpt-4.1-mini) — routes through AzureFileStorage + AzureVectorStore
+        azure_chat = chat_with_model(DEFAULT_MODEL)
+        azure_chat_id = azure_chat["id"]
+        resp = httpx.post(
+            f"{API_PREFIX}/chats/{azure_chat_id}/attachments",
+            files={"file": ("rag-az.txt", io.BytesIO(content), "text/plain")},
+            timeout=60,
+        )
+        assert resp.status_code == 201, f"Upload failed: {resp.status_code} {resp.text}"
+        az_att_id = resp.json()["id"]
+        resp = poll_until(
+            lambda: httpx.get(f"{API_PREFIX}/chats/{azure_chat_id}/attachments/{az_att_id}", timeout=10),
+            until=lambda r: r.json()["status"] in ("ready", "failed"),
+        )
+        assert resp.json()["status"] == "ready", f"Expected ready, got: {resp.json()}"
+        resp = httpx.post(
+            f"{API_PREFIX}/chats/{azure_chat_id}/messages:stream",
+            json={"content": question, "attachment_ids": [az_att_id]},
+            headers={"Accept": "text/event-stream"},
+            timeout=90,
+        )
+        assert resp.status_code == 200, f"Stream failed: {resp.status_code} {resp.text[:500]}"
+        az_events = parse_sse(resp.text)
+        ss = expect_stream_started(az_events)
+        assert ss.data.get("message_id")
+        done = expect_done(az_events)
+        usage = done.data.get("usage", {})
+        assert usage.get("input_tokens", 0) > 0, "Expected non-zero input_tokens"
+        assert usage.get("output_tokens", 0) > 0, "Expected non-zero output_tokens"
 
 
 # ---------------------------------------------------------------------------
@@ -431,18 +473,22 @@ def make_minimal_png(width: int = 2, height: int = 2, color: tuple = (255, 0, 0)
 # Image upload and recognition
 # ---------------------------------------------------------------------------
 
-@pytest.mark.openai
+@pytest.mark.multi_provider
 class TestImageUploadAndSend:
     """Upload a PNG image, verify it reaches ready, send a message referencing it."""
 
-    def test_image_upload_and_send(self, chat):
-        chat_id = chat["id"]
+    def test_image_upload_and_send(self, provider_chat):
+        chat_id = provider_chat["id"]
 
         # Generate a small red PNG
         png_bytes = make_minimal_png(width=4, height=4, color=(255, 0, 0))
 
         # Upload
-        resp = upload_file(chat_id, content=png_bytes, filename="red.png", content_type="image/png")
+        resp = httpx.post(
+            f"{API_PREFIX}/chats/{chat_id}/attachments",
+            files={"file": ("red.png", io.BytesIO(png_bytes), "image/png")},
+            timeout=60,
+        )
         assert resp.status_code == 201, f"Upload failed: {resp.status_code} {resp.text}"
         body = resp.json()
         att_id = body["id"]
@@ -450,16 +496,21 @@ class TestImageUploadAndSend:
         assert body["content_type"] == "image/png"
 
         # Poll until ready
-        detail = poll_until_ready(chat_id, att_id)
+        detail = poll_until(
+            lambda: httpx.get(f"{API_PREFIX}/chats/{chat_id}/attachments/{att_id}", timeout=10),
+            until=lambda r: r.json()["status"] in ("ready", "failed"),
+        ).json()
         assert detail["status"] == "ready", f"Expected ready, got: {detail}"
 
         # Send a message referencing the image
-        status, events, raw = stream_message(
-            chat_id,
-            "Describe the attached image. What color is it?",
-            attachment_ids=[att_id],
+        resp = httpx.post(
+            f"{API_PREFIX}/chats/{chat_id}/messages:stream",
+            json={"content": "Describe the attached image. What color is it?", "attachment_ids": [att_id]},
+            headers={"Accept": "text/event-stream"},
+            timeout=90,
         )
-        assert status == 200, f"Stream failed: {status} {raw[:500]}"
+        assert resp.status_code == 200, f"Stream failed: {resp.status_code} {resp.text[:500]}"
+        events = parse_sse(resp.text)
         expect_done(events)
         ss = expect_stream_started(events)
         assert ss.data.get("message_id"), "Expected message_id in stream_started event"
@@ -473,16 +524,19 @@ class TestImageUploadAndSend:
         # The LLM should have produced some response
         assert len(delta_text) > 0, "Expected non-empty response from LLM"
 
+        # img_thumbnail may not be implemented yet — check only after streaming assertions pass
+        if detail.get("img_thumbnail") is None:
+            pytest.xfail("img_thumbnail not populated for ready images yet")
 
-@pytest.mark.openai
+
+@pytest.mark.multi_provider
 @pytest.mark.online_only
 class TestImageRecognition:
-    """Upload a real cat photo (JPEG) to both OpenAI and Azure chats,
-    ask each LLM what animal it is, verify both streams complete.
+    """Upload a real cat photo (JPEG) per provider, ask the LLM what animal
+    it is, verify the stream completes and the cat is recognized.
 
-    NOTE: Until image inlining is wired in gather_context, the LLM cannot
-    actually see the image — it responds to text only. The cat-recognition
-    check is soft (print, not assert) until that work lands.
+    Image inlining is wired — the LLM sees the image as multimodal input
+    via the Responses API. The test hard-asserts cat recognition.
     """
 
     @staticmethod
@@ -496,24 +550,36 @@ class TestImageRecognition:
                               content_type: str, provider_label: str):
         """Upload an image, poll until ready, send a question, check response."""
         # Upload
-        resp = upload_file(chat_id, content=image_bytes, filename=filename,
-                           content_type=content_type)
+        resp = httpx.post(
+            f"{API_PREFIX}/chats/{chat_id}/attachments",
+            files={"file": (filename, io.BytesIO(image_bytes), content_type)},
+            timeout=60,
+        )
         assert resp.status_code == 201, f"[{provider_label}] Upload failed: {resp.status_code} {resp.text}"
         body = resp.json()
         att_id = body["id"]
         assert body["kind"] == "image"
 
         # Poll until ready
-        detail = poll_until_ready(chat_id, att_id)
+        resp = poll_until(
+            lambda: httpx.get(f"{API_PREFIX}/chats/{chat_id}/attachments/{att_id}", timeout=10),
+            until=lambda r: r.json()["status"] in ("ready", "failed"),
+        )
+        detail = resp.json()
         assert detail["status"] == "ready", f"[{provider_label}] Expected ready, got: {detail}"
 
         # Ask the LLM to identify the animal
-        status, events, raw = stream_message(
-            chat_id,
-            "Describe exactly what you see in the attached image. If you cannot see any image, respond with exactly 'NO_IMAGE_VISIBLE'.",
-            attachment_ids=[att_id],
+        resp = httpx.post(
+            f"{API_PREFIX}/chats/{chat_id}/messages:stream",
+            json={
+                "content": "Describe exactly what you see in the attached image. If you cannot see any image, respond with exactly 'NO_IMAGE_VISIBLE'.",
+                "attachment_ids": [att_id],
+            },
+            headers={"Accept": "text/event-stream"},
+            timeout=90,
         )
-        assert status == 200, f"[{provider_label}] Stream failed: {status} {raw[:500]}"
+        assert resp.status_code == 200, f"[{provider_label}] Stream failed: {resp.status_code} {resp.text[:500]}"
+        events = parse_sse(resp.text)
         done = expect_done(events)
 
         # Collect response text
@@ -538,21 +604,20 @@ class TestImageRecognition:
             f"Response: {delta_text!r}"
         )
 
-    def test_image_recognition_cat_openai(self, chat):
-        cat_bytes = self._load_cat_image()
-        self._upload_image_and_ask(chat["id"], cat_bytes, "cat-oa.jpg", "image/jpeg", "OpenAI")
+        # img_thumbnail may not be implemented yet — check only after streaming assertions pass
+        if detail.get("img_thumbnail") is None:
+            pytest.xfail("img_thumbnail not populated for ready images yet")
 
-    def test_image_recognition_cat_azure(self, chat_with_model):
-        azure_chat = chat_with_model(AZURE_MODEL)
+    def test_image_recognition_cat(self, provider_chat):
         cat_bytes = self._load_cat_image()
-        self._upload_image_and_ask(azure_chat["id"], cat_bytes, "cat-az.jpg", "image/jpeg", "Azure")
+        self._upload_image_and_ask(provider_chat["id"], cat_bytes, "cat.jpg", "image/jpeg", provider_chat.get("model", "unknown"))
 
 
 # ---------------------------------------------------------------------------
 # Mixed document + image: both mechanisms must work simultaneously
 # ---------------------------------------------------------------------------
 
-@pytest.mark.openai
+@pytest.mark.multi_provider
 @pytest.mark.online_only
 class TestDocumentAndImageTogether:
     """Upload a document AND an image, send a message referencing both.
@@ -562,8 +627,8 @@ class TestDocumentAndImageTogether:
     requires information from BOTH sources.
     """
 
-    def test_document_and_image_combined(self, chat):
-        chat_id = chat["id"]
+    def test_document_and_image_combined(self, provider_chat):
+        chat_id = provider_chat["id"]
 
         # 1. Upload a document with a secret code word
         doc_content = (
@@ -571,29 +636,33 @@ class TestDocumentAndImageTogether:
             "The secret code word for this project is: FLAMINGO.\n"
             "Do not share this code word with anyone.\n"
         )
-        doc_resp = upload_file(
-            chat_id,
-            content=doc_content.encode(),
-            filename="secret-report.txt",
-            content_type="text/plain",
+        doc_resp = httpx.post(
+            f"{API_PREFIX}/chats/{chat_id}/attachments",
+            files={"file": ("secret-report.txt", io.BytesIO(doc_content.encode()), "text/plain")},
+            timeout=60,
         )
         assert doc_resp.status_code == 201
         doc_id = doc_resp.json()["id"]
-        doc_detail = poll_until_ready(chat_id, doc_id)
+        doc_detail = poll_until(
+            lambda: httpx.get(f"{API_PREFIX}/chats/{chat_id}/attachments/{doc_id}", timeout=10),
+            until=lambda r: r.json()["status"] in ("ready", "failed"),
+        ).json()
         assert doc_detail["status"] == "ready"
         assert doc_detail["kind"] == "document"
 
         # 2. Upload the cat image
         cat_bytes = (pathlib.Path(__file__).parent / "fixtures" / "cat.jpg").read_bytes()
-        img_resp = upload_file(
-            chat_id,
-            content=cat_bytes,
-            filename="animal.jpg",
-            content_type="image/jpeg",
+        img_resp = httpx.post(
+            f"{API_PREFIX}/chats/{chat_id}/attachments",
+            files={"file": ("animal.jpg", io.BytesIO(cat_bytes), "image/jpeg")},
+            timeout=60,
         )
         assert img_resp.status_code == 201
         img_id = img_resp.json()["id"]
-        img_detail = poll_until_ready(chat_id, img_id)
+        img_detail = poll_until(
+            lambda: httpx.get(f"{API_PREFIX}/chats/{chat_id}/attachments/{img_id}", timeout=10),
+            until=lambda r: r.json()["status"] in ("ready", "failed"),
+        ).json()
         assert img_detail["status"] == "ready"
         assert img_detail["kind"] == "image"
 
@@ -601,17 +670,22 @@ class TestDocumentAndImageTogether:
         #    - The document contains the code word "FLAMINGO"
         #    - The image contains a cat
         #    The LLM must mention both to prove it accessed both.
-        status, events, raw = stream_message(
-            chat_id,
-            content=(
-                "I attached a document and an image. "
-                "Tell me: 1) What is the secret code word from the document? "
-                "2) What animal is in the image? "
-                "Answer both questions."
-            ),
-            attachment_ids=[doc_id, img_id],
+        resp = httpx.post(
+            f"{API_PREFIX}/chats/{chat_id}/messages:stream",
+            json={
+                "content": (
+                    "I attached a document and an image. "
+                    "Tell me: 1) What is the secret code word from the document? "
+                    "2) What animal is in the image? "
+                    "Answer both questions."
+                ),
+                "attachment_ids": [doc_id, img_id],
+            },
+            headers={"Accept": "text/event-stream"},
+            timeout=90,
         )
-        assert status == 200, f"Stream failed: {status} {raw[:500]}"
+        assert resp.status_code == 200, f"Stream failed: {resp.status_code} {resp.text[:500]}"
+        events = parse_sse(resp.text)
         done = expect_done(events)
 
         # Collect response text
@@ -645,7 +719,7 @@ class TestDocumentAndImageTogether:
 # Streaming upload: size enforcement and size_bytes accuracy
 # ---------------------------------------------------------------------------
 
-@pytest.mark.openai
+@pytest.mark.multi_provider
 class TestUploadSizeEnforcement:
     """Upload size limit enforcement — files exceeding the configured limit
     are rejected with HTTP 413 and error code ``file_too_large``.
@@ -655,20 +729,19 @@ class TestUploadSizeEnforcement:
     - ``uploaded_image_max_size_kb``: 5120 (5 MB) for images
     """
 
-    def test_oversize_image_rejected_413(self, chat):
+    def test_oversize_image_rejected_413(self, provider_chat):
         """Upload an image exceeding uploaded_image_max_size_kb (5 MB) → 413.
 
         Uses ~6 MB which is over the image limit but under the API gateway's
         global 16 MiB body limit, so our handler's streaming size check runs.
         """
-        chat_id = chat["id"]
+        chat_id = provider_chat["id"]
         # 6 MB > 5 MB default image limit, but < 16 MiB gateway limit
         oversize_payload = b"\x89PNG" + b"\x00" * (6 * 1024 * 1024)
-        resp = upload_file(
-            chat_id,
-            content=oversize_payload,
-            filename="huge.png",
-            content_type="image/png",
+        resp = httpx.post(
+            f"{API_PREFIX}/chats/{chat_id}/attachments",
+            files={"file": ("huge.png", io.BytesIO(oversize_payload), "image/png")},
+            timeout=60,
         )
         assert resp.status_code == 413, (
             f"Expected 413 for oversize image, got {resp.status_code}: {resp.text}"
@@ -678,20 +751,20 @@ class TestUploadSizeEnforcement:
             f"Expected file_too_large error code, got: {body}"
         )
 
-    def test_oversize_document_rejected_413(self, chat):
-        """Upload a document exceeding uploaded_file_max_size_kb (25 MB) → 413.
+    def test_oversize_document_rejected_by_gateway(self, provider_chat):
+        """Upload a document exceeding the per-kind handler limit (25 MB) → 413.
 
-        Uses ~26 MB which is over the 25 MB document limit, so the
-        handler's streaming size check rejects with ``file_too_large``.
+        Documents are capped at 25 MB by the per-kind handler size check.
+        A 26 MB upload should be rejected by that handler before any further
+        processing occurs.
         """
-        chat_id = chat["id"]
-        # 26 MB > 25 MB default document limit
+        chat_id = provider_chat["id"]
+        # 26 MB > 25 MB per-kind handler limit
         oversize_payload = b"\x00" * (26 * 1024 * 1024)
-        resp = upload_file(
-            chat_id,
-            content=oversize_payload,
-            filename="huge.pdf",
-            content_type="application/pdf",
+        resp = httpx.post(
+            f"{API_PREFIX}/chats/{chat_id}/attachments",
+            files={"file": ("huge.pdf", io.BytesIO(oversize_payload), "application/pdf")},
+            timeout=60,
         )
         assert resp.status_code == 413, (
             f"Expected 413 for oversize document, got {resp.status_code}: {resp.text}"
@@ -701,78 +774,87 @@ class TestUploadSizeEnforcement:
             f"Expected file_too_large error code, got: {body}"
         )
 
-    def test_document_within_limit_succeeds(self, chat):
+    def test_document_within_limit_succeeds(self, provider_chat):
         """Upload a document just under the limit → succeeds."""
-        chat_id = chat["id"]
+        chat_id = provider_chat["id"]
         # 1 MB — well under 25 MB
         payload = b"x" * (1 * 1024 * 1024)
-        resp = upload_file(
-            chat_id,
-            content=payload,
-            filename="medium.txt",
-            content_type="text/plain",
+        resp = httpx.post(
+            f"{API_PREFIX}/chats/{chat_id}/attachments",
+            files={"file": ("medium.txt", io.BytesIO(payload), "text/plain")},
+            timeout=60,
         )
         assert resp.status_code == 201, (
             f"Expected 201 for within-limit doc, got {resp.status_code}: {resp.text}"
         )
         att_id = resp.json()["id"]
-        detail = poll_until_ready(chat_id, att_id)
+        detail = poll_until(
+            lambda: httpx.get(f"{API_PREFIX}/chats/{chat_id}/attachments/{att_id}", timeout=10),
+            until=lambda r: r.json()["status"] in ("ready", "failed"),
+        ).json()
         assert detail["status"] == "ready"
 
 
-@pytest.mark.openai
+@pytest.mark.multi_provider
 class TestUploadSizeBytesAccuracy:
     """Verify that size_bytes in the attachment metadata matches the actual
     uploaded file size."""
 
-    def test_size_bytes_matches_actual(self, chat):
+    def test_size_bytes_matches_actual(self, provider_chat):
         """Upload a file of known size, verify size_bytes in GET response."""
-        chat_id = chat["id"]
+        chat_id = provider_chat["id"]
         # Use a specific, non-round size to catch off-by-one issues
         payload = b"A" * 123_456
-        resp = upload_file(
-            chat_id,
-            content=payload,
-            filename="sized.txt",
-            content_type="text/plain",
+        resp = httpx.post(
+            f"{API_PREFIX}/chats/{chat_id}/attachments",
+            files={"file": ("sized.txt", io.BytesIO(payload), "text/plain")},
+            timeout=60,
         )
         assert resp.status_code == 201
         att_id = resp.json()["id"]
-        detail = poll_until_ready(chat_id, att_id)
+        resp = poll_until(
+            lambda: httpx.get(f"{API_PREFIX}/chats/{chat_id}/attachments/{att_id}", timeout=10),
+            until=lambda r: r.json()["status"] in ("ready", "failed"),
+        )
+        detail = resp.json()
         assert detail["status"] == "ready"
         assert detail["size_bytes"] == 123_456, (
             f"Expected size_bytes=123456, got {detail['size_bytes']}"
         )
 
 
-@pytest.mark.openai
+@pytest.mark.multi_provider
 class TestUploadStreamingPipeline:
     """End-to-end test with a medium-sized file (~500 KB) through the full
     streaming upload pipeline: upload → ready → send message → SSE done."""
 
     @pytest.mark.online_only
-    def test_medium_file_upload_and_stream(self, chat):
-        chat_id = chat["id"]
+    def test_medium_file_upload_and_stream(self, provider_chat):
+        chat_id = provider_chat["id"]
         # 500 KB document
         payload = b"The quick brown fox. " * 25_000  # ~500 KB
-        resp = upload_file(
-            chat_id,
-            content=payload,
-            filename="medium_doc.txt",
-            content_type="text/plain",
+        resp = httpx.post(
+            f"{API_PREFIX}/chats/{chat_id}/attachments",
+            files={"file": ("medium_doc.txt", io.BytesIO(payload), "text/plain")},
+            timeout=60,
         )
         assert resp.status_code == 201
         att_id = resp.json()["id"]
-        detail = poll_until_ready(chat_id, att_id)
+        detail = poll_until(
+            lambda: httpx.get(f"{API_PREFIX}/chats/{chat_id}/attachments/{att_id}", timeout=10),
+            until=lambda r: r.json()["status"] in ("ready", "failed"),
+        ).json()
         assert detail["status"] == "ready", f"Expected ready, got: {detail}"
 
         # Send a message referencing the attachment
-        status, events, raw = stream_message(
-            chat_id,
-            content="Summarize the attached document briefly.",
-            attachment_ids=[att_id],
+        resp = httpx.post(
+            f"{API_PREFIX}/chats/{chat_id}/messages:stream",
+            json={"content": "Summarize the attached document briefly.", "attachment_ids": [att_id]},
+            headers={"Accept": "text/event-stream"},
+            timeout=90,
         )
-        assert status == 200, f"Stream failed: {status} {raw}"
+        assert resp.status_code == 200, f"Stream failed: {resp.status_code} {resp.text}"
+        events = parse_sse(resp.text)
 
         started = expect_stream_started(events)
         assert started is not None, "Expected stream_started event"

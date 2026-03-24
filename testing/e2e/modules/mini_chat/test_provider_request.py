@@ -29,6 +29,7 @@ def _skip_online(request):
         pytest.skip("provider request capture requires offline mode")
 
 
+@pytest.mark.multi_provider
 class TestMaxToolCalls:
     """Verify max_tool_calls is sent in provider request body."""
 
@@ -50,13 +51,15 @@ class TestMaxToolCalls:
 
     def test_max_tool_calls_numeric(self, provider_chat, mock_provider):
         """max_tool_calls should be a number, not a string."""
-        stream_message(provider_chat["id"], "Say OK.")
+        status, _, _ = stream_message(provider_chat["id"], "Say OK.")
+        assert status == 200
         time.sleep(0.5)
         req = mock_provider.get_last_request()
         assert req is not None
         assert isinstance(req.get("max_tool_calls"), int)
 
 
+@pytest.mark.multi_provider
 class TestWebSearchToolType:
     """Verify web_search tool serialization in provider request."""
 
@@ -85,11 +88,12 @@ class TestWebSearchToolType:
 
     def test_web_search_has_search_context_size(self, provider_chat, mock_provider):
         """web_search tool should include search_context_size."""
-        stream_message(
+        status, _, _ = stream_message(
             provider_chat["id"],
             "SEARCH: test context size",
             web_search={"enabled": True},
         )
+        assert status == 200
         time.sleep(0.5)
         req = mock_provider.get_last_request()
         assert req is not None
@@ -105,7 +109,8 @@ class TestWebSearchToolType:
 
     def test_no_web_search_tool_without_flag(self, provider_chat, mock_provider):
         """Without web_search flag, no web_search tool in provider request."""
-        stream_message(provider_chat["id"], "Say hello.")
+        status, _, _ = stream_message(provider_chat["id"], "Say hello.")
+        assert status == 200
         time.sleep(0.5)
         req = mock_provider.get_last_request()
         assert req is not None
@@ -116,6 +121,7 @@ class TestWebSearchToolType:
         )
 
 
+@pytest.mark.multi_provider
 class TestFileSearchMaxNumResults:
     """Verify file_search tool includes max_num_results."""
 
@@ -131,7 +137,8 @@ class TestFileSearchMaxNumResults:
             pytest.skip(f"Attachment upload not supported or failed: {resp.status_code}")
 
         # Send message referencing the attachment
-        stream_message(provider_chat["id"], "What does the attached file say?")
+        status, _, _ = stream_message(provider_chat["id"], "What does the attached file say?")
+        assert status == 200
         time.sleep(0.5)
         req = mock_provider.get_last_request()
         if req is None:

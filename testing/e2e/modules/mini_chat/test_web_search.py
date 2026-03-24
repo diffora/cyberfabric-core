@@ -12,21 +12,28 @@ import uuid
 import pytest
 import httpx
 
-from .conftest import API_PREFIX, STANDARD_MODEL, expect_done, stream_message
+from .conftest import API_PREFIX, PROVIDER_DEFAULT_MODEL, STANDARD_MODEL, expect_done, expect_stream_started, parse_sse
 
 
+@pytest.mark.multi_provider
 class TestWebSearchBasic:
     """Web search happy path — tool events, usage, deltas."""
 
     def test_web_search_returns_tool_events(self, provider_chat):
         """Streaming with web_search enabled should produce tool events."""
-        status, events, _ = stream_message(
-            provider_chat["id"],
-            "SEARCH: current weather in Berlin",
-            web_search={"enabled": True},
+        resp = httpx.post(
+            f"{API_PREFIX}/chats/{provider_chat['id']}/messages:stream",
+            json={"content": "SEARCH: current weather in Berlin", "web_search": {"enabled": True}},
+            headers={"Accept": "text/event-stream"},
+            timeout=90,
         )
-        assert status == 200
+        assert resp.status_code == 200
+        events = parse_sse(resp.text)
         expect_done(events)
+        ss = expect_stream_started(events)
+        assert "request_id" in ss.data
+        assert "message_id" in ss.data
+        assert ss.data.get("is_new_turn") is True
 
         tool_events = [e for e in events if e.event == "tool"]
         assert len(tool_events) > 0, (
@@ -36,13 +43,22 @@ class TestWebSearchBasic:
 
     def test_web_search_done_has_usage(self, provider_chat):
         """Done event after web search should include usage with tokens."""
-        status, events, _ = stream_message(
-            provider_chat["id"],
-            "SEARCH: population of Tokyo",
-            web_search={"enabled": True},
+        resp = httpx.post(
+            f"{API_PREFIX}/chats/{provider_chat['id']}/messages:stream",
+            json={"content": "SEARCH: population of Tokyo", "web_search": {"enabled": True}},
+            headers={"Accept": "text/event-stream"},
+            timeout=90,
         )
-        assert status == 200
+        assert resp.status_code == 200
+        events = parse_sse(resp.text)
         done = expect_done(events)
+        ss = expect_stream_started(events)
+        assert "request_id" in ss.data
+        assert "message_id" in ss.data
+        assert ss.data.get("is_new_turn") is True
+        assert "effective_model" in done.data, "done must have effective_model"
+        assert "selected_model" in done.data, "done must have selected_model"
+        assert done.data.get("quota_decision") in ("allow", "downgrade"), f"unexpected quota_decision: {done.data.get('quota_decision')}"
         usage = done.data.get("usage")
         assert usage is not None, f"Done event missing usage: {done.data}"
         assert usage["input_tokens"] > 0
@@ -50,13 +66,19 @@ class TestWebSearchBasic:
 
     def test_web_search_has_delta_events(self, provider_chat):
         """Web search stream should still have delta text events."""
-        status, events, _ = stream_message(
-            provider_chat["id"],
-            "SEARCH: what year was Python created?",
-            web_search={"enabled": True},
+        resp = httpx.post(
+            f"{API_PREFIX}/chats/{provider_chat['id']}/messages:stream",
+            json={"content": "SEARCH: what year was Python created?", "web_search": {"enabled": True}},
+            headers={"Accept": "text/event-stream"},
+            timeout=90,
         )
-        assert status == 200
+        assert resp.status_code == 200
+        events = parse_sse(resp.text)
         expect_done(events)
+        ss = expect_stream_started(events)
+        assert "request_id" in ss.data
+        assert "message_id" in ss.data
+        assert ss.data.get("is_new_turn") is True
 
         deltas = [e for e in events if e.event == "delta"]
         assert len(deltas) > 0, "Expected delta events in web search response"
@@ -64,6 +86,7 @@ class TestWebSearchBasic:
         assert len(text.strip()) > 0, "Assembled text from deltas is empty"
 
 
+@pytest.mark.multi_provider
 class TestWebSearchCitations:
     """Web search citation event structure.
 
@@ -73,12 +96,14 @@ class TestWebSearchCitations:
 
     def test_web_search_produces_citations(self, request, provider_chat):
         """Web search should emit a citations event with at least one item."""
-        status, events, _ = stream_message(
-            provider_chat["id"],
-            "SEARCH: capital of Australia",
-            web_search={"enabled": True},
+        resp = httpx.post(
+            f"{API_PREFIX}/chats/{provider_chat['id']}/messages:stream",
+            json={"content": "SEARCH: capital of Australia", "web_search": {"enabled": True}},
+            headers={"Accept": "text/event-stream"},
+            timeout=90,
         )
-        assert status == 200
+        assert resp.status_code == 200
+        events = parse_sse(resp.text)
         expect_done(events)
 
         citation_events = [e for e in events if e.event == "citations"]
@@ -97,12 +122,14 @@ class TestWebSearchCitations:
 
     def test_citation_has_required_fields(self, request, provider_chat):
         """Each citation should have source, title, and snippet."""
-        status, events, _ = stream_message(
-            provider_chat["id"],
-            "SEARCH: when was the Eiffel Tower built",
-            web_search={"enabled": True},
+        resp = httpx.post(
+            f"{API_PREFIX}/chats/{provider_chat['id']}/messages:stream",
+            json={"content": "SEARCH: when was the Eiffel Tower built", "web_search": {"enabled": True}},
+            headers={"Accept": "text/event-stream"},
+            timeout=90,
         )
-        assert status == 200
+        assert resp.status_code == 200
+        events = parse_sse(resp.text)
         expect_done(events)
 
         citation_events = [e for e in events if e.event == "citations"]
@@ -120,12 +147,14 @@ class TestWebSearchCitations:
 
     def test_web_citation_has_url(self, request, provider_chat):
         """Web citations should include a URL."""
-        status, events, _ = stream_message(
-            provider_chat["id"],
-            "SEARCH: population of Japan",
-            web_search={"enabled": True},
+        resp = httpx.post(
+            f"{API_PREFIX}/chats/{provider_chat['id']}/messages:stream",
+            json={"content": "SEARCH: population of Japan", "web_search": {"enabled": True}},
+            headers={"Accept": "text/event-stream"},
+            timeout=90,
         )
-        assert status == 200
+        assert resp.status_code == 200
+        events = parse_sse(resp.text)
         expect_done(events)
 
         citation_events = [e for e in events if e.event == "citations"]
@@ -140,17 +169,20 @@ class TestWebSearchCitations:
             assert c["url"].startswith("http"), f"URL should start with http: {c['url']}"
 
 
+@pytest.mark.multi_provider
 class TestWebSearchEventOrdering:
     """SSE event grammar: ping* (delta|tool)* citations? (done|error)"""
 
     def test_citations_before_done(self, provider_chat):
         """If citations are present, they must appear before the done event."""
-        status, events, _ = stream_message(
-            provider_chat["id"],
-            "SEARCH: capital of France",
-            web_search={"enabled": True},
+        resp = httpx.post(
+            f"{API_PREFIX}/chats/{provider_chat['id']}/messages:stream",
+            json={"content": "SEARCH: capital of France", "web_search": {"enabled": True}},
+            headers={"Accept": "text/event-stream"},
+            timeout=90,
         )
-        assert status == 200
+        assert resp.status_code == 200
+        events = parse_sse(resp.text)
         expect_done(events)
 
         citation_idx = None
@@ -170,30 +202,41 @@ class TestWebSearchEventOrdering:
 
     def test_tool_events_before_done(self, provider_chat):
         """Tool events must appear before the terminal done event."""
-        status, events, _ = stream_message(
-            provider_chat["id"],
-            "SEARCH: who won the latest Nobel Prize in Physics?",
-            web_search={"enabled": True},
+        resp = httpx.post(
+            f"{API_PREFIX}/chats/{provider_chat['id']}/messages:stream",
+            json={"content": "SEARCH: who won the latest Nobel Prize in Physics?", "web_search": {"enabled": True}},
+            headers={"Accept": "text/event-stream"},
+            timeout=90,
         )
-        assert status == 200
+        assert resp.status_code == 200
+        events = parse_sse(resp.text)
         expect_done(events)
 
         done_idx = next(i for i, e in enumerate(events) if e.event == "done")
+        tool_events = [e for e in events if e.event == "tool"]
+        assert len(tool_events) > 0, (
+            f"Expected tool events for web search but got none. "
+            f"Event types: {[e.event for e in events]}"
+        )
         for i, e in enumerate(events):
             if e.event == "tool":
                 assert i < done_idx, f"tool event at {i} should be before done at {done_idx}"
 
 
+@pytest.mark.multi_provider
 class TestWebSearchDisabledByDefault:
     """When web_search is not requested, no tool events should appear."""
 
     def test_no_tool_events_without_web_search(self, provider_chat):
         """A normal message (no web_search flag) should not trigger web search."""
-        status, events, _ = stream_message(
-            provider_chat["id"],
-            "What is 2+2? Answer in one word.",
+        resp = httpx.post(
+            f"{API_PREFIX}/chats/{provider_chat['id']}/messages:stream",
+            json={"content": "What is 2+2? Answer in one word."},
+            headers={"Accept": "text/event-stream"},
+            timeout=90,
         )
-        assert status == 200
+        assert resp.status_code == 200
+        events = parse_sse(resp.text)
         expect_done(events)
 
         tool_events = [e for e in events if e.event == "tool"]
@@ -203,39 +246,48 @@ class TestWebSearchDisabledByDefault:
 
     def test_no_citations_without_web_search(self, provider_chat):
         """A normal message should not produce citation events."""
-        status, events, _ = stream_message(
-            provider_chat["id"],
-            "Say hello.",
+        resp = httpx.post(
+            f"{API_PREFIX}/chats/{provider_chat['id']}/messages:stream",
+            json={"content": "Say hello."},
+            headers={"Accept": "text/event-stream"},
+            timeout=90,
         )
-        assert status == 200
+        assert resp.status_code == 200
+        events = parse_sse(resp.text)
         expect_done(events)
 
         citations = [e for e in events if e.event == "citations"]
         assert len(citations) == 0, "Unexpected citations without web_search"
 
 
-class TestWebSearchWithStandardModel:
-    """Web search on the standard model (gpt-5-mini, web_search: true)."""
+@pytest.mark.multi_provider
+class TestWebSearchPerProvider:
+    """Web search on each provider's non-default model (web_search: true)."""
 
-    @pytest.mark.openai
-    def test_web_search_works_on_standard_model(self, chat_with_model):
-        """Web search should also work on gpt-5-mini."""
-        chat = chat_with_model(STANDARD_MODEL)
-        status, events, _ = stream_message(
-            chat["id"],
-            "SEARCH: tallest building in the world",
-            web_search={"enabled": True},
+    def test_web_search_works_on_non_default_model(self, request, provider, chat_with_model):
+        """Web search should work on each provider's default model."""
+        if request.config.getoption("mode") == "online" and provider == "azure":
+            pytest.skip("Azure does not return web search tool events in online mode")
+        model = PROVIDER_DEFAULT_MODEL[provider]
+        chat = chat_with_model(model)
+        resp = httpx.post(
+            f"{API_PREFIX}/chats/{chat['id']}/messages:stream",
+            json={"content": "SEARCH: tallest building in the world", "web_search": {"enabled": True}},
+            headers={"Accept": "text/event-stream"},
+            timeout=90,
         )
-        assert status == 200
+        assert resp.status_code == 200
+        events = parse_sse(resp.text)
         expect_done(events)
 
         tool_events = [e for e in events if e.event == "tool"]
         assert len(tool_events) > 0, (
-            f"Expected tool events for web search on {STANDARD_MODEL}. "
+            f"Expected tool events for web search on {model}. "
             f"Event types: {[e.event for e in events]}"
         )
 
 
+@pytest.mark.multi_provider
 class TestWebSearchTurnStatus:
     """Turn status should reflect web search completion."""
 
@@ -243,28 +295,34 @@ class TestWebSearchTurnStatus:
         """Turn state should be 'done' after a successful web search stream."""
         chat_id = provider_chat["id"]
         request_id = str(uuid.uuid4())
-        status, events, _ = stream_message(
-            chat_id,
-            "SEARCH: speed of light",
-            web_search={"enabled": True},
-            request_id=request_id,
+        resp = httpx.post(
+            f"{API_PREFIX}/chats/{chat_id}/messages:stream",
+            json={"content": "SEARCH: speed of light", "web_search": {"enabled": True}, "request_id": request_id},
+            headers={"Accept": "text/event-stream"},
+            timeout=90,
         )
-        assert status == 200
+        assert resp.status_code == 200
+        events = parse_sse(resp.text)
         expect_done(events)
 
         resp = httpx.get(f"{API_PREFIX}/chats/{chat_id}/turns/{request_id}")
         assert resp.status_code == 200
         body = resp.json()
         assert body["state"] == "done"
+        assert "updated_at" in body, "turn status must have updated_at"
+        assert body.get("assistant_message_id") is not None, "done turn must have assistant_message_id"
 
     def test_messages_persisted_after_web_search(self, provider_chat):
         """Both user and assistant messages should be persisted after web search."""
         chat_id = provider_chat["id"]
-        _, events, _ = stream_message(
-            chat_id,
-            "SEARCH: when was the Eiffel Tower built?",
-            web_search={"enabled": True},
+        resp = httpx.post(
+            f"{API_PREFIX}/chats/{chat_id}/messages:stream",
+            json={"content": "SEARCH: when was the Eiffel Tower built?", "web_search": {"enabled": True}},
+            headers={"Accept": "text/event-stream"},
+            timeout=90,
         )
+        assert resp.status_code == 200
+        events = parse_sse(resp.text)
         expect_done(events)
 
         resp = httpx.get(f"{API_PREFIX}/chats/{chat_id}/messages")
@@ -278,18 +336,21 @@ class TestWebSearchTurnStatus:
 # ── Online-only tests ────────────────────────────────────────────────────
 # Require real provider responses (natural language quality).
 
+@pytest.mark.multi_provider
 @pytest.mark.online_only
 class TestWebSearchOnline:
     """Online web search tests — provider-parameterized."""
 
     def test_web_search_produces_meaningful_answer(self, provider_chat):
         """Real web search should produce a substantive text answer."""
-        status, events, _ = stream_message(
-            provider_chat["id"],
-            "Search the web: who is the current president of France?",
-            web_search={"enabled": True},
+        resp = httpx.post(
+            f"{API_PREFIX}/chats/{provider_chat['id']}/messages:stream",
+            json={"content": "Search the web: who is the current president of France?", "web_search": {"enabled": True}},
+            headers={"Accept": "text/event-stream"},
+            timeout=90,
         )
-        assert status == 200
+        assert resp.status_code == 200
+        events = parse_sse(resp.text)
         expect_done(events)
 
         text = "".join(
@@ -300,12 +361,14 @@ class TestWebSearchOnline:
 
     def test_web_search_tool_event_has_name(self, provider_chat):
         """Real provider should emit tool events with web_search name."""
-        status, events, _ = stream_message(
-            provider_chat["id"],
-            "What is the current weather in Berlin right now? Search the web.",
-            web_search={"enabled": True},
+        resp = httpx.post(
+            f"{API_PREFIX}/chats/{provider_chat['id']}/messages:stream",
+            json={"content": "What is the current weather in Berlin right now? Search the web.", "web_search": {"enabled": True}},
+            headers={"Accept": "text/event-stream"},
+            timeout=90,
         )
-        assert status == 200
+        assert resp.status_code == 200
+        events = parse_sse(resp.text)
         expect_done(events)
 
         tool_events = [e for e in events if e.event == "tool"]
