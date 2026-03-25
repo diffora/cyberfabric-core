@@ -616,29 +616,28 @@ impl HostRuntime {
 
         // Stop all modules in reverse order, each with its own independent deadline
         for e in self.registry.modules().iter().rev() {
-            // Create a fresh deadline token for THIS module
-            // Each module gets the full shutdown_deadline independently
-            let deadline_token = CancellationToken::new();
-            let deadline_token_for_timeout = deadline_token.clone();
-
-            // Spawn a task to cancel this module's deadline token after shutdown_deadline
             let module_name = e.name;
-            let deadline_task = tokio::spawn(async move {
-                tokio::time::sleep(deadline).await;
-                tracing::warn!(
-                    module = module_name,
-                    deadline_secs = deadline.as_secs(),
-                    "Module shutdown deadline reached, sending hard-stop signal"
-                );
-                deadline_token_for_timeout.cancel();
-            });
+            let deadline_token = CancellationToken::new();
 
-            // Stop this module with its own deadline token
-            Self::stop_one_module(e, deadline_token).await;
+            tokio::select! {
+                () = tokio::time::sleep(deadline) => {
+                    tracing::warn!(
+                        module = module_name,
+                        deadline_secs = deadline.as_secs(),
+                        "Module shutdown deadline reached, sending hard-stop signal"
+                    );
 
-            // Cancel the deadline task and await it to ensure full cleanup
-            deadline_task.abort();
-            drop(deadline_task.await);
+                    // Hard-stop signal for this module
+                    deadline_token.cancel();
+
+                    // Optional: wait for stop_one_module to observe cancellation and finish.
+                    Self::stop_one_module(e, deadline_token).await;
+                }
+
+                () = Self::stop_one_module(e, deadline_token.clone()) => {
+                    // Module stopped before deadline
+                }
+            }
         }
 
         Ok(())
@@ -1152,8 +1151,8 @@ mod tests {
         use std::sync::atomic::AtomicBool;
 
         struct TokenCheckModule {
-            stop_was_called: Arc<AtomicBool>,
-            token_was_cancelled_on_entry: Arc<AtomicBool>,
+            stop_was_called: AtomicBool,
+            token_was_cancelled_on_entry: AtomicBool,
         }
 
         #[async_trait::async_trait]
@@ -1178,11 +1177,10 @@ mod tests {
             }
         }
 
-        let stop_was_called = Arc::new(AtomicBool::new(false));
-        let token_was_cancelled = Arc::new(AtomicBool::new(true)); // Default to true to detect if not set
         let module = Arc::new(TokenCheckModule {
-            stop_was_called: stop_was_called.clone(),
-            token_was_cancelled_on_entry: token_was_cancelled.clone(),
+            stop_was_called: AtomicBool::new(false),
+            // Default to true to detect if stop() was never called
+            token_was_cancelled_on_entry: AtomicBool::new(true),
         });
 
         let mut builder = RegistryBuilder::default();
@@ -1209,14 +1207,14 @@ mod tests {
 
         // First, verify stop() was actually called (guards against silent registration failures)
         assert!(
-            stop_was_called.load(Ordering::SeqCst),
+            module.stop_was_called.load(Ordering::SeqCst),
             "stop() was never called - module may not have been registered correctly"
         );
 
         // The token should NOT have been cancelled when stop() was called
         // This is the key fix: modules get a fresh token, not the already-cancelled root token
         assert!(
-            !token_was_cancelled.load(Ordering::SeqCst),
+            !module.token_was_cancelled_on_entry.load(Ordering::SeqCst),
             "deadline_token should NOT be cancelled when stop() is called - this enables graceful shutdown"
         );
     }
