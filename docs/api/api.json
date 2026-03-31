@@ -368,272 +368,6 @@
         ]
       }
     },
-    "/file-parser/v1/parse-url": {
-      "post": {
-        "tags": [
-          "File Parser"
-        ],
-        "summary": "Parse a file from a URL",
-        "operationId": "file_parser.parse_url",
-        "parameters": [
-          {
-            "name": "render_markdown",
-            "in": "query",
-            "description": "Render Markdown output if true (optional, default false)",
-            "required": false,
-            "schema": {
-              "type": "boolean"
-            }
-          }
-        ],
-        "requestBody": {
-          "description": "URL to file",
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ParseUrlRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Parsed document with optional markdown",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ParsedDocResponseDto"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Bad Request",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthorized",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Forbidden",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Not Found",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "Conflict",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            }
-          },
-          "415": {
-            "description": "Unsupported Media Type",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Unprocessable Entity",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            }
-          },
-          "429": {
-            "description": "Too Many Requests",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Internal Server Error",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "bearerAuth": []
-          }
-        ]
-      }
-    },
-    "/file-parser/v1/parse-url/markdown": {
-      "post": {
-        "tags": [
-          "File Parser"
-        ],
-        "summary": "Parse a file from a URL and stream Markdown",
-        "operationId": "file_parser.parse_url_markdown",
-        "requestBody": {
-          "description": "URL to file",
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ParseUrlRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Markdown stream",
-            "content": {
-              "text/markdown": {
-                "schema": {
-                  "type": "string",
-                  "format": "text/markdown"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Bad Request",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthorized",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Forbidden",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Not Found",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "Conflict",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            }
-          },
-          "415": {
-            "description": "Unsupported Media Type",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Unprocessable Entity",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            }
-          },
-          "429": {
-            "description": "Too Many Requests",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Internal Server Error",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "bearerAuth": []
-          }
-        ]
-      }
-    },
     "/file-parser/v1/upload": {
       "post": {
         "tags": [
@@ -919,10 +653,2311 @@
         ]
       }
     },
+    "/mini-chat/v1/chats": {
+      "get": {
+        "tags": [
+          "Mini Chat Chats"
+        ],
+        "summary": "List chats for the current user",
+        "operationId": "mini_chat.list_chats",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Maximum number of chats to return",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "description": "Cursor for pagination",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "$filter",
+            "in": "query",
+            "description": "OData v4 filter expression\n- updated_at: eq|ne|gt|ge|lt|le|in\n- id: eq|ne|in\n- title: eq|ne|contains|startswith|endswith|in",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Paginated list of chats",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_ChatDetailDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal Server Error",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-odata-filter": {
+          "allowedFields": {
+            "id": [
+              "eq",
+              "ne",
+              "in"
+            ],
+            "title": [
+              "eq",
+              "ne",
+              "contains",
+              "startswith",
+              "endswith",
+              "in"
+            ],
+            "updated_at": [
+              "eq",
+              "ne",
+              "gt",
+              "ge",
+              "lt",
+              "le",
+              "in"
+            ]
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Mini Chat Chats"
+        ],
+        "summary": "Create a new chat",
+        "operationId": "mini_chat.create_chat",
+        "requestBody": {
+          "description": "Chat creation data",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateChatReq"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Created chat",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChatDetailDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal Server Error",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/mini-chat/v1/chats/{id}": {
+      "get": {
+        "tags": [
+          "Mini Chat Chats"
+        ],
+        "summary": "Get a chat by ID",
+        "operationId": "mini_chat.get_chat",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Chat UUID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Chat found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChatDetailDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal Server Error",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "Mini Chat Chats"
+        ],
+        "summary": "Delete a chat",
+        "operationId": "mini_chat.delete_chat",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Chat UUID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Chat deleted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal Server Error",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      },
+      "patch": {
+        "tags": [
+          "Mini Chat Chats"
+        ],
+        "summary": "Update a chat title",
+        "operationId": "mini_chat.update_chat",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Chat UUID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Chat update data",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateChatReq"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Updated chat",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChatDetailDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal Server Error",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/mini-chat/v1/chats/{id}/attachments": {
+      "post": {
+        "tags": [
+          "Mini Chat Attachments"
+        ],
+        "summary": "Upload an attachment to a chat",
+        "operationId": "mini_chat.upload_attachment",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Chat UUID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Attachment uploaded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Unsupported Media Type",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Entity",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal Server Error",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/mini-chat/v1/chats/{id}/attachments/{attachment_id}": {
+      "get": {
+        "tags": [
+          "Mini Chat Attachments"
+        ],
+        "summary": "Get attachment metadata",
+        "operationId": "mini_chat.get_attachment",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Chat UUID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "attachment_id",
+            "in": "path",
+            "description": "Attachment UUID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Attachment metadata",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Entity",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal Server Error",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "Mini Chat Attachments"
+        ],
+        "summary": "Delete an attachment",
+        "operationId": "mini_chat.delete_attachment",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Chat UUID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "attachment_id",
+            "in": "path",
+            "description": "Attachment UUID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Attachment deleted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Entity",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal Server Error",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/mini-chat/v1/chats/{id}/messages": {
+      "get": {
+        "tags": [
+          "Mini Chat Messages"
+        ],
+        "summary": "List messages in a chat",
+        "operationId": "mini_chat.list_messages",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Chat UUID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Maximum number of messages to return",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "description": "Cursor for pagination",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Paginated list of messages",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_MessageDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Entity",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal Server Error",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/mini-chat/v1/chats/{id}/messages/{msg_id}/reaction": {
+      "put": {
+        "tags": [
+          "Mini Chat Reactions"
+        ],
+        "summary": "Set or update a reaction on a message",
+        "operationId": "mini_chat.put_reaction",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Chat UUID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "msg_id",
+            "in": "path",
+            "description": "Message UUID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Reaction data",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetReactionReq"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Reaction set",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReactionDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Entity",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal Server Error",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "Mini Chat Reactions"
+        ],
+        "summary": "Remove a reaction from a message",
+        "operationId": "mini_chat.delete_reaction",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Chat UUID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "msg_id",
+            "in": "path",
+            "description": "Message UUID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Reaction removed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Entity",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal Server Error",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/mini-chat/v1/chats/{id}/messages:stream": {
+      "post": {
+        "tags": [
+          "Mini Chat Messages"
+        ],
+        "summary": "Send a message and stream the response via SSE",
+        "operationId": "mini_chat.stream_message",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Chat UUID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Message to send",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StreamMessageRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "SSE stream of chat response events",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "$ref": "#/components/schemas/StreamEvent"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Entity",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal Server Error",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/mini-chat/v1/chats/{id}/turns/{request_id}": {
+      "get": {
+        "tags": [
+          "Mini Chat Turns"
+        ],
+        "summary": "Get a turn by request ID",
+        "operationId": "mini_chat.get_turn",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Chat UUID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "request_id",
+            "in": "path",
+            "description": "Turn request UUID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Turn found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Entity",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal Server Error",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "Mini Chat Turns"
+        ],
+        "summary": "Delete a turn",
+        "operationId": "mini_chat.delete_turn",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Chat UUID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "request_id",
+            "in": "path",
+            "description": "Turn request UUID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Turn deleted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Entity",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal Server Error",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      },
+      "patch": {
+        "tags": [
+          "Mini Chat Turns"
+        ],
+        "summary": "Edit a turn (user message)",
+        "operationId": "mini_chat.edit_turn",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Chat UUID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "request_id",
+            "in": "path",
+            "description": "Turn request UUID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Turn edited",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Entity",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal Server Error",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/mini-chat/v1/chats/{id}/turns/{request_id}/retry": {
+      "post": {
+        "tags": [
+          "Mini Chat Turns"
+        ],
+        "summary": "Retry a failed turn",
+        "operationId": "mini_chat.retry_turn",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Chat UUID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "request_id",
+            "in": "path",
+            "description": "Turn request UUID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Turn retry initiated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Entity",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal Server Error",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/mini-chat/v1/models": {
+      "get": {
+        "tags": [
+          "Mini Chat Models"
+        ],
+        "summary": "List available AI models",
+        "operationId": "mini_chat.list_models",
+        "responses": {
+          "200": {
+            "description": "List of models",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelListDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Entity",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal Server Error",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/mini-chat/v1/models/{id}": {
+      "get": {
+        "tags": [
+          "Mini Chat Models"
+        ],
+        "summary": "Get model details",
+        "operationId": "mini_chat.get_model",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Model identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Model details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Entity",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal Server Error",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/mini-chat/v1/quota/status": {
+      "get": {
+        "tags": [
+          "Mini Chat Quotas"
+        ],
+        "summary": "Get quota status for the authenticated user",
+        "operationId": "mini_chat.get_quota_status",
+        "responses": {
+          "200": {
+            "description": "Quota status with remaining percentages and warning flags",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaStatusResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Entity",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal Server Error",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/module-orchestrator/v1/modules": {
+      "get": {
+        "tags": [
+          "Module Orchestrator"
+        ],
+        "summary": "List all registered modules",
+        "description": "Returns a list of all compiled-in and out-of-process modules with their capabilities, dependencies, running instances, and deployment mode.",
+        "operationId": "module_orchestrator.list_modules",
+        "responses": {
+          "200": {
+            "description": "List of registered modules",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Vec"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Entity",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal Server Error",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
     "/nodes-registry/v1/nodes": {
       "get": {
         "tags": [
-          "nodes"
+          "Nodes Registry"
         ],
         "summary": "List all nodes",
         "description": "Get a list of all nodes in the deployment. Use ?details=true to include sysinfo and syscap. Use ?force_refresh=true to invalidate syscap cache.",
@@ -974,7 +3009,7 @@
     "/nodes-registry/v1/nodes/{id}": {
       "get": {
         "tags": [
-          "nodes"
+          "Nodes Registry"
         ],
         "summary": "Get node by ID",
         "description": "Get detailed information about a specific node. Use ?details=true to include sysinfo and syscap. Use ?force_refresh=true to invalidate syscap cache.",
@@ -1045,7 +3080,7 @@
     "/nodes-registry/v1/nodes/{id}/syscap": {
       "get": {
         "tags": [
-          "nodes"
+          "Nodes Registry"
         ],
         "summary": "Get node system capabilities",
         "description": "Get system capabilities (hardware, software features) for a specific node. Use ?force_refresh=true to invalidate cache and refresh all capabilities.",
@@ -1107,7 +3142,7 @@
     "/nodes-registry/v1/nodes/{id}/sysinfo": {
       "get": {
         "tags": [
-          "nodes"
+          "Nodes Registry"
         ],
         "summary": "Get node system information",
         "description": "Get detailed system information (OS, CPU, memory, etc.) for a specific node",
@@ -1155,6 +3190,1223 @@
             }
           }
         }
+      }
+    },
+    "/oagw/v1/routes": {
+      "get": {
+        "tags": [
+          "OAGW Routes"
+        ],
+        "summary": "List routes",
+        "description": "Retrieve routes with optional upstream_id filter",
+        "operationId": "oagw.list_routes",
+        "parameters": [
+          {
+            "name": "upstream_id",
+            "in": "query",
+            "description": "Upstream GTS identifier to filter by",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Maximum number of results (default 50, max 100)",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "description": "Number of results to skip",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of routes",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Vec"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Entity",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal Server Error",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "OAGW Routes"
+        ],
+        "summary": "Create route",
+        "description": "Create a new route mapping for an upstream service",
+        "operationId": "oagw.create_route",
+        "requestBody": {
+          "description": "Route configuration",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateRouteRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Created route",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RouteResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Entity",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal Server Error",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/oagw/v1/routes/{id}": {
+      "get": {
+        "tags": [
+          "OAGW Routes"
+        ],
+        "summary": "Get route by ID",
+        "description": "Retrieve a specific route by its GTS identifier",
+        "operationId": "oagw.get_route",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Route GTS identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Route found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RouteResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Entity",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal Server Error",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      },
+      "put": {
+        "tags": [
+          "OAGW Routes"
+        ],
+        "summary": "Update route",
+        "description": "Replace an existing route configuration",
+        "operationId": "oagw.update_route",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Route GTS identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Route update data",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateRouteRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Updated route",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RouteResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Entity",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal Server Error",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "OAGW Routes"
+        ],
+        "summary": "Delete route",
+        "description": "Delete a route by its GTS identifier",
+        "operationId": "oagw.delete_route",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Route GTS identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Route deleted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Entity",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal Server Error",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/oagw/v1/upstreams": {
+      "get": {
+        "tags": [
+          "OAGW Upstreams"
+        ],
+        "summary": "List upstreams",
+        "description": "Retrieve a paginated list of upstream services",
+        "operationId": "oagw.list_upstreams",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Maximum number of results (default 50, max 100)",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "description": "Number of results to skip",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of upstreams",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Vec"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Entity",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal Server Error",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "OAGW Upstreams"
+        ],
+        "summary": "Create upstream",
+        "description": "Create a new upstream service configuration",
+        "operationId": "oagw.create_upstream",
+        "requestBody": {
+          "description": "Upstream configuration",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateUpstreamRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Created upstream",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpstreamResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Entity",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal Server Error",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/oagw/v1/upstreams/{id}": {
+      "get": {
+        "tags": [
+          "OAGW Upstreams"
+        ],
+        "summary": "Get upstream by ID",
+        "description": "Retrieve a specific upstream by its GTS identifier",
+        "operationId": "oagw.get_upstream",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Upstream GTS identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Upstream found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpstreamResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Entity",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal Server Error",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      },
+      "put": {
+        "tags": [
+          "OAGW Upstreams"
+        ],
+        "summary": "Update upstream",
+        "description": "Replace an existing upstream service configuration",
+        "operationId": "oagw.update_upstream",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Upstream GTS identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Upstream update data",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateUpstreamRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Updated upstream",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpstreamResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Entity",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal Server Error",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "OAGW Upstreams"
+        ],
+        "summary": "Delete upstream",
+        "description": "Delete an upstream and cascade-delete its routes",
+        "operationId": "oagw.delete_upstream",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Upstream GTS identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Upstream deleted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Entity",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal Server Error",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
       }
     },
     "/simple-user-settings/v1/settings": {
@@ -1389,7 +4641,7 @@
     "/types-registry/v1/entities": {
       "get": {
         "tags": [
-          "types-registry"
+          "Types Registry"
         ],
         "summary": "List GTS entities",
         "description": "List registered GTS entities with optional filtering by pattern, kind, vendor, package, or namespace.",
@@ -1550,7 +4802,7 @@
       },
       "post": {
         "tags": [
-          "types-registry"
+          "Types Registry"
         ],
         "summary": "Register GTS entities",
         "description": "Register one or more GTS entities (types or instances) in batch. Returns per-item results.",
@@ -1668,7 +4920,7 @@
     "/types-registry/v1/entities/{gts_id}": {
       "get": {
         "tags": [
-          "types-registry"
+          "Types Registry"
         ],
         "summary": "Get GTS entity by ID",
         "description": "Retrieve a single GTS entity by its identifier.",
@@ -1786,7 +5038,7 @@
     "/users-info/v1/cities": {
       "get": {
         "tags": [
-          "cities"
+          "Users Info Cities"
         ],
         "summary": "List cities with cursor pagination",
         "description": "Retrieve a paginated list of cities using cursor-based pagination",
@@ -1844,7 +5096,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Page"
+                  "$ref": "#/components/schemas/Page_CityDto"
                 }
               }
             }
@@ -1875,6 +5127,18 @@
             "bearerAuth": []
           }
         ],
+        "x-odata-orderby": {
+          "allowedFields": [
+            "id asc",
+            "id desc",
+            "name asc",
+            "name desc",
+            "country asc",
+            "country desc",
+            "created_at asc",
+            "created_at desc"
+          ]
+        },
         "x-odata-filter": {
           "allowedFields": {
             "country": [
@@ -1908,23 +5172,11 @@
               "in"
             ]
           }
-        },
-        "x-odata-orderby": {
-          "allowedFields": [
-            "id asc",
-            "id desc",
-            "name asc",
-            "name desc",
-            "country asc",
-            "country desc",
-            "created_at asc",
-            "created_at desc"
-          ]
         }
       },
       "post": {
         "tags": [
-          "cities"
+          "Users Info Cities"
         ],
         "summary": "Create a new city",
         "description": "Create a new city with the provided information",
@@ -2012,7 +5264,7 @@
     "/users-info/v1/cities/{id}": {
       "get": {
         "tags": [
-          "cities"
+          "Users Info Cities"
         ],
         "summary": "Get city by ID",
         "description": "Retrieve a specific city by UUID",
@@ -2097,7 +5349,7 @@
       },
       "delete": {
         "tags": [
-          "cities"
+          "Users Info Cities"
         ],
         "summary": "Delete city",
         "description": "Delete a city by UUID",
@@ -2173,7 +5425,7 @@
       },
       "patch": {
         "tags": [
-          "cities"
+          "Users Info Cities"
         ],
         "summary": "Update city",
         "description": "Partially update a city with the provided fields",
@@ -2282,7 +5534,7 @@
     "/users-info/v1/users": {
       "get": {
         "tags": [
-          "users"
+          "Users Info"
         ],
         "summary": "List users with cursor pagination",
         "description": "Retrieve a paginated list of users using cursor-based pagination",
@@ -2340,7 +5592,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Page"
+                  "$ref": "#/components/schemas/Page_UserDto"
                 }
               }
             }
@@ -2410,7 +5662,7 @@
       },
       "post": {
         "tags": [
-          "users"
+          "Users Info"
         ],
         "summary": "Create a new user",
         "description": "Create a new user with the provided information",
@@ -2498,7 +5750,7 @@
     "/users-info/v1/users/events": {
       "get": {
         "tags": [
-          "users"
+          "Users Info Events"
         ],
         "summary": "User events stream (SSE)",
         "description": "Real-time stream of user events as Server-Sent Events",
@@ -2525,7 +5777,7 @@
     "/users-info/v1/users/{id}": {
       "get": {
         "tags": [
-          "users"
+          "Users Info"
         ],
         "summary": "Get user by ID",
         "description": "Retrieve a specific user by their UUID",
@@ -2610,7 +5862,7 @@
       },
       "delete": {
         "tags": [
-          "users"
+          "Users Info"
         ],
         "summary": "Delete user",
         "description": "Delete a user by their UUID",
@@ -2686,7 +5938,7 @@
       },
       "patch": {
         "tags": [
-          "users"
+          "Users Info"
         ],
         "summary": "Update user",
         "description": "Partially update a user with the provided fields",
@@ -2795,7 +6047,7 @@
     "/users-info/v1/users/{id}/address": {
       "get": {
         "tags": [
-          "addresses"
+          "Users Info Addresses"
         ],
         "summary": "Get user address",
         "description": "Retrieve the address for a specific user",
@@ -2871,7 +6123,7 @@
       },
       "put": {
         "tags": [
-          "addresses"
+          "Users Info Addresses"
         ],
         "summary": "Upsert user address",
         "description": "Create or replace the address for a specific user",
@@ -2968,7 +6220,7 @@
       },
       "delete": {
         "tags": [
-          "addresses"
+          "Users Info Addresses"
         ],
         "summary": "Delete user address",
         "description": "Delete the address for a specific user",
@@ -3092,6 +6344,67 @@
           }
         }
       },
+      "AttachmentSummaryDto": {
+        "type": "object",
+        "description": "Lightweight attachment metadata embedded in Message responses.",
+        "required": [
+          "attachment_id",
+          "kind",
+          "filename",
+          "status"
+        ],
+        "properties": {
+          "attachment_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "filename": {
+            "type": "string"
+          },
+          "img_thumbnail": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ImgThumbnailDto"
+              }
+            ]
+          },
+          "kind": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        }
+      },
+      "AuthConfig": {
+        "type": "object",
+        "required": [
+          "type"
+        ],
+        "properties": {
+          "config": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "sharing": {
+            "$ref": "#/components/schemas/SharingMode"
+          },
+          "type": {
+            "type": "string"
+          }
+        }
+      },
       "BatteryInfoDto": {
         "type": "object",
         "required": [
@@ -3106,6 +6419,133 @@
             "type": "integer",
             "format": "int32",
             "minimum": 0
+          }
+        }
+      },
+      "BurstConfig": {
+        "type": "object",
+        "required": [
+          "capacity"
+        ],
+        "properties": {
+          "capacity": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "ChatDetailDto": {
+        "type": "object",
+        "description": "Response DTO for chat details.",
+        "required": [
+          "id",
+          "model",
+          "is_temporary",
+          "message_count",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "is_temporary": {
+            "type": "boolean"
+          },
+          "message_count": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "model": {
+            "type": "string"
+          },
+          "title": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "Citation": {
+        "type": "object",
+        "description": "A citation extracted from provider annotations.",
+        "required": [
+          "source",
+          "title",
+          "snippet"
+        ],
+        "properties": {
+          "attachment_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "score": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "snippet": {
+            "type": "string"
+          },
+          "source": {
+            "$ref": "#/components/schemas/CitationSource"
+          },
+          "span": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/TextSpan"
+              }
+            ]
+          },
+          "title": {
+            "type": "string"
+          },
+          "url": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "CitationSource": {
+        "type": "string",
+        "description": "Whether a citation came from a file or web search.",
+        "enum": [
+          "file",
+          "web"
+        ]
+      },
+      "CitationsData": {
+        "type": "object",
+        "description": "Citations from provider annotations.",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Citation"
+            }
           }
         }
       },
@@ -3145,6 +6585,61 @@
           }
         }
       },
+      "CorsConfig": {
+        "type": "object",
+        "properties": {
+          "allow_credentials": {
+            "type": "boolean"
+          },
+          "allowed_headers": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "allowed_methods": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CorsHttpMethod"
+            }
+          },
+          "allowed_origins": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "expose_headers": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "max_age": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "sharing": {
+            "$ref": "#/components/schemas/SharingMode"
+          }
+        }
+      },
+      "CorsHttpMethod": {
+        "type": "string",
+        "enum": [
+          "GET",
+          "POST",
+          "PUT",
+          "DELETE",
+          "PATCH",
+          "HEAD",
+          "OPTIONS"
+        ]
+      },
       "CpuInfoDto": {
         "type": "object",
         "required": [
@@ -3170,6 +6665,24 @@
             "type": "integer",
             "format": "int32",
             "minimum": 0
+          }
+        }
+      },
+      "CreateChatReq": {
+        "type": "object",
+        "description": "Request DTO for creating a new chat.",
+        "properties": {
+          "model": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "title": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         }
       },
@@ -3201,6 +6714,144 @@
           }
         }
       },
+      "CreateRouteRequest": {
+        "type": "object",
+        "required": [
+          "upstream_id",
+          "match"
+        ],
+        "properties": {
+          "cors": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CorsConfig"
+              }
+            ]
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "match": {
+            "$ref": "#/components/schemas/MatchRules"
+          },
+          "plugins": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PluginsConfig"
+              }
+            ]
+          },
+          "priority": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "rate_limit": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/RateLimitConfig"
+              }
+            ]
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "upstream_id": {
+            "type": "string"
+          }
+        }
+      },
+      "CreateUpstreamRequest": {
+        "type": "object",
+        "required": [
+          "server",
+          "protocol"
+        ],
+        "properties": {
+          "alias": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "auth": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AuthConfig"
+              }
+            ]
+          },
+          "cors": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CorsConfig"
+              }
+            ]
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "headers": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/HeadersConfig"
+              }
+            ]
+          },
+          "plugins": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PluginsConfig"
+              }
+            ]
+          },
+          "protocol": {
+            "type": "string"
+          },
+          "rate_limit": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/RateLimitConfig"
+              }
+            ]
+          },
+          "server": {
+            "$ref": "#/components/schemas/Server"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
       "CreateUserReq": {
         "type": "object",
         "description": "REST DTO for creating a new user",
@@ -3227,6 +6878,116 @@
           "tenant_id": {
             "type": "string",
             "format": "uuid"
+          }
+        }
+      },
+      "DeltaData": {
+        "type": "object",
+        "description": "Delta text chunk.",
+        "required": [
+          "type",
+          "content"
+        ],
+        "properties": {
+          "content": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          }
+        }
+      },
+      "DeploymentModeDto": {
+        "type": "string",
+        "description": "Deployment mode of a module",
+        "enum": [
+          "compiled_in",
+          "out_of_process"
+        ]
+      },
+      "DoneData": {
+        "type": "object",
+        "description": "Successful stream completion.",
+        "required": [
+          "effective_model",
+          "selected_model",
+          "quota_decision"
+        ],
+        "properties": {
+          "downgrade_from": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "downgrade_reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "effective_model": {
+            "type": "string"
+          },
+          "quota_decision": {
+            "type": "string"
+          },
+          "quota_warnings": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/QuotaWarning"
+            }
+          },
+          "selected_model": {
+            "type": "string"
+          },
+          "usage": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/Usage"
+              }
+            ]
+          }
+        }
+      },
+      "Endpoint": {
+        "type": "object",
+        "required": [
+          "host"
+        ],
+        "properties": {
+          "host": {
+            "type": "string"
+          },
+          "port": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "scheme": {
+            "$ref": "#/components/schemas/Scheme"
+          }
+        }
+      },
+      "ErrorData": {
+        "type": "object",
+        "description": "Stream error (terminal).",
+        "required": [
+          "code",
+          "message"
+        ],
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
           }
         }
       },
@@ -3281,6 +7042,21 @@
               "null"
             ],
             "format": "double"
+          }
+        }
+      },
+      "GrpcMatch": {
+        "type": "object",
+        "required": [
+          "service",
+          "method"
+        ],
+        "properties": {
+          "method": {
+            "type": "string"
+          },
+          "service": {
+            "type": "string"
           }
         }
       },
@@ -3362,6 +7138,31 @@
           }
         }
       },
+      "HeadersConfig": {
+        "type": "object",
+        "properties": {
+          "request": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/RequestHeaderRules"
+              }
+            ]
+          },
+          "response": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ResponseHeaderRules"
+              }
+            ]
+          }
+        }
+      },
       "HostInfoDto": {
         "type": "object",
         "required": [
@@ -3384,6 +7185,69 @@
             "type": "integer",
             "format": "int64",
             "minimum": 0
+          }
+        }
+      },
+      "HttpMatch": {
+        "type": "object",
+        "required": [
+          "methods",
+          "path"
+        ],
+        "properties": {
+          "methods": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/HttpMethod"
+            }
+          },
+          "path": {
+            "type": "string"
+          },
+          "path_suffix_mode": {
+            "$ref": "#/components/schemas/PathSuffixMode"
+          },
+          "query_allowlist": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "HttpMethod": {
+        "type": "string",
+        "enum": [
+          "GET",
+          "POST",
+          "PUT",
+          "DELETE",
+          "PATCH"
+        ]
+      },
+      "ImgThumbnailDto": {
+        "type": "object",
+        "description": "Server-generated preview thumbnail for an image attachment.",
+        "required": [
+          "content_type",
+          "width",
+          "height",
+          "data_base64"
+        ],
+        "properties": {
+          "content_type": {
+            "type": "string"
+          },
+          "data_base64": {
+            "type": "string"
+          },
+          "height": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "width": {
+            "type": "integer",
+            "format": "int32"
           }
         }
       },
@@ -3505,6 +7369,31 @@
           }
         }
       },
+      "MatchRules": {
+        "type": "object",
+        "properties": {
+          "grpc": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/GrpcMatch"
+              }
+            ]
+          },
+          "http": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/HttpMatch"
+              }
+            ]
+          }
+        }
+      },
       "MemoryInfoDto": {
         "type": "object",
         "required": [
@@ -3533,6 +7422,165 @@
             "type": "integer",
             "format": "int32",
             "minimum": 0
+          }
+        }
+      },
+      "MessageDto": {
+        "type": "object",
+        "description": "Response DTO for a message in the list endpoint.",
+        "required": [
+          "id",
+          "request_id",
+          "role",
+          "content",
+          "attachments",
+          "created_at"
+        ],
+        "properties": {
+          "attachments": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AttachmentSummaryDto"
+            }
+          },
+          "content": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "input_tokens": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "model": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "my_reaction": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "output_tokens": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "request_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "role": {
+            "type": "string"
+          }
+        }
+      },
+      "ModelDto": {
+        "type": "object",
+        "description": "Response DTO for a single model.",
+        "required": [
+          "model_id",
+          "display_name",
+          "tier",
+          "multiplier_display",
+          "multimodal_capabilities",
+          "context_window"
+        ],
+        "properties": {
+          "context_window": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "display_name": {
+            "type": "string"
+          },
+          "model_id": {
+            "type": "string"
+          },
+          "multimodal_capabilities": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "multiplier_display": {
+            "type": "string"
+          },
+          "tier": {
+            "type": "string"
+          }
+        }
+      },
+      "ModelListDto": {
+        "type": "object",
+        "description": "Response DTO for the model list endpoint.",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ModelDto"
+            }
+          }
+        }
+      },
+      "ModuleInstanceDto": {
+        "type": "object",
+        "description": "Response DTO for a running module instance",
+        "required": [
+          "instance_id",
+          "state",
+          "grpc_services"
+        ],
+        "properties": {
+          "grpc_services": {
+            "type": "object",
+            "description": "gRPC services provided by this instance (service name -> endpoint URI)",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "instance_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Unique instance ID"
+          },
+          "state": {
+            "type": "string",
+            "description": "Current instance state (e.g., \"registered\", \"healthy\", \"quarantined\")"
+          },
+          "version": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Module version (if reported during registration)"
           }
         }
       },
@@ -3686,24 +7734,6 @@
           }
         }
       },
-      "Page": {
-        "type": "object",
-        "required": [
-          "items",
-          "page_info"
-        ],
-        "properties": {
-          "items": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/CityDto"
-            }
-          },
-          "page_info": {
-            "$ref": "#/components/schemas/PageInfo"
-          }
-        }
-      },
       "PageInfo": {
         "type": "object",
         "required": [
@@ -3729,6 +7759,78 @@
           }
         }
       },
+      "Page_ChatDetailDto": {
+        "type": "object",
+        "required": [
+          "items",
+          "page_info"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ChatDetailDto"
+            }
+          },
+          "page_info": {
+            "$ref": "#/components/schemas/PageInfo"
+          }
+        }
+      },
+      "Page_CityDto": {
+        "type": "object",
+        "required": [
+          "items",
+          "page_info"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CityDto"
+            }
+          },
+          "page_info": {
+            "$ref": "#/components/schemas/PageInfo"
+          }
+        }
+      },
+      "Page_MessageDto": {
+        "type": "object",
+        "required": [
+          "items",
+          "page_info"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MessageDto"
+            }
+          },
+          "page_info": {
+            "$ref": "#/components/schemas/PageInfo"
+          }
+        }
+      },
+      "Page_UserDto": {
+        "type": "object",
+        "required": [
+          "items",
+          "page_info"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/UserDto"
+            }
+          },
+          "page_info": {
+            "$ref": "#/components/schemas/PageInfo"
+          }
+        }
+      },
       "ParseLocalFileRequest": {
         "type": "object",
         "description": "REST DTO for parse local file request",
@@ -3737,18 +7839,6 @@
         ],
         "properties": {
           "file_path": {
-            "type": "string"
-          }
-        }
-      },
-      "ParseUrlRequest": {
-        "type": "object",
-        "description": "REST DTO for parse URL request",
-        "required": [
-          "url"
-        ],
-        "properties": {
-          "url": {
             "type": "string"
           }
         }
@@ -4058,24 +8148,6 @@
                 ]
               }
             }
-          },
-          {
-            "type": "object",
-            "required": [
-              "url",
-              "type"
-            ],
-            "properties": {
-              "type": {
-                "type": "string",
-                "enum": [
-                  "url"
-                ]
-              },
-              "url": {
-                "type": "string"
-              }
-            }
           }
         ],
         "description": "REST DTO for document source"
@@ -4118,6 +8190,14 @@
           }
         }
       },
+      "PassthroughMode": {
+        "type": "string",
+        "enum": [
+          "none",
+          "allowlist",
+          "all"
+        ]
+      },
       "PatchSimpleUserSettingsRequest": {
         "type": "object",
         "properties": {
@@ -4132,6 +8212,67 @@
               "string",
               "null"
             ]
+          }
+        }
+      },
+      "PathSuffixMode": {
+        "type": "string",
+        "enum": [
+          "disabled",
+          "append"
+        ]
+      },
+      "PluginBinding": {
+        "type": "object",
+        "required": [
+          "plugin_ref"
+        ],
+        "properties": {
+          "config": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "plugin_ref": {
+            "type": "string"
+          }
+        }
+      },
+      "PluginDto": {
+        "type": "object",
+        "description": "Response DTO for a plugin (reserved for follow-up implementation)",
+        "required": [
+          "gts_id"
+        ],
+        "properties": {
+          "gts_id": {
+            "type": "string",
+            "description": "Plugin GTS identifier"
+          },
+          "version": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Plugin version"
+          }
+        }
+      },
+      "PluginsConfig": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PluginBinding"
+            }
+          },
+          "sharing": {
+            "$ref": "#/components/schemas/SharingMode"
           }
         }
       },
@@ -4210,6 +8351,228 @@
             "type": "string"
           },
           "street": {
+            "type": "string"
+          }
+        }
+      },
+      "QuotaPeriod": {
+        "type": "string",
+        "description": "Quota period classification.",
+        "enum": [
+          "daily",
+          "monthly"
+        ]
+      },
+      "QuotaPeriodStatus": {
+        "type": "object",
+        "required": [
+          "period",
+          "limit_credits_micro",
+          "used_credits_micro",
+          "remaining_credits_micro",
+          "remaining_percentage",
+          "next_reset",
+          "warning",
+          "exhausted"
+        ],
+        "properties": {
+          "exhausted": {
+            "type": "boolean"
+          },
+          "limit_credits_micro": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "next_reset": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "period": {
+            "$ref": "#/components/schemas/QuotaPeriod"
+          },
+          "remaining_credits_micro": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "remaining_percentage": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "used_credits_micro": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "warning": {
+            "type": "boolean"
+          }
+        }
+      },
+      "QuotaStatusResponse": {
+        "type": "object",
+        "required": [
+          "tiers",
+          "warning_threshold_pct"
+        ],
+        "properties": {
+          "tiers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/QuotaTierStatus"
+            }
+          },
+          "warning_threshold_pct": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "QuotaTier": {
+        "type": "string",
+        "description": "Quota tier classification.",
+        "enum": [
+          "premium",
+          "total"
+        ]
+      },
+      "QuotaTierStatus": {
+        "type": "object",
+        "required": [
+          "tier",
+          "periods"
+        ],
+        "properties": {
+          "periods": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/QuotaPeriodStatus"
+            }
+          },
+          "tier": {
+            "$ref": "#/components/schemas/QuotaTier"
+          }
+        }
+      },
+      "QuotaWarning": {
+        "type": "object",
+        "description": "Per-tier, per-period quota warning entry in the SSE `done` event.",
+        "required": [
+          "tier",
+          "period",
+          "remaining_percentage",
+          "warning",
+          "exhausted"
+        ],
+        "properties": {
+          "exhausted": {
+            "type": "boolean"
+          },
+          "next_reset": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "RFC 3339 timestamp of the next quota-period reset.\nPresent when `warning` or `exhausted` is true; absent otherwise."
+          },
+          "period": {
+            "$ref": "#/components/schemas/QuotaPeriod"
+          },
+          "remaining_percentage": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "tier": {
+            "$ref": "#/components/schemas/QuotaTier"
+          },
+          "warning": {
+            "type": "boolean"
+          }
+        }
+      },
+      "RateLimitAlgorithm": {
+        "type": "string",
+        "enum": [
+          "token_bucket",
+          "sliding_window"
+        ]
+      },
+      "RateLimitConfig": {
+        "type": "object",
+        "required": [
+          "sustained"
+        ],
+        "properties": {
+          "algorithm": {
+            "$ref": "#/components/schemas/RateLimitAlgorithm"
+          },
+          "burst": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/BurstConfig"
+              }
+            ]
+          },
+          "cost": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "scope": {
+            "$ref": "#/components/schemas/RateLimitScope"
+          },
+          "sharing": {
+            "$ref": "#/components/schemas/SharingMode"
+          },
+          "strategy": {
+            "$ref": "#/components/schemas/RateLimitStrategy"
+          },
+          "sustained": {
+            "$ref": "#/components/schemas/SustainedRate"
+          }
+        }
+      },
+      "RateLimitScope": {
+        "type": "string",
+        "enum": [
+          "global",
+          "tenant",
+          "user",
+          "ip",
+          "route"
+        ]
+      },
+      "RateLimitStrategy": {
+        "type": "string",
+        "enum": [
+          "reject",
+          "queue",
+          "degrade"
+        ]
+      },
+      "ReactionDto": {
+        "type": "object",
+        "description": "Response DTO for a reaction.",
+        "required": [
+          "message_id",
+          "reaction",
+          "created_at"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "message_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "reaction": {
             "type": "string"
           }
         }
@@ -4327,6 +8690,186 @@
           }
         }
       },
+      "RequestHeaderRules": {
+        "type": "object",
+        "properties": {
+          "add": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "passthrough": {
+            "$ref": "#/components/schemas/PassthroughMode"
+          },
+          "passthrough_allowlist": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "remove": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "set": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "ResponseHeaderRules": {
+        "type": "object",
+        "properties": {
+          "add": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "remove": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "set": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "RouteResponse": {
+        "type": "object",
+        "required": [
+          "id",
+          "tenant_id",
+          "upstream_id",
+          "match",
+          "priority",
+          "enabled"
+        ],
+        "properties": {
+          "cors": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CorsConfig"
+              }
+            ]
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "id": {
+            "type": "string"
+          },
+          "match": {
+            "$ref": "#/components/schemas/MatchRules"
+          },
+          "plugins": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PluginsConfig"
+              }
+            ]
+          },
+          "priority": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "rate_limit": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/RateLimitConfig"
+              }
+            ]
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "upstream_id": {
+            "type": "string"
+          }
+        }
+      },
+      "Scheme": {
+        "type": "string",
+        "enum": [
+          "http",
+          "https",
+          "wss",
+          "wt",
+          "grpc"
+        ]
+      },
+      "Server": {
+        "type": "object",
+        "required": [
+          "endpoints"
+        ],
+        "properties": {
+          "endpoints": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Endpoint"
+            }
+          }
+        }
+      },
+      "SetReactionReq": {
+        "type": "object",
+        "description": "Request DTO for setting a reaction.",
+        "required": [
+          "reaction"
+        ],
+        "properties": {
+          "reaction": {
+            "type": "string"
+          }
+        }
+      },
+      "SharingMode": {
+        "type": "string",
+        "enum": [
+          "private",
+          "inherit",
+          "enforce"
+        ]
+      },
       "SimpleUserSettingsDto": {
         "type": "object",
         "required": [
@@ -4351,6 +8894,162 @@
           },
           "user_id": {
             "type": "string"
+          }
+        }
+      },
+      "StreamEvent": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "StreamStarted"
+            ],
+            "properties": {
+              "StreamStarted": {
+                "$ref": "#/components/schemas/StreamStartedData"
+              }
+            }
+          },
+          {
+            "type": "string",
+            "enum": [
+              "Ping"
+            ]
+          },
+          {
+            "type": "object",
+            "required": [
+              "Delta"
+            ],
+            "properties": {
+              "Delta": {
+                "$ref": "#/components/schemas/DeltaData"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "Tool"
+            ],
+            "properties": {
+              "Tool": {
+                "$ref": "#/components/schemas/ToolData"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "Citations"
+            ],
+            "properties": {
+              "Citations": {
+                "$ref": "#/components/schemas/CitationsData"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "Done"
+            ],
+            "properties": {
+              "Done": {
+                "$ref": "#/components/schemas/DoneData"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "Error"
+            ],
+            "properties": {
+              "Error": {
+                "$ref": "#/components/schemas/ErrorData"
+              }
+            }
+          }
+        ],
+        "description": "Stream event envelope for the `messages:stream` pipeline.\n\nEach variant maps to a distinct SSE `event:` name and `data:` JSON payload.\nOrdering grammar: `stream_started ping* (delta | tool)* citations? (done | error)`."
+      },
+      "StreamMessageRequest": {
+        "type": "object",
+        "description": "Request body for `POST /v1/chats/{id}/messages:stream`.",
+        "required": [
+          "content"
+        ],
+        "properties": {
+          "attachment_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "Attachment IDs to include."
+          },
+          "content": {
+            "type": "string",
+            "description": "Message content (must be non-empty)."
+          },
+          "request_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "Client-generated idempotency key (UUID v4). Optional in P1."
+          },
+          "web_search": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/WebSearchConfig",
+                "description": "Web search configuration."
+              }
+            ]
+          }
+        }
+      },
+      "StreamStartedData": {
+        "type": "object",
+        "description": "Stream header event carrying the stream request ID and server-generated\nassistant message ID.\n\nEmitted as the first event in every SSE stream (both new generations and\nreplays). `is_new_turn` distinguishes replayed completed turns from live\ngenerations.",
+        "required": [
+          "request_id",
+          "message_id",
+          "is_new_turn"
+        ],
+        "properties": {
+          "is_new_turn": {
+            "type": "boolean",
+            "description": "`true` for a live generation (new turn); `false` when the stream\nreplays an already-completed turn (idempotent replay)."
+          },
+          "message_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "request_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "SustainedRate": {
+        "type": "object",
+        "required": [
+          "rate"
+        ],
+        "properties": {
+          "rate": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "window": {
+            "$ref": "#/components/schemas/Window"
           }
         }
       },
@@ -4468,6 +9167,62 @@
           }
         }
       },
+      "TextSpan": {
+        "type": "object",
+        "description": "A character span within response text.",
+        "required": [
+          "start",
+          "end"
+        ],
+        "properties": {
+          "end": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "start": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "ToolData": {
+        "type": "object",
+        "description": "Tool lifecycle event.",
+        "required": [
+          "phase",
+          "name",
+          "details"
+        ],
+        "properties": {
+          "details": {},
+          "name": {
+            "type": "string"
+          },
+          "phase": {
+            "$ref": "#/components/schemas/ToolPhase"
+          }
+        }
+      },
+      "ToolPhase": {
+        "type": "string",
+        "description": "Lifecycle phase of a tool invocation within a stream.",
+        "enum": [
+          "start",
+          "done"
+        ]
+      },
+      "UpdateChatReq": {
+        "type": "object",
+        "description": "Request DTO for updating a chat title.",
+        "required": [
+          "title"
+        ],
+        "properties": {
+          "title": {
+            "type": "string"
+          }
+        }
+      },
       "UpdateCityReq": {
         "type": "object",
         "description": "REST DTO for updating a city (partial)",
@@ -4486,6 +9241,63 @@
           }
         }
       },
+      "UpdateRouteRequest": {
+        "type": "object",
+        "required": [
+          "match",
+          "tags",
+          "priority",
+          "enabled"
+        ],
+        "properties": {
+          "cors": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CorsConfig"
+              }
+            ]
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "match": {
+            "$ref": "#/components/schemas/MatchRules"
+          },
+          "plugins": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PluginsConfig"
+              }
+            ]
+          },
+          "priority": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "rate_limit": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/RateLimitConfig"
+              }
+            ]
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
       "UpdateSimpleUserSettingsRequest": {
         "type": "object",
         "required": [
@@ -4498,6 +9310,88 @@
           },
           "theme": {
             "type": "string"
+          }
+        }
+      },
+      "UpdateUpstreamRequest": {
+        "type": "object",
+        "required": [
+          "server",
+          "protocol",
+          "tags",
+          "enabled"
+        ],
+        "properties": {
+          "alias": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "auth": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AuthConfig"
+              }
+            ]
+          },
+          "cors": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CorsConfig"
+              }
+            ]
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "headers": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/HeadersConfig"
+              }
+            ]
+          },
+          "plugins": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PluginsConfig"
+              }
+            ]
+          },
+          "protocol": {
+            "type": "string"
+          },
+          "rate_limit": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/RateLimitConfig"
+              }
+            ]
+          },
+          "server": {
+            "$ref": "#/components/schemas/Server"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           }
         }
       },
@@ -4516,6 +9410,112 @@
               "string",
               "null"
             ]
+          }
+        }
+      },
+      "UpstreamResponse": {
+        "type": "object",
+        "required": [
+          "id",
+          "tenant_id",
+          "alias",
+          "server",
+          "protocol",
+          "enabled"
+        ],
+        "properties": {
+          "alias": {
+            "type": "string"
+          },
+          "auth": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AuthConfig"
+              }
+            ]
+          },
+          "cors": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CorsConfig"
+              }
+            ]
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "headers": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/HeadersConfig"
+              }
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "plugins": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PluginsConfig"
+              }
+            ]
+          },
+          "protocol": {
+            "type": "string"
+          },
+          "rate_limit": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/RateLimitConfig"
+              }
+            ]
+          },
+          "server": {
+            "$ref": "#/components/schemas/Server"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "Usage": {
+        "type": "object",
+        "description": "Token usage counters.",
+        "required": [
+          "input_tokens",
+          "output_tokens"
+        ],
+        "properties": {
+          "input_tokens": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "output_tokens": {
+            "type": "integer",
+            "format": "int64"
           }
         }
       },
@@ -4608,59 +9608,94 @@
         "type": "array",
         "items": {
           "type": "object",
-          "description": "Node response DTO",
           "required": [
             "id",
-            "hostname",
-            "created_at",
-            "updated_at"
+            "tenant_id",
+            "upstream_id",
+            "match",
+            "priority",
+            "enabled"
           ],
           "properties": {
-            "created_at": {
-              "type": "string",
-              "format": "date-time"
+            "cors": {
+              "oneOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "$ref": "#/components/schemas/CorsConfig"
+                }
+              ]
             },
-            "hostname": {
-              "type": "string"
+            "enabled": {
+              "type": "boolean"
             },
             "id": {
+              "type": "string"
+            },
+            "match": {
+              "$ref": "#/components/schemas/MatchRules"
+            },
+            "plugins": {
+              "oneOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "$ref": "#/components/schemas/PluginsConfig"
+                }
+              ]
+            },
+            "priority": {
+              "type": "integer",
+              "format": "int32"
+            },
+            "rate_limit": {
+              "oneOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "$ref": "#/components/schemas/RateLimitConfig"
+                }
+              ]
+            },
+            "tags": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "tenant_id": {
               "type": "string",
               "format": "uuid"
             },
-            "ip_address": {
-              "type": [
-                "string",
-                "null"
-              ]
-            },
-            "syscap": {
-              "oneOf": [
-                {
-                  "type": "null"
-                },
-                {
-                  "$ref": "#/components/schemas/NodeSysCapDto",
-                  "description": "System capabilities (included when details=true)"
-                }
-              ]
-            },
-            "sysinfo": {
-              "oneOf": [
-                {
-                  "type": "null"
-                },
-                {
-                  "$ref": "#/components/schemas/NodeSysInfoDto",
-                  "description": "System information (included when details=true)"
-                }
-              ]
-            },
-            "updated_at": {
-              "type": "string",
-              "format": "date-time"
+            "upstream_id": {
+              "type": "string"
             }
           }
         }
+      },
+      "WebSearchConfig": {
+        "type": "object",
+        "description": "Web search toggle.",
+        "required": [
+          "enabled"
+        ],
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          }
+        }
+      },
+      "Window": {
+        "type": "string",
+        "enum": [
+          "second",
+          "minute",
+          "hour",
+          "day"
+        ]
       }
     },
     "securitySchemes": {
