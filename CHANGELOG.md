@@ -9,6 +9,18 @@ release-plz updates this file in the Release PR.
 
 ## [Unreleased]
 
+## [0.6.2](https://github.com/cyberfabric/cyberfabric-core/compare/types-sdk-v0.6.1...types-sdk-v0.6.2) - 2026-04-08
+
+### Other
+
+- updated the following local packages: cf-modkit-security, cf-modkit-odata
+
+## [0.1.18](https://github.com/cyberfabric/cyberfabric-core/compare/cf-single-tenant-tr-plugin-v0.1.17...cf-single-tenant-tr-plugin-v0.1.18) - 2026-04-08
+
+### Other
+
+- updated the following local packages: cf-modkit-security, cf-modkit-odata, cf-modkit, cf-tenant-resolver-sdk
+
 ## [0.6.1](https://github.com/cyberfabric/cyberfabric-core/compare/cf-modkit-canonical-errors-v0.6.0...cf-modkit-canonical-errors-v0.6.1) - 2026-03-30
 
 ### Other
