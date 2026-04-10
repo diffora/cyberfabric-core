@@ -1,0 +1,504 @@
+Created:  2026-04-09 by Diffora
+
+# PRD — OIDC AuthN Resolver Plugin
+
+<!-- toc -->
+
+- [1. Overview](#1-overview)
+  - [1.1 Purpose](#11-purpose)
+  - [1.2 Background / Problem Statement](#12-background--problem-statement)
+  - [1.3 Goals (Business Outcomes)](#13-goals-business-outcomes)
+  - [1.4 Glossary](#14-glossary)
+- [2. Actors](#2-actors)
+  - [2.1 Human Actors](#21-human-actors)
+  - [2.2 System Actors](#22-system-actors)
+- [3. Operational Concept & Environment](#3-operational-concept--environment)
+- [4. Scope](#4-scope)
+  - [4.1 In Scope](#41-in-scope)
+  - [4.2 Out of Scope](#42-out-of-scope)
+- [5. Functional Requirements](#5-functional-requirements)
+  - [5.1 Token Validation](#51-token-validation)
+  - [5.2 Claim Extraction & Mapping](#52-claim-extraction--mapping)
+  - [5.3 OIDC Auto-Configuration](#53-oidc-auto-configuration)
+  - [5.4 S2S Client Credentials Exchange](#54-s2s-client-credentials-exchange)
+  - [5.5 Plugin Discovery & Registration](#55-plugin-discovery--registration)
+- [6. Non-Functional Requirements](#6-non-functional-requirements)
+  - [6.1 Module-Specific NFRs](#61-module-specific-nfrs)
+  - [6.2 NFR Exclusions](#62-nfr-exclusions)
+- [7. Public Library Interfaces](#7-public-library-interfaces)
+  - [7.1 Public API Surface](#71-public-api-surface)
+  - [7.2 External Integration Contracts](#72-external-integration-contracts)
+- [8. Use Cases](#8-use-cases)
+- [9. Acceptance Criteria](#9-acceptance-criteria)
+- [10. Dependencies](#10-dependencies)
+- [11. Assumptions](#11-assumptions)
+- [12. Risks](#12-risks)
+- [13. Open Questions](#13-open-questions)
+- [14. Traceability](#14-traceability)
+
+<!-- /toc -->
+
+> **Abbreviation**: AuthN = **Authentication**. Used throughout this document.
+
+## 1. Overview
+
+### 1.1 Purpose
+
+The OIDC AuthN Resolver Plugin provides authentication services for the CyberFabric platform by integrating with OpenID Connect-compliant Identity Providers (IdPs). It validates JWT access tokens, extracts identity claims, and produces the platform's `SecurityContext` structure that downstream modules consume for authorization and tenant-scoped access control.
+
+The plugin is a vendor-specific implementation of the AuthN Resolver plugin interface, following the CyberFabric gateway + plugin architecture pattern. It ships as the default authentication plugin for deployments using standard OIDC-compliant IdPs.
+
+### 1.2 Background / Problem Statement
+
+CyberFabric modules need a consistent, high-performance mechanism to authenticate incoming API requests and establish caller identity. Without a centralized authentication plugin, each module would independently validate tokens, parse claims, and construct identity context — leading to duplicated logic, inconsistent claim interpretation, and security gaps.
+
+The platform requires multi-tenant authentication where tenant isolation is achieved via claims embedded in access tokens rather than per-tenant IdP instances. A single OIDC issuer can serve many tenants (each tenant identified by a claim), while multiple issuers can coexist for different tenant groups. The target is 10,000+ tenants without requiring per-tenant IdP configuration.
+
+Additionally, modules performing background work (scheduled jobs, event handlers) require authenticated `SecurityContext` instances without an incoming HTTP request. This necessitates a service-to-service credential exchange mechanism that follows the same authentication pipeline.
+
+### 1.3 Goals (Business Outcomes)
+
+- Enable any OIDC-compliant IdP to serve as the platform identity provider without code changes — configuration only. The IdP must use UUID-format `sub` claims (see Assumptions) and include a tenant identifier claim; IdPs that use non-UUID subject identifiers (e.g., Auth0 `auth0|…`, Azure AD OIDs) require a protocol mapper / claim transformation to produce UUID-format `sub` values. **At launch**: validated with at least two OIDC-compliant IdPs (e.g., Keycloak, Auth0).
+- Provide sub-5ms p95 authentication latency for the request hot path, eliminating the IdP as a per-request bottleneck. **At launch**: measured via load test at 10K rps with warm JWKS cache.
+- Support claim-based multi-tenancy scaling to 10,000+ tenants per issuer. Multiple trusted issuers are supported for deployments that partition tenants across IdP instances. **At launch**: validated at 100 tenants; **within 6 months**: validated at 10,000+ tenants via scale test.
+- Ensure zero authentication bypasses — every error path produces a rejection, never a default-allow. **Continuously**: verified via unit tests covering every error variant and CI enforcement.
+
+### 1.4 Glossary
+
+| Term | Definition |
+|------|------------|
+| AuthN | Authentication — verifying the identity of a caller. |
+| AuthZ | Authorization — determining what an authenticated caller is allowed to do. |
+| SecurityContext | Platform-wide identity structure containing subject ID, tenant ID, subject type, token scopes, and bearer token. Produced by the AuthN plugin, consumed by all downstream modules. |
+| OIDC | OpenID Connect — an identity layer on top of OAuth 2.0 that provides standard endpoints for discovery, token validation, and identity claims. |
+| JWKS | JSON Web Key Set — a set of cryptographic keys used to verify JWT signatures, published by the IdP. |
+| S2S | Service-to-service — communication between platform modules without an end-user HTTP request. |
+| IdP | Identity Provider — the external OIDC-compliant service that issues and manages access tokens. |
+| First-party app | A platform-owned application (portal, CLI) that receives unrestricted scopes. |
+| Third-party app | A partner integration that receives only its granted OAuth2 scopes. |
+
+## 2. Actors
+
+### 2.1 Human Actors
+
+#### Platform Administrator
+
+**ID**: `cpt-cf-authn-plugin-actor-platform-admin`
+
+- **Role**: Configures the OIDC plugin — trusted issuers, claim mappings, audience settings, first-party client lists, S2S credentials.
+- **Needs**: Clear configuration schema; fail-fast on misconfiguration; observable plugin health via metrics and logs.
+
+### 2.2 System Actors
+
+#### API Gateway / AuthN Middleware
+
+**ID**: `cpt-cf-authn-plugin-actor-api-gateway`
+
+- **Role**: Extracts bearer tokens from incoming HTTP `Authorization` headers and delegates authentication to the AuthN Resolver gateway, which routes to this plugin.
+
+#### Domain Modules (Request Path)
+
+**ID**: `cpt-cf-authn-plugin-actor-domain-module`
+
+- **Role**: Consume the `SecurityContext` produced by the plugin for PEP (Policy Enforcement Point) decisions. Do not interact with the plugin directly — receive `SecurityContext` via middleware injection.
+
+#### Domain Modules (Background Tasks)
+
+**ID**: `cpt-cf-authn-plugin-actor-background-module`
+
+- **Role**: Invoke `exchange_client_credentials` to obtain an authenticated `SecurityContext` for background work (scheduled jobs, event handlers, async processing) when no incoming HTTP request is available.
+
+#### OIDC Identity Provider
+
+**ID**: `cpt-cf-authn-plugin-actor-idp`
+
+- **Role**: External system that issues JWT access tokens, publishes JWKS for signature verification, exposes OIDC Discovery endpoints, and provides a token endpoint for S2S credential exchange.
+
+## 3. Operational Concept & Environment
+
+No module-specific environment constraints beyond project defaults. The plugin runs as an in-process library within the host module's runtime. All IdP communication uses HTTPS with certificate validation.
+
+## 4. Scope
+
+### 4.1 In Scope
+
+- JWT access token validation (local, via cached JWKS)
+- OIDC Discovery auto-configuration (`.well-known/openid-configuration`)
+- Configurable claim mapping to `SecurityContext` fields
+- Claim-based multi-tenancy (tenant claim in token, one or more trusted issuers)
+- First-party vs third-party app detection via client ID
+- S2S client credentials exchange (OAuth2 `client_credentials` grant)
+- Circuit breaker for IdP resilience
+- Plugin registration via CyberFabric ClientHub with GTS identity
+
+### 4.2 Out of Scope
+
+- **Opaque token introspection** (RFC 7662) — JWT-only; non-JWT tokens are rejected. If needed, implement as a separate plugin.
+- **Authorization decisions** — AuthZ Resolver and Tenant Resolver handle policy evaluation, access filtering, and barrier enforcement downstream.
+- **Token issuance, refresh, or revocation** — managed by the IdP.
+- **User management or identity provisioning** — managed by the IdP.
+- **MFA enforcement** — MFA is an IdP-side concern; tokens arriving at the plugin have already passed IdP authentication flows.
+- **Token revocation checking** — JWT local validation cannot detect revoked tokens before expiry. Short token lifetimes (5–15 min) mitigate this. Real-time revocation requires a separate plugin.
+
+## 5. Functional Requirements
+
+### 5.1 Token Validation
+
+#### JWT Local Validation
+
+- [ ] `p1` - **ID**: `cpt-cf-authn-plugin-fr-jwt-validation`
+
+The plugin MUST validate JWT access tokens locally using cached JWKS fetched from the IdP's standard `jwks_uri` endpoint. Validation MUST include: signature verification (RS256, ES256), `exp` claim validation (must be in future, with configurable clock skew leeway — default 60s), `iss` claim validation (must be in trusted issuers allowlist), and `aud` claim validation (when configured). The `alg: none` algorithm MUST never be accepted, even if misconfigured — tokens presenting `alg: none` MUST be rejected.
+
+- **Rationale**: Local validation provides sub-millisecond latency and eliminates the IdP as a per-request bottleneck.
+- **Actors**: `cpt-cf-authn-plugin-actor-api-gateway`
+
+#### Non-JWT Token Rejection
+
+- [ ] `p1` - **ID**: `cpt-cf-authn-plugin-fr-non-jwt-rejection`
+
+The plugin MUST reject tokens that are not valid JWTs (not three base64url-encoded segments) with `Unauthorized("unsupported token format")`.
+
+- **Rationale**: Scope constraint — this plugin handles JWT only. Prevents undefined behavior on unexpected token formats.
+- **Actors**: `cpt-cf-authn-plugin-actor-api-gateway`
+
+#### Trusted Issuer Enforcement
+
+- [ ] `p1` - **ID**: `cpt-cf-authn-plugin-fr-trusted-issuers`
+
+The plugin MUST maintain a configurable allowlist of trusted issuers. Tokens with an `iss` claim not matching any trusted issuer MUST be rejected with `Unauthorized("untrusted issuer")`.
+
+The plugin MUST support two issuer matching modes via `issuer_matching_mode`:
+- `exact` (default) — the `iss` claim must be a literal key in the `trusted_issuers` map.
+- `regex` — the `iss` claim is tested against each key in `trusted_issuers` interpreted as a regular expression. The first matching entry determines the discovery URL.
+
+When `regex` mode is used, the matched issuer pattern MUST be logged at `WARN` level on first match to alert operators that pattern-based trust is active.
+
+- **Rationale**: Exact matching is the safest default. Regex matching supports deployments with many IdP instances sharing a common URL structure (e.g., per-tenant IdP partitions) without requiring an entry per instance. Operators accept the broader trust surface when opting into regex mode.
+- **Actors**: `cpt-cf-authn-plugin-actor-platform-admin`, `cpt-cf-authn-plugin-actor-api-gateway`
+
+#### JWKS Key Rotation Handling
+
+- [ ] `p1` - **ID**: `cpt-cf-authn-plugin-fr-key-rotation`
+
+When a JWT presents a `kid` (Key ID) not found in the cached JWKS, the plugin MUST force-refresh the JWKS from the IdP. If the `kid` is still not found after refresh, the plugin MUST reject the token with `Unauthorized("signing key not found")`.
+
+- **Rationale**: IdPs rotate signing keys periodically; the plugin must handle this without manual intervention or downtime.
+- **Actors**: `cpt-cf-authn-plugin-actor-idp`
+
+#### Audience Validation
+
+- [ ] `p2` - **ID**: `cpt-cf-authn-plugin-fr-audience-validation`
+
+When `require_audience` is `true`, the plugin MUST reject tokens without an `aud` claim. When `expected_audience` is configured, the plugin MUST verify that at least one `aud` value matches the expected audience list (with glob pattern support).
+
+- **Rationale**: Audience validation prevents token confusion attacks where a token intended for a different service is presented to this platform.
+- **Actors**: `cpt-cf-authn-plugin-actor-platform-admin`
+
+### 5.2 Claim Extraction & Mapping
+
+#### Configurable Claim Mapping
+
+- [ ] `p1` - **ID**: `cpt-cf-authn-plugin-fr-claim-mapping`
+
+The plugin MUST extract claims from validated JWTs and map them to `SecurityContext` fields using configurable claim names:
+- `subject_id` (default: `"sub"`) — MUST parse as UUID; reject if missing or invalid.
+- `subject_tenant_id` (vendor-configured) — MUST parse as UUID; reject if missing or invalid (see `cpt-cf-authn-plugin-fr-tenant-claim`).
+- `subject_type` (vendor-configured, optional) — `None` when absent.
+- `token_scopes` (default: `"scope"`) — split on spaces.
+
+- **Rationale**: Different IdPs use different claim names for the same semantic fields. Configurable mapping enables IdP-agnostic operation.
+- **Actors**: `cpt-cf-authn-plugin-actor-platform-admin`
+
+#### Tenant Claim Requirement
+
+- [ ] `p1` - **ID**: `cpt-cf-authn-plugin-fr-tenant-claim`
+
+The plugin MUST require a tenant identifier claim in every access token (claim name is vendor-configurable, e.g., `"tenant_id"`, `"org_id"`, `"account_id"`). The claim value MUST parse as UUID (RFC 4122). Tokens without the tenant claim MUST be rejected with `Unauthorized("missing tenant_id")`; tokens with a non-UUID tenant claim MUST be rejected with `Unauthorized("invalid tenant id")`.
+
+- **Rationale**: Tenant isolation is foundational to the platform's multi-tenancy model. Allowing tokens without tenant identity would break downstream tenant-scoped access control.
+- **Actors**: `cpt-cf-authn-plugin-actor-api-gateway`
+
+#### First-Party vs Third-Party App Detection
+
+- [ ] `p2` - **ID**: `cpt-cf-authn-plugin-fr-first-party-detection`
+
+When `first_party_clients` is configured, the plugin MUST check the token's `client_id`/`azp` claim against the list. First-party apps MUST receive `token_scopes = ["*"]` (unrestricted). Third-party apps MUST receive only their granted OAuth2 scopes from the token.
+
+- **Rationale**: Platform-owned applications (portal, CLI) should not be capability-restricted by token scopes. Third-party integrations must be limited to their granted scopes.
+- **Actors**: `cpt-cf-authn-plugin-actor-platform-admin`
+
+### 5.3 OIDC Auto-Configuration
+
+#### OIDC Discovery
+
+- [ ] `p1` - **ID**: `cpt-cf-authn-plugin-fr-oidc-discovery`
+
+The plugin MUST fetch and cache the IdP's `.well-known/openid-configuration` document to resolve `jwks_uri` and `token_endpoint` dynamically. Only the issuer URL needs to be configured.
+
+- **Rationale**: Eliminates manual endpoint configuration; standard OIDC Discovery makes the plugin work with any compliant IdP.
+- **Actors**: `cpt-cf-authn-plugin-actor-idp`
+
+#### JWKS Caching
+
+- [ ] `p1` - **ID**: `cpt-cf-authn-plugin-fr-jwks-caching`
+
+The plugin MUST cache JWKS key sets in memory with configurable TTL (default: 1h) and max entries (default: 10). Cache MUST be refreshable on unknown `kid` with a configurable minimum refresh interval to prevent abuse.
+
+- **Rationale**: Caching eliminates per-request IdP network calls for the common case, achieving sub-millisecond validation latency.
+- **Actors**: `cpt-cf-authn-plugin-actor-api-gateway`
+
+### 5.4 S2S Client Credentials Exchange
+
+#### Client Credentials Grant
+
+- [ ] `p1` - **ID**: `cpt-cf-authn-plugin-fr-s2s-exchange`
+
+The plugin MUST implement OAuth2 `client_credentials` grant (RFC 6749 §4.4) to obtain access tokens for service-to-service communication. The obtained JWT MUST be validated through the same pipeline as bearer token authentication. The resulting `SecurityContext` MUST include the obtained access token as `bearer_token`.
+
+- **Rationale**: Modules performing background work need authenticated `SecurityContext` instances without an incoming HTTP request.
+- **Actors**: `cpt-cf-authn-plugin-actor-background-module`
+
+#### S2S Token Caching
+
+- [ ] `p2` - **ID**: `cpt-cf-authn-plugin-fr-s2s-caching`
+
+The plugin MUST cache S2S authentication results keyed by `client_id` with TTL = `min(token expires_in, config.token_cache_ttl_secs)`. Concurrent cache misses for the same `client_id` MUST NOT cause duplicate IdP requests.
+
+- **Rationale**: Avoids repeated IdP round-trips for the same service account; prevents thundering herd on cache miss.
+- **Actors**: `cpt-cf-authn-plugin-actor-background-module`
+
+#### S2S Default Subject Type
+
+- [ ] `p3` - **ID**: `cpt-cf-authn-plugin-fr-s2s-default-subject-type`
+
+When `s2s.default_subject_type` is configured and the obtained S2S token does not contain a `subject_type` claim, the plugin MUST apply the configured default value as `SecurityContext.subject_type`.
+
+- **Rationale**: Many IdPs omit type claims from `client_credentials` tokens. This ensures `SecurityContext.subject_type` is always populated for S2S flows.
+- **Actors**: `cpt-cf-authn-plugin-actor-platform-admin`
+
+### 5.5 Plugin Discovery & Registration
+
+#### ClientHub Registration
+
+- [ ] `p1` - **ID**: `cpt-cf-authn-plugin-fr-clienthub-registration`
+
+The plugin MUST register `dyn AuthNResolverPluginClient` with CyberFabric ClientHub using GTS schema identity at startup. Registration MUST include vendor key (`"hyperspot"`), priority, and display name.
+
+- **Rationale**: Enables the AuthN Resolver gateway to discover and select the active plugin at runtime via ClientHub lookup.
+- **Actors**: `cpt-cf-authn-plugin-actor-api-gateway`
+
+## 6. Non-Functional Requirements
+
+### 6.1 Module-Specific NFRs
+
+#### JWT Validation Latency
+
+- [ ] `p1` - **ID**: `cpt-cf-authn-plugin-nfr-jwt-latency`
+
+JWT local validation MUST complete within 5ms at p95 with a warm JWKS cache at 10K requests per second.
+
+- **Threshold**: p95 ≤ 5ms, p99 ≤ 10ms (warm cache)
+- **Rationale**: Authentication is on the critical request path — every API call flows through it. Latency here directly impacts user-perceived response times.
+- **Architecture Allocation**: See DESIGN.md § NFR Allocation — Token Validator + JWKS Cache
+
+#### Plugin Availability
+
+- [ ] `p1` - **ID**: `cpt-cf-authn-plugin-nfr-availability`
+
+Plugin availability MUST be ≥ 99.99%. When the IdP is unreachable, the plugin MUST continue to validate JWTs using cached JWKS (stale-while-revalidate). Circuit breaker MUST prevent cascade failure.
+
+- **Threshold**: ≥ 99.99% availability
+- **Rationale**: Authentication unavailability blocks all authenticated API traffic. Cached JWKS and circuit breaker ensure continued operation during IdP degradation.
+- **Architecture Allocation**: See DESIGN.md § Reliability Architecture — Circuit Breaker + JWKS Cache
+
+#### Fail-Closed Guarantee
+
+- [ ] `p1` - **ID**: `cpt-cf-authn-plugin-nfr-fail-closed`
+
+Every error path MUST return `Unauthorized` or `ServiceUnavailable` — never a default-allow. No authentication bypass is permitted under any failure condition.
+
+- **Threshold**: Zero authentication bypasses under all failure modes
+- **Rationale**: A single authentication bypass could expose all tenant data. This is the foundational security commitment.
+- **Architecture Allocation**: See DESIGN.md § Principles — Fail-Closed Authentication
+
+#### Tenant Isolation
+
+- [ ] `p1` - **ID**: `cpt-cf-authn-plugin-nfr-tenant-isolation`
+
+Zero cross-tenant data leaks via the authentication layer. Tokens without a valid tenant claim MUST be rejected.
+
+- **Threshold**: Zero cross-tenant leaks
+- **Rationale**: Multi-tenancy is the platform's core value proposition. AuthN-level tenant isolation is the first line of defense.
+- **Architecture Allocation**: See DESIGN.md § Principles — Claim-Based Tenant Isolation
+
+#### S2S Exchange Latency
+
+- [ ] `p2` - **ID**: `cpt-cf-authn-plugin-nfr-s2s-latency`
+
+S2S credential exchange MUST complete within 500ms at p95 (cold cache, including IdP round-trip). Warm cache (token cached) MUST complete within 1ms at p95.
+
+- **Threshold**: p95 ≤ 500ms cold, p95 ≤ 1ms warm
+- **Rationale**: Background tasks should not be delayed by authentication overhead. Token caching ensures sub-millisecond for the common case.
+- **Architecture Allocation**: See DESIGN.md § NFR Allocation — Token Client + Token Cache
+
+#### Token Security
+
+- [ ] `p1` - **ID**: `cpt-cf-authn-plugin-nfr-security`
+
+Bearer tokens and client secrets MUST never be logged, persisted, or included in debug output. Tokens MUST be wrapped in `SecretString` types that are excluded from `Debug`/`Display`/serialization.
+
+- **Threshold**: Zero token exposures in logs or debug output
+- **Rationale**: Token leakage enables session hijacking and impersonation across all tenants.
+- **Architecture Allocation**: See DESIGN.md § Security Architecture
+
+### 6.2 NFR Exclusions
+
+- **Database performance**: Not applicable — the plugin has no persistent database storage; in-memory caches only.
+- **Frontend performance**: Not applicable — backend authentication component with no user-facing interface.
+
+## 7. Public Library Interfaces
+
+### 7.1 Public API Surface
+
+#### AuthN Resolver Gateway Interface
+
+- [ ] `p1` - **ID**: `cpt-cf-authn-plugin-interface-gateway`
+
+- **Type**: Rust async trait (`AuthNResolverClient`)
+- **Stability**: stable
+- **Description**: Public API for platform modules. Provides `authenticate(bearer_token)` and `exchange_client_credentials(request)`. Delegates to the configured plugin.
+- **Breaking Change Policy**: Major version bump required; within a version, only additive changes.
+
+#### AuthN Resolver Plugin Interface
+
+- [ ] `p1` - **ID**: `cpt-cf-authn-plugin-interface-plugin`
+
+- **Type**: Rust async trait (`AuthNResolverPluginClient`)
+- **Stability**: stable
+- **Description**: Implemented by each vendor-specific plugin. Provides `authenticate(bearer_token)` and `exchange_client_credentials(request)`.
+- **Breaking Change Policy**: Major version bump required; within a version, only additive changes (new methods with default implementations).
+
+### 7.2 External Integration Contracts
+
+#### OIDC Identity Provider Contract
+
+- [ ] `p1` - **ID**: `cpt-cf-authn-plugin-contract-oidc-idp`
+
+- **Direction**: required from external system
+- **Protocol/Format**: HTTPS GET (discovery, JWKS), HTTPS POST (token endpoint)
+- **Compatibility**: OIDC Discovery 1.0, RFC 7517 (JWKS), RFC 6749 §4.4 (client_credentials grant)
+
+#### SecurityContext Contract
+
+- [ ] `p1` - **ID**: `cpt-cf-authn-plugin-contract-security-context`
+
+- **Direction**: provided by library
+- **Protocol/Format**: Rust struct (`SecurityContext` from `modkit-security`)
+- **Compatibility**: Platform `SecurityContext` builder contract; fields: `subject_id`, `subject_tenant_id`, `subject_type`, `token_scopes`, `bearer_token`.
+
+## 8. Use Cases
+
+#### Authenticate API Request
+
+- [ ] `p1` - **ID**: `cpt-cf-authn-plugin-usecase-authenticate-request`
+
+**Actor**: `cpt-cf-authn-plugin-actor-api-gateway`
+
+**Preconditions**:
+- Plugin is registered with ClientHub
+- Trusted issuers and claim mappings are configured
+- JWKS is cached (warm) or IdP is reachable (cold)
+
+**Main Flow**:
+1. API Gateway extracts bearer token from `Authorization` header.
+2. Gateway calls `authenticate(bearer_token)` on AuthN Resolver.
+3. Plugin validates JWT signature, expiry, issuer, and audience.
+4. Plugin extracts claims and maps to `SecurityContext`.
+5. Plugin returns `AuthenticationResult` containing `SecurityContext`.
+6. Middleware injects `SecurityContext` into the request for downstream PEP.
+
+**Postconditions**:
+- `SecurityContext` is populated with `subject_id`, `subject_tenant_id`, `token_scopes`.
+
+**Alternative Flows**:
+- **Invalid token**: Plugin returns `Unauthorized` with reason. Middleware returns 401 to client.
+- **IdP unreachable, no cached JWKS**: Plugin returns `ServiceUnavailable`. Middleware returns 503 to client.
+
+#### Service-to-Service Authentication
+
+- [ ] `p2` - **ID**: `cpt-cf-authn-plugin-usecase-s2s-exchange`
+
+**Actor**: `cpt-cf-authn-plugin-actor-background-module`
+
+**Preconditions**:
+- S2S configuration (token endpoint or issuer, client credentials) is provided
+- Plugin is registered with ClientHub
+
+**Main Flow**:
+1. Background module calls `exchange_client_credentials(client_id, client_secret, scopes)`.
+2. Plugin checks token cache for `client_id`.
+3. On cache miss: Plugin resolves token endpoint and performs `client_credentials` grant.
+4. Plugin validates the obtained JWT through the standard validation pipeline.
+5. Plugin maps claims to `SecurityContext`, applies `default_subject_type` if needed.
+6. Plugin caches the token and returns `AuthenticationResult`.
+
+**Postconditions**:
+- Background module has an authenticated `SecurityContext` with a valid `bearer_token`.
+
+**Alternative Flows**:
+- **Cached token available**: Plugin returns cached result without IdP call (sub-millisecond).
+- **Invalid credentials**: Plugin returns `TokenAcquisitionFailed`. No token is cached.
+
+## 9. Acceptance Criteria
+
+- [ ] JWT validation with warm JWKS cache completes within 5ms at p95 under 10K rps load.
+- [ ] Tokens from untrusted issuers are rejected; tokens without `tenant_id` claim are rejected; non-JWT tokens are rejected.
+- [ ] JWKS key rotation is handled automatically (unknown `kid` triggers refresh).
+- [ ] S2S credential exchange produces a valid `SecurityContext` with cached token reuse.
+- [ ] Plugin registers with ClientHub and is discoverable by the AuthN Resolver gateway.
+- [ ] No bearer tokens or client secrets appear in any log output.
+- [ ] Circuit breaker opens after consecutive IdP failures; JWT validation continues with cached JWKS.
+
+## 10. Dependencies
+
+| Dependency | Description | Criticality |
+|------------|-------------|-------------|
+| `authn-resolver-sdk` | SDK traits, models, error types, GTS schema definition | `p1` |
+| `modkit-security` | `SecurityContext` and `SecurityContextBuilder` types | `p1` |
+| `modkit` | Plugin framework, GTS integration, ClientHub registration | `p1` |
+| OIDC Identity Provider | External IdP that issues tokens, publishes JWKS, exposes discovery and token endpoints | `p1` |
+| `jsonwebtoken` crate | JWT signature verification library (MIT) | `p1` |
+| `reqwest` crate | HTTP client for IdP communication (MIT/Apache-2.0) | `p1` |
+
+## 11. Assumptions
+
+- The OIDC Identity Provider is compliant with OpenID Connect Discovery 1.0 and publishes a valid `.well-known/openid-configuration` document.
+- Access tokens issued by the IdP are JWTs signed with RS256 or ES256 algorithms.
+- The IdP includes a tenant identifier claim (vendor-configurable name) in every access token.
+- The `sub` claim in access tokens is a valid UUID (RFC 4122). **Deployment constraint**: Many OIDC providers use non-UUID subject identifiers by default. The IdP must be configured with a protocol mapper / claim transformation to produce UUID-format `sub` values. Tokens with non-UUID `sub` claims are rejected with `Unauthorized("invalid subject id")`.
+- Token lifetimes are short (5–15 minutes), providing adequate revocation protection without explicit revocation checking.
+- Each tenant is served by exactly one OIDC issuer. A single issuer may serve many tenants (via the `tenant_id` claim). Multiple issuers may coexist in the same deployment (each configured in `trusted_issuers`), but a given tenant's users always originate from the same issuer.
+
+## 12. Risks
+
+| Risk | Impact | Mitigation |
+|------|--------|------------|
+| IdP outage blocks all authentication | All API requests fail with 503 | Stale-while-revalidate JWKS cache + circuit breaker; JWT validation continues with cached keys |
+| CVE in `jsonwebtoken` crate | Signature verification bypass — full authentication compromise | `cargo-audit` in CI; pin to reviewed versions; monitor RustSec advisories |
+| IdP issues tokens without tenant claim | Tenant isolation broken for those tokens | `tenant_id` claim is required — tokens without it are rejected. IdP configuration must be validated during deployment |
+| Token replay within expiry window | Unauthorized access using stolen valid token | Short token lifetimes (5–15 min) limit exposure window. For real-time revocation, a separate introspection plugin is needed |
+| JWKS refresh flood (DoS) | Rate limit exhaustion or IdP overload | Rate-limited JWKS refresh (min 30s interval per issuer); single in-flight refresh; circuit breaker |
+
+## 13. Open Questions
+
+| # | Question | Impact | Owner | Target Date | Resolution |
+|---|----------|--------|-------|-------------|------------|
+| 1 | Should audience validation glob patterns support only `*` (substring wildcard) or also `?` (single character)? Overly broad patterns could weaken audience enforcement. | Security | Platform Architect | Before implementation start | **Resolved in DESIGN**: `*` substring wildcard only; no `?` or `**` support. See DESIGN.md § Token Validator `expected_audience` configuration. |
+| 2 | What is the maximum acceptable JWKS staleness window when the IdP is unreachable? Indefinite stale-while-revalidate vs bounded grace period (e.g., 24h). | Availability vs Security | Platform Architect | Before implementation start | **Resolved in DESIGN**: Configurable via `jwks_cache.stale_ttl` (default 24h). Set to `0` to disable stale-while-revalidate. See DESIGN.md § OIDC Discovery configuration. |
+
+## 14. Traceability
+
+- **Design**: [DESIGN.md](DESIGN.md)
+- **ADRs**: No standalone ADRs — key decisions documented in platform ADRs ([0002](../../../../../../docs/arch/authorization/ADR/0002-split-authn-authz-resolvers.md), [0003](../../../../../../docs/arch/authorization/ADR/0003-authn-resolver-minimalist-interface.md)) and in DESIGN.md Principles/Constraints sections.
+- **CyberFabric Reference**: [`docs/arch/authorization/AUTHN_JWT_OIDC_PLUGIN.md`](../../../../../../docs/arch/authorization/AUTHN_JWT_OIDC_PLUGIN.md)
