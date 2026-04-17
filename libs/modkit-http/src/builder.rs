@@ -547,8 +547,8 @@ mod tests {
 
     #[test]
     fn test_builder_timeout() {
-        let builder = HttpClientBuilder::new().timeout(Duration::from_secs(60));
-        assert_eq!(builder.config.request_timeout, Duration::from_secs(60));
+        let builder = HttpClientBuilder::new().timeout(Duration::from_mins(1));
+        assert_eq!(builder.config.request_timeout, Duration::from_mins(1));
     }
 
     #[test]

@@ -144,10 +144,7 @@ impl FileParserBackend for ImageParser {
         let data_uri = Self::build_data_uri(mime_type, &bytes);
 
         // Extract filename
-        let filename = path
-            .file_name()
-            .and_then(|s| s.to_str())
-            .map(ToString::to_string);
+        let filename = path.file_name().and_then(|s| s.to_str()).map(str::to_owned);
 
         // Build document with single Image block
         let document = DocumentBuilder::new(ParsedSource::LocalPath(path.display().to_string()))

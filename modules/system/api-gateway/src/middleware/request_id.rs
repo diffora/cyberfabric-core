@@ -28,7 +28,7 @@ pub async fn push_req_id_to_extensions(mut req: Request<Body>, next: Next) -> Re
         .headers()
         .get(&hdr)
         .and_then(|v| v.to_str().ok())
-        .map(ToString::to_string)
+        .map(str::to_owned)
     {
         // Save for business logic usage
         req.extensions_mut().insert(XRequestId(rid.clone()));

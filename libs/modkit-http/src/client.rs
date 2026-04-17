@@ -1675,7 +1675,7 @@ mod tests {
                 assert_eq!(status, hyper::StatusCode::TOO_MANY_REQUESTS);
                 assert_eq!(
                     retry_after,
-                    Some(std::time::Duration::from_secs(60)),
+                    Some(std::time::Duration::from_mins(1)),
                     "Should extract Retry-After header"
                 );
                 assert_eq!(

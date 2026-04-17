@@ -32,6 +32,6 @@ where
         .layer(axum::Extension(sse))
         .layer(TimeoutLayer::with_status_code(
             axum::http::StatusCode::GATEWAY_TIMEOUT,
-            Duration::from_secs(60 * 60),
+            Duration::from_hours(1),
         ))
 }

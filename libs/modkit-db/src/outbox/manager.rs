@@ -124,7 +124,7 @@ impl OutboxBuilder {
             processors: None,
             maintenance_guaranteed: None,
             maintenance_shared: None,
-            stats_interval: Some(Duration::from_secs(60)),
+            stats_interval: Some(Duration::from_mins(1)),
             profile: None,
             processor_tuning: None,
             sequencer_tuning: None,
@@ -369,7 +369,7 @@ impl OutboxBuilder {
                         semaphore: ConcurrencyLimit::Fixed(Arc::clone(shared_sem)),
                         backoff: BackoffConfig {
                             initial: Duration::from_millis(500),
-                            max: Duration::from_secs(60),
+                            max: Duration::from_mins(1),
                             ..Default::default()
                         },
                     },

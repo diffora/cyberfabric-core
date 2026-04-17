@@ -160,7 +160,7 @@ pub(crate) async fn upload_attachment(
     // 5. Extract headers (available before body bytes).
     let filename = field
         .file_name()
-        .map_or_else(|| "upload".to_owned(), ToString::to_string);
+        .map_or_else(|| "upload".to_owned(), str::to_owned);
     // Truncate to 255 characters (DB column is VARCHAR(255)),
     // preserving the file extension for MIME inference and LLM clarity.
     let filename = truncate_filename(&filename);

@@ -2041,7 +2041,7 @@ async fn dead_letter_replay_claims_and_sets_reprocessing() {
         .dead_letter_replay(
             &db.conn().unwrap(),
             &DeadLetterScope::default(),
-            Duration::from_secs(60),
+            Duration::from_mins(1),
         )
         .await
         .unwrap();
@@ -2069,7 +2069,7 @@ async fn dead_letter_full_replay_roundtrip() {
         .dead_letter_replay(
             &db.conn().unwrap(),
             &DeadLetterScope::default(),
-            Duration::from_secs(60),
+            Duration::from_mins(1),
         )
         .await
         .unwrap();
@@ -2103,7 +2103,7 @@ async fn dead_letter_cleanup_only_terminal() {
     let scope_one = DeadLetterScope::default().limit(1);
     let replayed = t
         .outbox
-        .dead_letter_replay(&db.conn().unwrap(), &scope_one, Duration::from_secs(60))
+        .dead_letter_replay(&db.conn().unwrap(), &scope_one, Duration::from_mins(1))
         .await
         .unwrap();
     let ids: Vec<i64> = replayed.iter().map(|m| m.id).collect();
@@ -2494,7 +2494,7 @@ async fn e2e_reject_replay_success() {
         .dead_letter_replay(
             &db.conn().unwrap(),
             &DeadLetterScope::default(),
-            Duration::from_secs(60),
+            Duration::from_mins(1),
         )
         .await
         .unwrap();
@@ -3612,8 +3612,8 @@ async fn pipeline_single_enqueue_one_delivery() {
     };
 
     let handle = Outbox::builder(db.clone())
-        .processor_tuning(WorkerTuning::processor_default().idle_interval(Duration::from_secs(60)))
-        .sequencer_tuning(WorkerTuning::sequencer_default().idle_interval(Duration::from_secs(60)))
+        .processor_tuning(WorkerTuning::processor_default().idle_interval(Duration::from_mins(1)))
+        .sequencer_tuning(WorkerTuning::sequencer_default().idle_interval(Duration::from_mins(1)))
         .processors(1)
         .maintenance(1, 1)
         .queue("test-q", Partitions::of(1))
@@ -3788,8 +3788,8 @@ async fn builder_no_queues_starts_but_enqueue_fails() {
     let db = setup_db("ch21_no_queues").await;
 
     let handle = Outbox::builder(db.clone())
-        .processor_tuning(WorkerTuning::processor_default().idle_interval(Duration::from_secs(60)))
-        .sequencer_tuning(WorkerTuning::sequencer_default().idle_interval(Duration::from_secs(60)))
+        .processor_tuning(WorkerTuning::processor_default().idle_interval(Duration::from_mins(1)))
+        .sequencer_tuning(WorkerTuning::sequencer_default().idle_interval(Duration::from_mins(1)))
         .maintenance(1, 1)
         .start()
         .await
@@ -3868,9 +3868,9 @@ async fn batch_transactional_respects_configured_batch_size() {
         .processor_tuning(
             WorkerTuning::processor_default()
                 .batch_size(5)
-                .idle_interval(Duration::from_secs(60)),
+                .idle_interval(Duration::from_mins(1)),
         )
-        .sequencer_tuning(WorkerTuning::sequencer_default().idle_interval(Duration::from_secs(60)))
+        .sequencer_tuning(WorkerTuning::sequencer_default().idle_interval(Duration::from_mins(1)))
         .processors(1)
         .maintenance(1, 1)
         .queue("batch-q", Partitions::of(1))

@@ -59,7 +59,7 @@ impl WorkerAction for BatchProcessor {
 
 #[tokio::test(start_paused = true)]
 async fn long_interval_worker_reschedules_when_work_exceeds_window() {
-    let h = Duration::from_secs(3600); // 1 hour (virtual time, runs instantly)
+    let h = Duration::from_hours(1); // 1 hour (virtual time, runs instantly)
 
     let cancel = CancellationToken::new();
     let call_count = Arc::new(AtomicU32::new(0));
@@ -132,7 +132,7 @@ impl WorkerAction for EventDrivenAction {
 
 #[tokio::test(start_paused = true)]
 async fn event_driven_worker_ignores_long_poker_when_notified() {
-    let h = Duration::from_secs(3600);
+    let h = Duration::from_hours(1);
 
     let cancel = CancellationToken::new();
     let notify = Arc::new(Notify::new());
@@ -197,7 +197,7 @@ impl WorkerAction for FlakyAction {
         self.results
             .get(idx)
             .cloned()
-            .unwrap_or(Ok(Directive::sleep(Duration::from_secs(3600))))
+            .unwrap_or(Ok(Directive::sleep(Duration::from_hours(1))))
     }
 }
 
@@ -217,7 +217,7 @@ async fn transient_errors_backoff_then_recover() {
             Err("db timeout".into()), // backoff → 4s
             Ok(Directive::proceed()), // reset backoff
             Err("db timeout".into()), // backoff → 1s (reset!)
-            Ok(Directive::sleep(Duration::from_secs(3600))),
+            Ok(Directive::sleep(Duration::from_hours(1))),
         ],
         call_count: call_count.clone(),
     };
@@ -228,7 +228,7 @@ async fn transient_errors_backoff_then_recover() {
             semaphore: ConcurrencyLimit::Unlimited,
             backoff: BackoffConfig {
                 initial: Duration::from_secs(1),
-                max: Duration::from_secs(3600),
+                max: Duration::from_hours(1),
                 multiplier: 2.0,
                 jitter: 0.0,
             },
@@ -260,7 +260,7 @@ async fn transient_errors_backoff_then_recover() {
 
     let cancel_c = cancel.clone();
     tokio::spawn(async move {
-        tokio::time::sleep(Duration::from_secs(3600)).await;
+        tokio::time::sleep(Duration::from_hours(1)).await;
         cancel_c.cancel();
     });
 
@@ -294,7 +294,7 @@ impl WorkerAction for MultiSourceAction {
 
 #[tokio::test(start_paused = true)]
 async fn multiple_notifiers_any_source_wakes_worker() {
-    let h = Duration::from_secs(3600);
+    let h = Duration::from_hours(1);
 
     // 3 independent event sources — worker wakes on whichever fires first.
     let cancel = CancellationToken::new();
@@ -415,7 +415,7 @@ async fn parallel_workers_share_semaphore_and_notifier() {
                 semaphore: ConcurrencyLimit::Fixed(sem.clone()),
                 backoff: BackoffConfig {
                     initial: Duration::from_secs(1),
-                    max: Duration::from_secs(600),
+                    max: Duration::from_mins(10),
                     multiplier: 2.0,
                     jitter: 0.0,
                 },
@@ -441,7 +441,7 @@ async fn parallel_workers_share_semaphore_and_notifier() {
     });
 
     // Let them work, then shut down.
-    tokio::time::sleep(Duration::from_secs(300)).await;
+    tokio::time::sleep(Duration::from_mins(5)).await;
     task_set.shutdown().await;
 
     let calls = total_calls.load(Ordering::SeqCst);
@@ -477,7 +477,7 @@ impl WorkerAction for VacuumAction {
 
 #[tokio::test(start_paused = true)]
 async fn vacuum_worker_self_schedules_via_sleep() {
-    let h = Duration::from_secs(3600);
+    let h = Duration::from_hours(1);
 
     // A vacuum worker has no external notifiers — it runs on its own
     // cadence using Sleep directives. A poker breaks the initial Idle.
@@ -490,7 +490,7 @@ async fn vacuum_worker_self_schedules_via_sleep() {
         cooldown: h, // 1h cooldown between sweeps
     };
 
-    let (poker_notify, _poker_handle) = poker(Duration::from_secs(600), cancel.clone());
+    let (poker_notify, _poker_handle) = poker(Duration::from_mins(10), cancel.clone());
 
     let worker = WorkerBuilder::new("vacuum", cancel.clone())
         .notifier(poker_notify)

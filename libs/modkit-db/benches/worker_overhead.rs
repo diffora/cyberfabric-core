@@ -190,7 +190,7 @@ fn bench_semaphore_gated(c: &mut Criterion) {
                                 semaphore: ConcurrencyLimit::Fixed(sem),
                                 backoff: BackoffConfig {
                                     initial: Duration::from_millis(10),
-                                    max: Duration::from_secs(60),
+                                    max: Duration::from_mins(1),
                                     multiplier: 2.0,
                                     jitter: 0.0,
                                 },

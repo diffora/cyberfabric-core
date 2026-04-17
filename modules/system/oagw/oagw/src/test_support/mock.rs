@@ -618,18 +618,12 @@ async fn ws_echo(
 async fn handle_ws_echo(mut socket: WebSocket) {
     while let Some(Ok(msg)) = socket.recv().await {
         match msg {
-            Message::Text(text) => {
-                if socket.send(Message::Text(text)).await.is_err() {
-                    break;
-                }
-            }
-            Message::Binary(data) => {
-                if socket.send(Message::Binary(data)).await.is_err() {
-                    break;
-                }
-            }
-            Message::Ping(data) => {
-                if socket.send(Message::Pong(data)).await.is_err() {
+            Message::Text(_) | Message::Binary(_) | Message::Ping(_) => {
+                #[allow(
+                    clippy::collapsible_match,
+                    reason = "https://github.com/rust-lang/rust-clippy/issues/16860"
+                )]
+                if socket.send(msg).await.is_err() {
                     break;
                 }
             }

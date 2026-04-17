@@ -82,7 +82,7 @@ async fn main() -> anyhow::Result<()> {
         .dead_letter_replay(
             &db.conn()?,
             &DeadLetterScope::default().limit(1),
-            Duration::from_secs(60),
+            Duration::from_mins(1),
         )
         .await?;
     println!("Replayed: {}", replayed.len());

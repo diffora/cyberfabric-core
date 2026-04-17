@@ -244,9 +244,9 @@ mod tests {
 
     #[test]
     fn new_valid_config() {
-        let cfg = BackoffConfig::new(Duration::from_secs(1), Duration::from_secs(60), 2.0);
+        let cfg = BackoffConfig::new(Duration::from_secs(1), Duration::from_mins(1), 2.0);
         assert_eq!(cfg.initial, Duration::from_secs(1));
-        assert_eq!(cfg.max, Duration::from_secs(60));
+        assert_eq!(cfg.max, Duration::from_mins(1));
         assert!((cfg.multiplier - 2.0).abs() < f64::EPSILON);
         assert!((cfg.jitter - 0.3).abs() < f64::EPSILON);
     }
@@ -263,24 +263,24 @@ mod tests {
     #[test]
     fn struct_update_syntax_with_default() {
         let cfg = BackoffConfig {
-            max: Duration::from_secs(60),
+            max: Duration::from_mins(1),
             ..Default::default()
         };
         assert_eq!(cfg.initial, Duration::from_millis(100));
-        assert_eq!(cfg.max, Duration::from_secs(60));
+        assert_eq!(cfg.max, Duration::from_mins(1));
         assert!((cfg.multiplier - 2.0).abs() < f64::EPSILON);
     }
 
     #[test]
     #[should_panic(expected = "multiplier must be >= 1.0")]
     fn new_panics_on_low_multiplier() {
-        let _cfg = BackoffConfig::new(Duration::from_secs(1), Duration::from_secs(60), 0.5);
+        let _cfg = BackoffConfig::new(Duration::from_secs(1), Duration::from_mins(1), 0.5);
     }
 
     #[test]
     #[should_panic(expected = "initial")]
     fn new_panics_on_initial_exceeds_max() {
-        let _cfg = BackoffConfig::new(Duration::from_secs(60), Duration::from_secs(1), 2.0);
+        let _cfg = BackoffConfig::new(Duration::from_mins(1), Duration::from_secs(1), 2.0);
     }
 
     // -- Escalation tests (jitter=0.0 for deterministic) --
@@ -289,7 +289,7 @@ mod tests {
     fn escalate_first() {
         let mut bh = Bulkhead::new(
             "test",
-            test_config(Duration::from_secs(1), Duration::from_secs(60), 2.0),
+            test_config(Duration::from_secs(1), Duration::from_mins(1), 2.0),
         );
         bh.escalate();
         assert_eq!(bh.consecutive_failures(), 1);
@@ -300,7 +300,7 @@ mod tests {
     fn escalate_exponential() {
         let mut bh = Bulkhead::new(
             "test",
-            test_config(Duration::from_secs(1), Duration::from_secs(60), 2.0),
+            test_config(Duration::from_secs(1), Duration::from_mins(1), 2.0),
         );
         let expected = [1, 2, 4, 8];
         for &exp in &expected {
@@ -339,7 +339,7 @@ mod tests {
     fn reset_clears_state() {
         let mut bh = Bulkhead::new(
             "test",
-            test_config(Duration::from_secs(1), Duration::from_secs(60), 2.0),
+            test_config(Duration::from_secs(1), Duration::from_mins(1), 2.0),
         );
         for _ in 0..3 {
             bh.escalate();
@@ -376,7 +376,7 @@ mod tests {
     fn consecutive_failures_after_escalation() {
         let mut bh = Bulkhead::new(
             "test",
-            test_config(Duration::from_secs(1), Duration::from_secs(60), 2.0),
+            test_config(Duration::from_secs(1), Duration::from_mins(1), 2.0),
         );
         bh.escalate();
         bh.escalate();
@@ -388,7 +388,7 @@ mod tests {
     fn consecutive_failures_after_reset() {
         let mut bh = Bulkhead::new(
             "test",
-            test_config(Duration::from_secs(1), Duration::from_secs(60), 2.0),
+            test_config(Duration::from_secs(1), Duration::from_mins(1), 2.0),
         );
         bh.escalate();
         bh.escalate();
@@ -404,7 +404,7 @@ mod tests {
             semaphore: ConcurrencyLimit::Unlimited,
             backoff: BackoffConfig {
                 initial: Duration::from_secs(10),
-                max: Duration::from_secs(60),
+                max: Duration::from_mins(1),
                 multiplier: 1.0,
                 jitter: 0.1,
             },
@@ -423,7 +423,7 @@ mod tests {
     fn zero_jitter_is_deterministic() {
         let mut bh = Bulkhead::new(
             "test",
-            test_config(Duration::from_secs(1), Duration::from_secs(60), 2.0),
+            test_config(Duration::from_secs(1), Duration::from_mins(1), 2.0),
         );
         bh.escalate();
         assert_eq!(bh.min_interval(), Duration::from_secs(1));

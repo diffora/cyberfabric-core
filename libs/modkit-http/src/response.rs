@@ -446,7 +446,7 @@ mod tests {
         headers.insert(http::header::RETRY_AFTER, "120".parse().unwrap());
 
         let result = parse_retry_after(&headers);
-        assert_eq!(result, Some(Duration::from_secs(120)));
+        assert_eq!(result, Some(Duration::from_mins(2)));
     }
 
     #[test]
@@ -455,7 +455,7 @@ mod tests {
         headers.insert(http::header::RETRY_AFTER, "  60  ".parse().unwrap());
 
         let result = parse_retry_after(&headers);
-        assert_eq!(result, Some(Duration::from_secs(60)));
+        assert_eq!(result, Some(Duration::from_mins(1)));
     }
 
     #[test]
@@ -491,7 +491,7 @@ mod tests {
     fn test_parse_retry_after_http_date_in_future() {
         let mut headers = HeaderMap::new();
         // Create a date 60 seconds in the future
-        let future_time = SystemTime::now() + Duration::from_secs(60);
+        let future_time = SystemTime::now() + Duration::from_mins(1);
         let http_date = httpdate::fmt_http_date(future_time);
         headers.insert(http::header::RETRY_AFTER, http_date.parse().unwrap());
 

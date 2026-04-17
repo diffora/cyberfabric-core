@@ -738,7 +738,7 @@ where
         k: cursor_keys,
         o: primary_dir,
         s: order.to_signed_tokens(),
-        f: filter_hash.map(ToString::to_string),
+        f: filter_hash.map(str::to_owned),
         d: direction.to_owned(),
     })
 }

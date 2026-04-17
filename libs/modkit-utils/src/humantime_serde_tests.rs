@@ -91,7 +91,7 @@ fn test_option_module() {
 
     let json = r#"{"duration": "1m"}"#;
     let foo = serde_json::from_str::<Foo>(json).unwrap();
-    assert_eq!(foo.duration, Some(super::Duration::from_secs(60)));
+    assert_eq!(foo.duration, Some(super::Duration::from_mins(1)));
     let reverse = serde_json::to_string(&foo).unwrap();
     assert_eq!(reverse, r#"{"duration":"1m"}"#);
 

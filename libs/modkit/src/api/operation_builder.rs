@@ -757,7 +757,7 @@ where
     pub fn octet_stream_request(mut self, description: Option<&str>) -> Self {
         self.spec.request_body = Some(RequestBodySpec {
             content_type: "application/octet-stream",
-            description: description.map(ToString::to_string),
+            description: description.map(str::to_owned),
             schema: RequestBodySchema::Binary,
             required: true,
         });

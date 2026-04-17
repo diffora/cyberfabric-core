@@ -313,7 +313,7 @@ mod tests {
             if cancel.is_cancelled() {
                 self.saw_cancelled = true;
             }
-            Ok(Directive::sleep(Duration::from_secs(60)))
+            Ok(Directive::sleep(Duration::from_mins(1)))
         }
     }
 
@@ -358,7 +358,7 @@ mod tests {
             self.call_count.fetch_add(1, Ordering::SeqCst);
             self.results
                 .pop_front()
-                .unwrap_or(Ok(Directive::sleep(Duration::from_secs(60))))
+                .unwrap_or(Ok(Directive::sleep(Duration::from_mins(1))))
         }
     }
 
@@ -485,7 +485,7 @@ mod tests {
                 semaphore: ConcurrencyLimit::Unlimited,
                 backoff: BackoffConfig {
                     initial: Duration::from_secs(1),
-                    max: Duration::from_secs(60),
+                    max: Duration::from_mins(1),
                     multiplier: 2.0,
                     jitter: 0.0,
                 },
@@ -509,7 +509,7 @@ mod tests {
             Ok(Directive::proceed()),
             Ok(Directive::proceed()),
             Ok(Directive::proceed()),
-            Ok(Directive::sleep(Duration::from_secs(60))),
+            Ok(Directive::sleep(Duration::from_mins(1))),
         ]);
         let count = action.call_count();
         // Zero pacing so Proceed is truly immediate, no poker
@@ -533,7 +533,7 @@ mod tests {
         let cancel = CancellationToken::new();
         let action = MockAction::new(vec![
             Ok(Directive::sleep(Duration::from_millis(100))),
-            Ok(Directive::sleep(Duration::from_secs(60))),
+            Ok(Directive::sleep(Duration::from_mins(1))),
         ]);
         let count = action.call_count();
         let (worker, _notify) = worker_with_stored_permit(action, cancel.clone());
@@ -555,7 +555,7 @@ mod tests {
         let cancel = CancellationToken::new();
         let action = MockAction::new(vec![
             Ok(Directive::sleep(Duration::ZERO)),
-            Ok(Directive::sleep(Duration::from_secs(60))),
+            Ok(Directive::sleep(Duration::from_mins(1))),
         ]);
         let count = action.call_count();
         let (worker, _notify) = worker_with_stored_permit(action, cancel.clone());
@@ -578,7 +578,7 @@ mod tests {
         notify.notify_one();
         let action = MockAction::new(vec![
             Ok(Directive::idle()),
-            Ok(Directive::sleep(Duration::from_secs(60))),
+            Ok(Directive::sleep(Duration::from_mins(1))),
         ]);
         let count = action.call_count();
         let worker = WorkerBuilder::new("test", cancel.clone())
@@ -636,7 +636,7 @@ mod tests {
         notify.notify_one();
         let action = MockAction::new(vec![
             Ok(Directive::sleep(Duration::from_millis(100))),
-            Ok(Directive::sleep(Duration::from_secs(60))),
+            Ok(Directive::sleep(Duration::from_mins(1))),
         ]);
         let count = action.call_count();
         let worker = worker_with_notifier(action, notify.clone(), cancel.clone());
@@ -672,7 +672,7 @@ mod tests {
         notify.notify_one(); // for initial Idle
         let action = MockAction::new(vec![
             Ok(Directive::idle()),
-            Ok(Directive::sleep(Duration::from_secs(60))),
+            Ok(Directive::sleep(Duration::from_mins(1))),
         ]);
         let count = action.call_count();
         let worker = worker_with_notifier(action, notify.clone(), cancel.clone());
@@ -703,7 +703,7 @@ mod tests {
         n1.notify_one();
         let action = MockAction::new(vec![
             Ok(Directive::idle()),
-            Ok(Directive::sleep(Duration::from_secs(60))),
+            Ok(Directive::sleep(Duration::from_mins(1))),
         ]);
         let count = action.call_count();
         let worker = WorkerBuilder::new("test", cancel.clone())
@@ -759,7 +759,7 @@ mod tests {
         // Store permit before worker starts
         notify.notify_one();
 
-        let action = MockAction::new(vec![Ok(Directive::sleep(Duration::from_secs(60)))]);
+        let action = MockAction::new(vec![Ok(Directive::sleep(Duration::from_mins(1)))]);
         let count = action.call_count();
         let worker = worker_with_notifier(action, notify, cancel.clone());
 
@@ -882,7 +882,7 @@ mod tests {
         let action = MockAction::new(vec![
             Err("boom".to_owned()),
             Ok(Directive::proceed()),
-            Ok(Directive::sleep(Duration::from_secs(60))),
+            Ok(Directive::sleep(Duration::from_mins(1))),
         ]);
         let count = action.call_count();
         let worker = WorkerBuilder::new("test", cancel.clone())
@@ -914,7 +914,7 @@ mod tests {
         notify.notify_one(); // break initial Idle
         let action = MockAction::new(vec![
             Err("fail".to_owned()),
-            Ok(Directive::sleep(Duration::from_secs(60))),
+            Ok(Directive::sleep(Duration::from_mins(1))),
         ]);
         let count = action.call_count();
         let worker = WorkerBuilder::new("test", cancel.clone())
@@ -961,7 +961,7 @@ mod tests {
         );
         let action = MockAction::new(vec![
             Err("fail".to_owned()),
-            Ok(Directive::sleep(Duration::from_secs(60))),
+            Ok(Directive::sleep(Duration::from_mins(1))),
         ]);
         let count = action.call_count();
         let worker = WorkerBuilder::new("test", cancel.clone())
@@ -1013,7 +1013,7 @@ mod tests {
             Err("e1".to_owned()),
             Err("e2".to_owned()),
             Err("e3".to_owned()),
-            Ok(Directive::sleep(Duration::from_secs(60))),
+            Ok(Directive::sleep(Duration::from_mins(1))),
         ]);
         let count = action.call_count();
         let worker = WorkerBuilder::new("test", cancel.clone())
@@ -1069,7 +1069,7 @@ mod tests {
             Err("e2".to_owned()),     // backoff → 100ms
             Ok(Directive::proceed()), // reset
             Err("e3".to_owned()),     // backoff → 50ms (reset, not 200ms)
-            Ok(Directive::sleep(Duration::from_secs(60))),
+            Ok(Directive::sleep(Duration::from_mins(1))),
         ]);
         let count = action.call_count();
         let worker = WorkerBuilder::new("test", cancel.clone())
@@ -1120,7 +1120,7 @@ mod tests {
         );
         let action = MockAction::new(vec![
             Err("fail".to_owned()),
-            Ok(Directive::sleep(Duration::from_secs(60))),
+            Ok(Directive::sleep(Duration::from_mins(1))),
         ]);
         let count = action.call_count();
         let worker = WorkerBuilder::new("test", cancel.clone())
@@ -1172,7 +1172,7 @@ mod tests {
         bulkhead.escalate();
         let action = MockAction::new(vec![
             Ok(Directive::idle()),
-            Ok(Directive::sleep(Duration::from_secs(60))),
+            Ok(Directive::sleep(Duration::from_mins(1))),
         ]);
         let count = action.call_count();
         let worker = WorkerBuilder::new("test", cancel.clone())
@@ -1214,7 +1214,7 @@ mod tests {
             Ok(Directive::proceed()),
             Ok(Directive::proceed()),
             Ok(Directive::proceed()),
-            Ok(Directive::sleep(Duration::from_secs(60))),
+            Ok(Directive::sleep(Duration::from_mins(1))),
         ]);
         let count = action.call_count();
         // active_interval=30ms, min_interval=10ms, ramp_step=10ms
@@ -1249,7 +1249,7 @@ mod tests {
         let action = MockAction::new(vec![
             Ok(Directive::proceed()),
             Ok(Directive::proceed()),
-            Ok(Directive::sleep(Duration::from_secs(60))),
+            Ok(Directive::sleep(Duration::from_mins(1))),
         ]);
         let count = action.call_count();
         let worker = WorkerBuilder::new("test", cancel.clone())
@@ -1292,7 +1292,7 @@ mod tests {
                 },
             },
         );
-        let action = MockAction::new(vec![Ok(Directive::sleep(Duration::from_secs(60)))]);
+        let action = MockAction::new(vec![Ok(Directive::sleep(Duration::from_mins(1)))]);
         let count = action.call_count();
         let worker = WorkerBuilder::new("test", cancel.clone())
             .bulkhead(bulkhead)
@@ -1332,7 +1332,7 @@ mod tests {
                 },
             },
         );
-        let action = MockAction::new(vec![Ok(Directive::sleep(Duration::from_secs(60)))]);
+        let action = MockAction::new(vec![Ok(Directive::sleep(Duration::from_mins(1)))]);
         let count = action.call_count();
         let worker = WorkerBuilder::new("test", cancel.clone())
             .bulkhead(bulkhead)
@@ -1407,7 +1407,7 @@ mod tests {
         // Store a permit BEFORE the worker starts — consumed by initial Idle
         notify.notify_one();
 
-        let action = MockAction::new(vec![Ok(Directive::sleep(Duration::from_secs(60)))]);
+        let action = MockAction::new(vec![Ok(Directive::sleep(Duration::from_mins(1)))]);
         let count = action.call_count();
         let worker = worker_with_notifier(action, notify, cancel.clone());
 
@@ -1432,7 +1432,7 @@ mod tests {
             notify.notify_one();
         }
 
-        let action = MockAction::new(vec![Ok(Directive::sleep(Duration::from_secs(60)))]);
+        let action = MockAction::new(vec![Ok(Directive::sleep(Duration::from_mins(1)))]);
         let count = action.call_count();
         let worker = worker_with_notifier(action, notify, cancel.clone());
 
@@ -1509,7 +1509,7 @@ mod tests {
         notify.notify_one(); // break initial Idle
         let listener = RecordingListener::default();
         let events = listener.events();
-        let action = MockAction::new(vec![Ok(Directive::sleep(Duration::from_secs(60)))]);
+        let action = MockAction::new(vec![Ok(Directive::sleep(Duration::from_mins(1)))]);
         let worker = WorkerBuilder::new("test", cancel.clone())
             .listener(listener)
             .pacing(zero_pacing())
@@ -1536,7 +1536,7 @@ mod tests {
         let events = listener.events();
         let action = MockAction::new(vec![
             Err("boom".to_owned()),
-            Ok(Directive::sleep(Duration::from_secs(60))),
+            Ok(Directive::sleep(Duration::from_mins(1))),
         ]);
         let worker = WorkerBuilder::new("test", cancel.clone())
             .listener(listener)

@@ -533,11 +533,7 @@ mod tests {
     #[test]
     fn refresh_normal_token() {
         // 1-hour token, 30-min offset → stale at 50%
-        let (r, ms) = refresh_params(
-            3600,
-            &Duration::from_secs(30 * 60),
-            &Duration::from_secs(10),
-        );
+        let (r, ms) = refresh_params(3600, &Duration::from_mins(30), &Duration::from_secs(10));
         assert!((r - 0.5).abs() < f64::EPSILON);
         assert_eq!(ms, DurationSecs(10));
         assert_stale_before_expiry(3600, r, ms);
@@ -546,11 +542,7 @@ mod tests {
     #[test]
     fn refresh_short_lived_token() {
         // 20-min token, 30-min offset → fallback 0.5
-        let (r, ms) = refresh_params(
-            1200,
-            &Duration::from_secs(30 * 60),
-            &Duration::from_secs(10),
-        );
+        let (r, ms) = refresh_params(1200, &Duration::from_mins(30), &Duration::from_secs(10));
         assert!((r - 0.5).abs() < f64::EPSILON);
         assert_eq!(ms, DurationSecs(10));
         assert_stale_before_expiry(1200, r, ms);
@@ -559,11 +551,7 @@ mod tests {
     #[test]
     fn refresh_equal_lifetime_and_offset() {
         // 30-min token, 30-min offset → fallback 0.5
-        let (r, ms) = refresh_params(
-            1800,
-            &Duration::from_secs(30 * 60),
-            &Duration::from_secs(10),
-        );
+        let (r, ms) = refresh_params(1800, &Duration::from_mins(30), &Duration::from_secs(10));
         assert!((r - 0.5).abs() < f64::EPSILON);
         assert_stale_before_expiry(1800, r, ms);
     }
@@ -571,7 +559,7 @@ mod tests {
     #[test]
     fn refresh_zero_lifetime() {
         // Both values must be zero so stale == expiry.
-        let (r, ms) = refresh_params(0, &Duration::from_secs(30 * 60), &Duration::from_secs(10));
+        let (r, ms) = refresh_params(0, &Duration::from_mins(30), &Duration::from_secs(10));
         assert!((r - 0.0).abs() < f64::EPSILON);
         assert_eq!(ms, DurationSecs(0));
     }
@@ -579,7 +567,7 @@ mod tests {
     #[test]
     fn refresh_small_offset() {
         // 5-min token, 1-min offset → stale at 80%
-        let (r, ms) = refresh_params(300, &Duration::from_secs(60), &Duration::from_secs(10));
+        let (r, ms) = refresh_params(300, &Duration::from_mins(1), &Duration::from_secs(10));
         assert!((r - 0.8).abs() < f64::EPSILON);
         assert_eq!(ms, DurationSecs(10));
         assert_stale_before_expiry(300, r, ms);
@@ -597,7 +585,7 @@ mod tests {
     #[test]
     fn refresh_min_period_exceeds_lifetime() {
         // min_refresh_period (600s) > lifetime (300s) — must be capped
-        let (r, ms) = refresh_params(300, &Duration::from_secs(60), &Duration::from_secs(600));
+        let (r, ms) = refresh_params(300, &Duration::from_mins(1), &Duration::from_mins(10));
         // desired_delay = 300 - 60 = 240
         assert!((r - 0.8).abs() < f64::EPSILON);
         // min_stale capped to desired_delay, not 600
@@ -608,7 +596,7 @@ mod tests {
     #[test]
     fn refresh_zero_lifetime_nonzero_min_period() {
         // expires_in=0 with min_refresh_period=10 — both must be zero
-        let (r, ms) = refresh_params(0, &Duration::from_secs(30 * 60), &Duration::from_secs(10));
+        let (r, ms) = refresh_params(0, &Duration::from_mins(30), &Duration::from_secs(10));
         assert!((r - 0.0).abs() < f64::EPSILON);
         assert_eq!(ms, DurationSecs(0));
     }

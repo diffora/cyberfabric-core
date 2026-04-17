@@ -729,7 +729,7 @@ mod tests {
         let child = CancellationToken::new();
         let handle = tokio::spawn(async move {
             started_flag.store(true, Ordering::SeqCst);
-            tokio::time::sleep(Duration::from_secs(60)).await;
+            tokio::time::sleep(Duration::from_mins(1)).await;
             Ok::<(), anyhow::Error>(())
         });
         let role = ActiveRole { child, handle };

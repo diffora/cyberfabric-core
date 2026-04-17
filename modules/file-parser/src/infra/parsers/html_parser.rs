@@ -39,10 +39,7 @@ impl FileParserBackend for HtmlParser {
             .await
             .map_err(|e| DomainError::io_error(format!("Failed to read file: {e}")))?;
 
-        let filename = path
-            .file_name()
-            .and_then(|s| s.to_str())
-            .map(ToString::to_string);
+        let filename = path.file_name().and_then(|s| s.to_str()).map(str::to_owned);
         let (blocks, title) =
             tokio::task::spawn_blocking(move || parse_html_bytes(&content, filename.as_deref()))
                 .await
@@ -69,7 +66,7 @@ impl FileParserBackend for HtmlParser {
         _content_type: Option<&str>,
         bytes: bytes::Bytes,
     ) -> Result<crate::domain::ir::ParsedDocument, DomainError> {
-        let filename_owned = filename_hint.map(ToString::to_string);
+        let filename_owned = filename_hint.map(str::to_owned);
         let (blocks, title) = tokio::task::spawn_blocking(move || {
             parse_html_bytes(&bytes, filename_owned.as_deref())
         })
@@ -115,7 +112,7 @@ fn parse_html_bytes(
     {
         Some(node.inner_text(parser).to_string())
     } else {
-        filename.map(ToString::to_string)
+        filename.map(str::to_owned)
     };
 
     // Extract body content

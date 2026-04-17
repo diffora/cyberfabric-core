@@ -197,7 +197,7 @@ pub fn parse_timestamp(
 pub fn extract_string(value: &serde_json::Value, field_name: &str) -> Result<String, ClaimsError> {
     value
         .as_str()
-        .map(ToString::to_string)
+        .map(str::to_owned)
         .ok_or_else(|| ClaimsError::InvalidClaimFormat {
             field: field_name.to_owned(),
             reason: "must be a string".to_owned(),

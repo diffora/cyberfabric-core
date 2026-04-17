@@ -33,10 +33,10 @@ const DEFAULT_BACKOFF: BackoffPolicy =
     BackoffPolicy::new(Duration::from_millis(100), Duration::from_secs(30));
 
 /// Interval between stale error-state sweeps.
-const SWEEP_INTERVAL: Duration = Duration::from_secs(60);
+const SWEEP_INTERVAL: Duration = Duration::from_mins(1);
 
 /// Error state entries older than this are swept.
-const ERROR_STATE_TTL: Duration = Duration::from_secs(300);
+const ERROR_STATE_TTL: Duration = Duration::from_mins(5);
 
 // ---------------------------------------------------------------------------
 // PartitionScheduler — the logic core (&mut self, no sync)
@@ -664,9 +664,7 @@ mod tests {
             42,
             ErrorEntry {
                 error_count: 3,
-                last_update: Instant::now()
-                    .checked_sub(Duration::from_secs(600))
-                    .unwrap(),
+                last_update: Instant::now().checked_sub(Duration::from_mins(10)).unwrap(),
             },
         );
         sched.last_sweep = Instant::now()

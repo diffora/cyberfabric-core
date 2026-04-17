@@ -62,8 +62,8 @@ async fn test_module_pool_overrides_server_pool() {
                         max_conns: Some(10),
                         min_conns: Some(1),
                         acquire_timeout: Some(Duration::from_secs(30)),
-                        idle_timeout: Some(Duration::from_secs(600)),
-                        max_lifetime: Some(Duration::from_secs(3600)),
+                        idle_timeout: Some(Duration::from_mins(10)),
+                        max_lifetime: Some(Duration::from_hours(1)),
                         test_before_acquire: Some(false),
                     }),
                     ..Default::default()
@@ -199,8 +199,8 @@ fn test_pool_cfg_helper_methods() {
         max_conns: Some(50),
         min_conns: Some(5),
         acquire_timeout: Some(Duration::from_secs(45)),
-        idle_timeout: Some(Duration::from_secs(300)),
-        max_lifetime: Some(Duration::from_secs(1800)),
+        idle_timeout: Some(Duration::from_mins(5)),
+        max_lifetime: Some(Duration::from_mins(30)),
         test_before_acquire: Some(true),
     };
 
@@ -302,8 +302,8 @@ fn test_pool_cfg_serde_roundtrip() {
         max_conns: Some(42),
         min_conns: Some(7),
         acquire_timeout: Some(Duration::from_secs(35)),
-        idle_timeout: Some(Duration::from_secs(420)),
-        max_lifetime: Some(Duration::from_secs(1500)),
+        idle_timeout: Some(Duration::from_mins(7)),
+        max_lifetime: Some(Duration::from_mins(25)),
         test_before_acquire: Some(false),
     };
 

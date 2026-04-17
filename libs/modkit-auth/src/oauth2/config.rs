@@ -144,10 +144,10 @@ impl Default for OAuthClientConfig {
             scopes: Vec::new(),
             auth_method: ClientAuthMethod::default(),
             extra_headers: Vec::new(),
-            refresh_offset: Duration::from_secs(30 * 60),
-            jitter_max: Duration::from_secs(5 * 60),
+            refresh_offset: Duration::from_mins(30),
+            jitter_max: Duration::from_mins(5),
             min_refresh_period: Duration::from_secs(10),
-            default_ttl: Duration::from_secs(5 * 60),
+            default_ttl: Duration::from_mins(5),
             http_config: None,
         }
     }
@@ -304,10 +304,10 @@ mod tests {
     #[test]
     fn default_durations() {
         let cfg = OAuthClientConfig::default();
-        assert_eq!(cfg.refresh_offset, Duration::from_secs(30 * 60));
-        assert_eq!(cfg.jitter_max, Duration::from_secs(5 * 60));
+        assert_eq!(cfg.refresh_offset, Duration::from_mins(30));
+        assert_eq!(cfg.jitter_max, Duration::from_mins(5));
         assert_eq!(cfg.min_refresh_period, Duration::from_secs(10));
-        assert_eq!(cfg.default_ttl, Duration::from_secs(5 * 60));
+        assert_eq!(cfg.default_ttl, Duration::from_mins(5));
         assert_eq!(cfg.auth_method, ClientAuthMethod::Basic);
     }
 }

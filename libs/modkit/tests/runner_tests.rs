@@ -411,7 +411,7 @@ async fn test_db_options_manager() {
         shutdown_deadline: None,
     };
 
-    let result = timeout(Duration::from_millis(1000), run(opts)).await;
+    let result = timeout(Duration::from_secs(1), run(opts)).await;
     assert!(result.is_ok());
     let run_result = result.unwrap();
     // Should succeed with DbManager approach

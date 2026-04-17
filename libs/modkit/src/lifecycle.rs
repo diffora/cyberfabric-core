@@ -723,7 +723,7 @@ mod tests {
         assert_eq!(wrapper.status(), Status::Stopped);
         assert_eq!(wrapper.inner().count(), 0);
 
-        let wrapper = wrapper.with_stop_timeout(Duration::from_secs(60));
+        let wrapper = wrapper.with_stop_timeout(Duration::from_mins(1));
         assert_eq!(wrapper.stop_timeout.as_secs(), 60);
     }
 
@@ -912,7 +912,7 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(50)).await;
 
         // Stop should handle the panic gracefully
-        let reason = lc.stop(Duration::from_millis(1000)).await.unwrap();
+        let reason = lc.stop(Duration::from_secs(1)).await.unwrap();
 
         // The task panicked, but stop should complete successfully
         // The exact reason depends on timing, but it should not hang or fail

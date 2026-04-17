@@ -6,7 +6,7 @@ use thiserror::Error;
 pub const DEFAULT_SEQUENCER_BATCH_SIZE: u32 = 1000;
 
 /// Default poll interval (safety net fallback for sequencer and processors).
-pub const DEFAULT_POLL_INTERVAL: Duration = Duration::from_secs(600);
+pub const DEFAULT_POLL_INTERVAL: Duration = Duration::from_mins(10);
 
 /// Default partition batch limit for the sequencer (max partitions per cycle).
 pub const DEFAULT_PARTITION_BATCH_LIMIT: u32 = 128;
@@ -308,10 +308,10 @@ impl WorkerTuning {
             batch_size: 10_000,
             min_interval: Duration::from_secs(1),
             active_interval: Duration::from_secs(1),
-            idle_interval: Duration::from_secs(3600),
+            idle_interval: Duration::from_hours(1),
             ramp_step: Duration::ZERO,
             retry_base: Duration::from_secs(1),
-            retry_max: Duration::from_secs(60),
+            retry_max: Duration::from_mins(1),
             degradation_threshold: 1,
             lease_duration: Duration::from_secs(30),
         }
@@ -324,10 +324,10 @@ impl WorkerTuning {
             batch_size: 1,
             min_interval: Duration::from_secs(1),
             active_interval: Duration::from_secs(1),
-            idle_interval: Duration::from_secs(60),
+            idle_interval: Duration::from_mins(1),
             ramp_step: Duration::ZERO,
             retry_base: Duration::from_secs(1),
-            retry_max: Duration::from_secs(60),
+            retry_max: Duration::from_mins(1),
             degradation_threshold: 1,
             lease_duration: Duration::from_secs(30),
         }
@@ -343,10 +343,10 @@ impl WorkerTuning {
             batch_size: 10,
             min_interval: Duration::from_millis(100),
             active_interval: Duration::from_millis(500),
-            idle_interval: Duration::from_secs(600),
+            idle_interval: Duration::from_mins(10),
             ramp_step: Duration::from_millis(50),
             retry_base: Duration::from_secs(1),
-            retry_max: Duration::from_secs(60),
+            retry_max: Duration::from_mins(1),
             degradation_threshold: 2,
             lease_duration: Duration::from_secs(30),
         }
@@ -361,7 +361,7 @@ impl WorkerTuning {
             batch_size: 10,
             min_interval: Duration::from_millis(1),
             active_interval: Duration::from_millis(2),
-            idle_interval: Duration::from_secs(60),
+            idle_interval: Duration::from_mins(1),
             ramp_step: Duration::from_millis(1),
             retry_base: Duration::from_millis(100),
             retry_max: Duration::from_secs(10),
@@ -378,10 +378,10 @@ impl WorkerTuning {
             batch_size: 100,
             min_interval: Duration::from_millis(1),
             active_interval: Duration::from_millis(20),
-            idle_interval: Duration::from_secs(600),
+            idle_interval: Duration::from_mins(10),
             ramp_step: Duration::from_millis(2),
             retry_base: Duration::from_secs(1),
-            retry_max: Duration::from_secs(60),
+            retry_max: Duration::from_mins(1),
             degradation_threshold: 2,
             lease_duration: Duration::from_secs(30),
         }
@@ -395,10 +395,10 @@ impl WorkerTuning {
             batch_size: 10,
             min_interval: Duration::from_millis(100),
             active_interval: Duration::from_millis(500),
-            idle_interval: Duration::from_secs(600),
+            idle_interval: Duration::from_mins(10),
             ramp_step: Duration::from_millis(50),
             retry_base: Duration::from_secs(5),
-            retry_max: Duration::from_secs(300),
+            retry_max: Duration::from_mins(5),
             degradation_threshold: 1,
             lease_duration: Duration::from_secs(30),
         }
@@ -413,7 +413,7 @@ impl WorkerTuning {
             batch_size: 1000,
             min_interval: Duration::from_millis(100),
             active_interval: Duration::from_millis(500),
-            idle_interval: Duration::from_secs(600),
+            idle_interval: Duration::from_mins(10),
             ramp_step: Duration::from_millis(50),
             retry_base: Duration::from_millis(100),
             retry_max: Duration::from_secs(30),
@@ -429,7 +429,7 @@ impl WorkerTuning {
             batch_size: 500,
             min_interval: Duration::ZERO,
             active_interval: Duration::from_millis(1),
-            idle_interval: Duration::from_secs(60),
+            idle_interval: Duration::from_mins(1),
             ramp_step: Duration::ZERO,
             retry_base: Duration::from_millis(100),
             retry_max: Duration::from_secs(30),
@@ -445,7 +445,7 @@ impl WorkerTuning {
             batch_size: 2000,
             min_interval: Duration::from_millis(10),
             active_interval: Duration::from_millis(100),
-            idle_interval: Duration::from_secs(600),
+            idle_interval: Duration::from_mins(10),
             ramp_step: Duration::from_millis(10),
             retry_base: Duration::from_millis(100),
             retry_max: Duration::from_secs(30),
@@ -461,7 +461,7 @@ impl WorkerTuning {
             batch_size: 1000,
             min_interval: Duration::from_millis(100),
             active_interval: Duration::from_millis(500),
-            idle_interval: Duration::from_secs(600),
+            idle_interval: Duration::from_mins(10),
             ramp_step: Duration::from_millis(100),
             retry_base: Duration::from_millis(100),
             retry_max: Duration::from_secs(30),
@@ -587,7 +587,7 @@ impl OutboxProfile {
             sequencer: WorkerTuning::sequencer_relaxed(),
             processor: WorkerTuning::processor_relaxed(),
             vacuum: WorkerTuning::vacuum(),
-            reconciler: WorkerTuning::reconciler().idle_interval(Duration::from_secs(120)),
+            reconciler: WorkerTuning::reconciler().idle_interval(Duration::from_mins(2)),
         }
     }
 }

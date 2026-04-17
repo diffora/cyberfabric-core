@@ -192,7 +192,7 @@ impl FileParserService {
         let extension_from_name = filename_hint
             .and_then(|name| Path::new(name).extension())
             .and_then(|s| s.to_str())
-            .map(ToString::to_string);
+            .map(str::to_owned);
 
         let extension = if let Some(ext) = extension_from_name {
             // Priority 1: Use extension from filename

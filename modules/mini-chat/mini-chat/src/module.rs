@@ -547,7 +547,7 @@ impl RunnableCapability for MiniChatModule {
                     metrics: Arc::clone(&od.metrics),
                 })
                 .lease(LeaseConfig {
-                    duration: Duration::from_secs(60),
+                    duration: Duration::from_mins(1),
                     ..LeaseConfig::default()
                 })
                 .start()

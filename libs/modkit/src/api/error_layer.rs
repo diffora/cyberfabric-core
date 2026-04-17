@@ -51,7 +51,7 @@ pub fn extract_trace_id(headers: &HeaderMap) -> Option<String> {
         .or_else(|| headers.get("x-request-id"))
         .or_else(|| headers.get("traceparent"))
         .and_then(|v| v.to_str().ok())
-        .map(ToString::to_string)
+        .map(str::to_owned)
         .or_else(|| {
             // Try to get from current tracing span
             tracing::Span::current()

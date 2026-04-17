@@ -17,7 +17,7 @@ struct AddressResourceError;
 fn domain_error_to_canonical(e: &DomainError) -> CanonicalError {
     match e {
         DomainError::UserNotFound { id } => {
-            UserResourceError::not_found(format!("User with id {id} was not found",))
+            UserResourceError::not_found(format!("User with id {id} was not found"))
                 .with_resource(id.to_string())
                 .create()
         }

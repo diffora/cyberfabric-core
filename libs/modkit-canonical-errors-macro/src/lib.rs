@@ -49,17 +49,13 @@ const CANONICAL_ERRORS_LIB: &str = "modkit_canonical_errors";
 /// (`cf-modkit-canonical-errors`). For external consumers the resolution is
 /// delegated to `proc_macro_crate`.
 fn resolve_crate_path(gts_lit: &LitStr) -> syn::Result<TokenStream2> {
-    let in_self = std::env::var("CARGO_PKG_NAME")
-        .map(|p| p == CANONICAL_ERRORS_PKG)
-        .unwrap_or(false);
+    let in_self = std::env::var("CARGO_PKG_NAME").is_ok_and(|p| p == CANONICAL_ERRORS_PKG);
 
     if in_self {
         // Inside the cf-modkit-canonical-errors package.
         // `crate` is correct only for the lib target; integration tests and
         // examples access the library as an extern crate by its [lib] name.
-        let is_lib = std::env::var("CARGO_CRATE_NAME")
-            .map(|c| c == CANONICAL_ERRORS_LIB)
-            .unwrap_or(false);
+        let is_lib = std::env::var("CARGO_CRATE_NAME").is_ok_and(|c| c == CANONICAL_ERRORS_LIB);
 
         if is_lib {
             return Ok(quote!(crate));

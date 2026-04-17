@@ -52,10 +52,10 @@ fn config_overview() {
         extra_headers: vec![("x-vendor-id".into(), "acme-corp".into())],
 
         // Refresh policy (defaults shown):
-        refresh_offset: std::time::Duration::from_secs(30 * 60),
-        jitter_max: std::time::Duration::from_secs(5 * 60),
+        refresh_offset: std::time::Duration::from_mins(30),
+        jitter_max: std::time::Duration::from_mins(5),
         min_refresh_period: std::time::Duration::from_secs(10),
-        default_ttl: std::time::Duration::from_secs(5 * 60),
+        default_ttl: std::time::Duration::from_mins(5),
 
         // HTTP client override (None = use defaults):
         http_config: None,

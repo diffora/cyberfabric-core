@@ -1259,7 +1259,7 @@ mod mysql_container {
                     .await
                     .unwrap();
                 let port = container.get_host_port_ipv4(3306).await.unwrap();
-                wait_for_tcp("127.0.0.1", port, Duration::from_secs(60)).await;
+                wait_for_tcp("127.0.0.1", port, Duration::from_mins(1)).await;
                 let url = format!("mysql://user:pass@127.0.0.1:{port}/bench");
 
                 let db = connect_db(&url, ConnectOpts::default()).await.unwrap();
@@ -1324,7 +1324,7 @@ mod mariadb_container {
                     .await
                     .unwrap();
                 let port = container.get_host_port_ipv4(3306).await.unwrap();
-                wait_for_tcp("127.0.0.1", port, Duration::from_secs(60)).await;
+                wait_for_tcp("127.0.0.1", port, Duration::from_mins(1)).await;
                 let url = format!("mysql://user:pass@127.0.0.1:{port}/bench");
 
                 // MariaDB may accept TCP before auth is ready. Retry connect.

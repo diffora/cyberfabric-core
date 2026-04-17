@@ -109,9 +109,9 @@ impl JwksKeyProvider {
             keys: Arc::new(ArcSwap::from_pointee(HashMap::new())),
             refresh_state: Arc::new(RwLock::new(RefreshState::default())),
             client,
-            refresh_interval: Duration::from_secs(300), // 5 minutes
-            max_backoff: Duration::from_secs(3600),     // 1 hour
-            on_demand_refresh_cooldown: Duration::from_secs(60), // 1 minute
+            refresh_interval: Duration::from_mins(5), // 5 minutes
+            max_backoff: Duration::from_hours(1),     // 1 hour
+            on_demand_refresh_cooldown: Duration::from_mins(1), // 1 minute
             header_extras_handler: None,
         })
     }
@@ -198,7 +198,7 @@ impl JwksKeyProvider {
 
     /// Calculate backoff duration based on consecutive failures
     fn calculate_backoff(&self, failures: u32) -> Duration {
-        let base = Duration::from_secs(60); // 1 minute base
+        let base = Duration::from_mins(1); // 1 minute base
         let exponential = base * 2u32.pow(failures.min(10)); // Cap at 2^10
         exponential.min(self.max_backoff)
     }
@@ -455,7 +455,7 @@ pub async fn run_jwks_refresh_task(
     provider: Arc<JwksKeyProvider>,
     cancellation_token: CancellationToken,
 ) {
-    let mut interval = tokio::time::interval(Duration::from_secs(60)); // Check every minute
+    let mut interval = tokio::time::interval(Duration::from_mins(1)); // Check every minute
 
     loop {
         tokio::select! {
@@ -530,9 +530,9 @@ mod tests {
             keys: Arc::new(ArcSwap::from_pointee(HashMap::new())),
             refresh_state: Arc::new(RwLock::new(RefreshState::default())),
             client,
-            refresh_interval: Duration::from_secs(300),
-            max_backoff: Duration::from_secs(3600),
-            on_demand_refresh_cooldown: Duration::from_secs(60),
+            refresh_interval: Duration::from_mins(5),
+            max_backoff: Duration::from_hours(1),
+            on_demand_refresh_cooldown: Duration::from_mins(1),
             header_extras_handler: None,
         }
     }
@@ -560,10 +560,10 @@ mod tests {
     async fn test_calculate_backoff() {
         let provider = test_provider("https://example.com/jwks");
 
-        assert_eq!(provider.calculate_backoff(0), Duration::from_secs(60));
-        assert_eq!(provider.calculate_backoff(1), Duration::from_secs(120));
-        assert_eq!(provider.calculate_backoff(2), Duration::from_secs(240));
-        assert_eq!(provider.calculate_backoff(3), Duration::from_secs(480));
+        assert_eq!(provider.calculate_backoff(0), Duration::from_mins(1));
+        assert_eq!(provider.calculate_backoff(1), Duration::from_mins(2));
+        assert_eq!(provider.calculate_backoff(2), Duration::from_mins(4));
+        assert_eq!(provider.calculate_backoff(3), Duration::from_mins(8));
 
         // Should cap at max_backoff
         assert_eq!(provider.calculate_backoff(100), provider.max_backoff);
@@ -764,7 +764,7 @@ mod tests {
 
         let jwks_url = server.url("/jwks");
         let provider = test_provider_with_http(&jwks_url)
-            .with_on_demand_refresh_cooldown(Duration::from_secs(60));
+            .with_on_demand_refresh_cooldown(Duration::from_mins(1));
 
         // First attempt - should try to refresh and fail
         let result1 = provider.on_demand_refresh("test-kid").await;

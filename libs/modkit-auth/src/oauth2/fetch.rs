@@ -169,7 +169,7 @@ mod tests {
 
         let fetched = fetch_token(cfg).await.unwrap();
         assert_eq!(fetched.bearer.expose(), "tok-discovered");
-        assert_eq!(fetched.expires_in, Duration::from_secs(1800));
+        assert_eq!(fetched.expires_in, Duration::from_mins(30));
     }
 
     #[tokio::test]
@@ -216,7 +216,7 @@ mod tests {
 
         let fetched = fetch_token(test_config(&server)).await.unwrap();
         assert_eq!(fetched.bearer.expose(), "tok-happy");
-        assert_eq!(fetched.expires_in, Duration::from_secs(3600));
+        assert_eq!(fetched.expires_in, Duration::from_hours(1));
     }
 
     #[tokio::test]
@@ -233,7 +233,7 @@ mod tests {
         let fetched = fetch_token(test_config(&server)).await.unwrap();
         assert_eq!(fetched.bearer.expose(), "tok-default");
         // default_ttl from OAuthClientConfig::default() is 5 min = 300s
-        assert_eq!(fetched.expires_in, Duration::from_secs(300));
+        assert_eq!(fetched.expires_in, Duration::from_mins(5));
     }
 
     #[tokio::test]

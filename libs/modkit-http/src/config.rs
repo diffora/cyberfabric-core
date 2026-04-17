@@ -614,7 +614,7 @@ impl HttpClientConfig {
     #[must_use]
     pub fn infra_default() -> Self {
         Self {
-            request_timeout: Duration::from_secs(60),
+            request_timeout: Duration::from_mins(1),
             total_timeout: None,
             max_body_size: 50 * 1024 * 1024, // 50 MB
             user_agent: DEFAULT_USER_AGENT.to_owned(),
@@ -625,7 +625,7 @@ impl HttpClientConfig {
             otel: false,
             buffer_capacity: 1024,
             redirect: RedirectConfig::default(),
-            pool_idle_timeout: Some(Duration::from_secs(120)),
+            pool_idle_timeout: Some(Duration::from_mins(2)),
             pool_max_idle_per_host: 64,
         }
     }
@@ -666,7 +666,7 @@ impl HttpClientConfig {
             otel: false,
             buffer_capacity: 256,
             redirect: RedirectConfig::default(),
-            pool_idle_timeout: Some(Duration::from_secs(60)),
+            pool_idle_timeout: Some(Duration::from_mins(1)),
             pool_max_idle_per_host: 4,
         }
     }
@@ -734,7 +734,7 @@ impl HttpClientConfig {
     #[must_use]
     pub fn sse() -> Self {
         Self {
-            request_timeout: Duration::from_secs(86_400), // 24 hours
+            request_timeout: Duration::from_hours(24), // 24 hours
             total_timeout: None,
             max_body_size: 10 * 1024 * 1024, // 10 MB (only for bytes()/json(), not into_body())
             user_agent: DEFAULT_USER_AGENT.to_owned(),
@@ -993,7 +993,7 @@ mod tests {
     #[test]
     fn test_http_client_config_infra_default() {
         let config = HttpClientConfig::infra_default();
-        assert_eq!(config.request_timeout, Duration::from_secs(60));
+        assert_eq!(config.request_timeout, Duration::from_mins(1));
         assert_eq!(config.max_body_size, 50 * 1024 * 1024);
         assert!(config.retry.is_some());
         assert_eq!(config.retry.unwrap().max_retries, 5);
@@ -1029,7 +1029,7 @@ mod tests {
     #[test]
     fn test_http_client_config_sse() {
         let config = HttpClientConfig::sse();
-        assert_eq!(config.request_timeout, Duration::from_secs(86_400));
+        assert_eq!(config.request_timeout, Duration::from_hours(24));
         assert!(config.total_timeout.is_none());
         assert!(config.retry.is_none());
         assert!(config.rate_limit.is_none());

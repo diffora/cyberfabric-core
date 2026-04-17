@@ -163,26 +163,12 @@ pub struct StatsSnapshot {
 impl StatsSnapshot {
     /// Average execution time in microseconds (0 if no executions).
     pub fn avg_exec_us(&self) -> u64 {
-        if self.executions == 0 {
-            0
-        } else {
-            #[allow(clippy::integer_division)]
-            {
-                self.total_exec_us / self.executions
-            }
-        }
+        self.total_exec_us.checked_div(self.executions).unwrap_or(0)
     }
 
     /// Average messages per execution (0 if no executions).
     pub fn avg_msgs(&self) -> u64 {
-        if self.executions == 0 {
-            0
-        } else {
-            #[allow(clippy::integer_division)]
-            {
-                self.total_msgs / self.executions
-            }
-        }
+        self.total_msgs.checked_div(self.executions).unwrap_or(0)
     }
 
     /// Returns true if no activity was recorded.
