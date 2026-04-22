@@ -132,10 +132,11 @@ Requirements that significantly influence architecture decisions.
 
 | ADR ID | Decision Summary |
 |--------|-----------------|
-| `cpt-cf-serverless-runtime-adr-callable-type-hierarchy` | Unified callable type hierarchy: Function as base type, Workflow as derived specialization |
+| `cpt-cf-serverless-runtime-adr-callable-type-hierarchy` | Unified callable type hierarchy: Function and Workflow as sibling GTS base types with identical base schema fields |
 | `cpt-cf-serverless-runtime-adr-jsonrpc-mcp-protocol-surfaces` | JSON-RPC 2.0 and MCP protocol surfaces for direct function invocation and AI agent tool integration |
 | `cpt-cf-serverless-runtime-adr-workflow-dsl` | CNCF Serverless Workflow Specification v1.0.0 adopted as the vendor-neutral, declarative JSON/YAML workflow DSL — decoupled from the execution engine |
 | `cpt-cf-serverless-runtime-adr-temporal-workflow-engine` | Temporal chosen as the durable execution backend for the workflow engine adapter, interpreting the Serverless Workflow DSL atop Temporal primitives |
+| `cpt-cf-serverless-runtime-adr-thin-host` | Serverless-runtime module boundary: host owns Registry, Policy, REST, GTS validation, audit, and plugin dispatch; runtime plugins own invocation, scheduling, and event-trigger handling using their backend's native primitives |
 
 ### 1.3 Architecture Layers
 
