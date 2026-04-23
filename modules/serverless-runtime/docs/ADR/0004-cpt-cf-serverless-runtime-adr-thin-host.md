@@ -91,12 +91,14 @@ Chosen option: **"Option C: Thin host, fat runtime plugin"**, because the backen
 
 ### Confirmation
 
-* The follow-up DESIGN.md rewrite enumerates host-owned components as: Function Registry, Tenant Policy, REST façade, GTS validation, audit, plugin dispatch, and the lightweight invocation index — and removes `sless-runtime` as a separate module, `JobTransport`, `ExecutionContext`, and any host-owned durability primitives
-* The `RuntimeAdapter` trait, declared in `serverless-runtime-sdk`, includes invocation, control, schedule, and event-trigger methods; `JobTransport` and `ExecutionContext` types will not be present in the SDK
-* No host crate (`serverless-runtime/serverless-runtime`) depends on any plugin crate — verified by `cargo tree`
-* The host crate source tree contains no `job_worker`, `timer_wheel`, `checkpoint_store`, or `event_matcher` modules — verified by directory listing
-* Adapter conformance tests will be added for: invocation status transitions, retry semantics, compensation triggering, suspension/resume visibility, error taxonomy
-* Code review verifies that plugin crates implement scheduling and event-trigger handling inside the plugin itself (not by calling into host durability APIs)
+Acceptance criteria to apply once the host and plugin crates are in place:
+
+* Ensure the follow-up DESIGN.md rewrite enumerates host-owned components as: Function Registry, Tenant Policy, REST façade, GTS validation, audit, plugin dispatch, and the lightweight invocation index — and that `sless-runtime` is not reintroduced as a separate module, and `JobTransport`, `ExecutionContext`, and host-owned durability primitives are not reintroduced
+* Ensure the `RuntimeAdapter` trait, declared in `serverless-runtime-sdk`, includes invocation, control, schedule, and event-trigger methods, and that `JobTransport` and `ExecutionContext` types are not present in the SDK
+* Ensure no host crate (`serverless-runtime/serverless-runtime`) depends on any plugin crate — verify with `cargo tree`
+* Ensure the host crate source tree contains no `job_worker`, `timer_wheel`, `checkpoint_store`, or `event_matcher` modules — verify via directory listing
+* Add adapter conformance tests in `serverless-runtime-sdk` covering: invocation status transitions, retry semantics, compensation triggering, suspension/resume visibility, error taxonomy
+* During code review, confirm that each plugin crate implements scheduling and event-trigger handling inside the plugin itself and does not call into host durability APIs
 
 ## Pros and Cons of the Options
 
