@@ -39,11 +39,22 @@ tags:
   - name: metadata
     description: Tenant-scoped extensible metadata and effective-value resolution.
 
+# Default security requirement applied to every operation. Operations
+# that need a specific scope override this block at the operation level
+# (see e.g. `createTenant` declaring `bearerAuth: [am.tenants.write]`);
+# any genuinely public endpoint would override with `security: []`.
+# AM has no public endpoints — the entire surface is tenant-scoped
+# control-plane and requires bearer authentication.
+security:
+  - bearerAuth: []
+
 paths:
   /api/account-management/v1/tenants:
     post:
       operationId: createTenant
       tags: [tenants]
+      security:
+        - bearerAuth: [am.tenants.write]
       summary: Create a child tenant
       description: |
         Creates a non-root tenant under an existing parent tenant. The server
@@ -74,6 +85,8 @@ paths:
     get:
       operationId: getTenant
       tags: [tenants]
+      security:
+        - bearerAuth: [am.tenants.read]
       summary: Read tenant details
       responses:
         '200':
@@ -87,6 +100,8 @@ paths:
     patch:
       operationId: updateTenant
       tags: [tenants]
+      security:
+        - bearerAuth: [am.tenants.write]
       summary: Update mutable tenant fields
       requestBody:
         required: true
@@ -106,6 +121,8 @@ paths:
     delete:
       operationId: deleteTenant
       tags: [tenants]
+      security:
+        - bearerAuth: [am.tenants.write]
       summary: Soft-delete a tenant
       responses:
         '200':
@@ -126,6 +143,8 @@ paths:
     get:
       operationId: listChildren
       tags: [tenants]
+      security:
+        - bearerAuth: [am.tenants.read]
       summary: List direct children of a tenant
       responses:
         '200':
@@ -434,6 +453,12 @@ paths:
           $ref: '#/components/responses/Problem'
 
 components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
   parameters:
     TenantId:
       name: tenant_id
@@ -545,6 +570,7 @@ components:
           type: integer
         total:
           type: integer
+          format: int64
           nullable: true
 
     Tenant:
@@ -924,7 +950,7 @@ components:
     Problem:
       type: object
       additionalProperties: true
-      required: [type, title, status, code, sub_code]
+      required: [type, title, status, code]
       properties:
         type:
           type: string
@@ -949,22 +975,12 @@ components:
             - idp_unsupported_operation
             - service_unavailable
             - internal
-        sub_code:
-          type: string
-          enum:
-            - validation
-            - not_found
-            - conflict
-            - cross_tenant_denied
-            - idp_unavailable
-            - idp_unsupported_operation
-            - service_unavailable
-            - internal
             - invalid_tenant_type
             - type_not_allowed
             - tenant_depth_exceeded
             - tenant_has_children
             - tenant_has_resources
+            - serialization_conflict
             - root_tenant_cannot_delete
             - pending_exists
             - invalid_actor_for_transition
@@ -973,7 +989,7 @@ components:
             - metadata_schema_not_registered
             - metadata_entry_not_found
           nullable: false
-          description: Stable module-specific discriminator. Broad categories use the category name when no finer discriminator applies.
+          description: Stable module-specific error discriminator. Clients switch on `code` for fine-grained handling; the broad RFC 9457 category is conveyed by `status`.
         details:
           type: object
           additionalProperties: true

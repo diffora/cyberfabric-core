@@ -88,7 +88,7 @@ Delivers the post-creation dual-consent conversion workflow described in PRD §5
 
 **Error Scenarios**:
 
-- Target tenant is the root — rejected with `root_tenant_cannot_convert` without creating any row (sub-code catalogued by `feature-errors-observability`).
+- Target tenant is the root — rejected with `root_tenant_cannot_convert` without creating any row (code catalogued by `feature-errors-observability`).
 - A `pending` `ConversionRequest` already exists for the target tenant — partial-unique-index collision at the DB layer, surfaced by ConversionService as `pending_exists` carrying the existing `request_id`.
 - Attempt to initiate on a tenant whose `status` is not `active` (e.g., `provisioning`, `suspended`, `deleted`) — rejected with `validation` via the `errors-observability` envelope; no row created.
 
@@ -96,12 +96,12 @@ Delivers the post-creation dual-consent conversion workflow described in PRD §5
 
 1. [ ] - `p1` - Validate caller identity and `SecurityContext`; resolve `caller_side` from the URL collection (`/conversions` → child, `/child-conversions` → parent) via ConversionService - `inst-flow-init-validate-caller`
 2. [ ] - `p1` - **IF** target tenant is the root (`parent_id IS NULL`) - `inst-flow-init-root-guard`
-   1. [ ] - `p1` - **RETURN** `(reject, sub_code=root_tenant_cannot_convert)` so `errors-observability` maps to its catalogued `validation` envelope; NO row created per `algo-root-tenant-conversion-refusal` - `inst-flow-init-root-return`
+   1. [ ] - `p1` - **RETURN** `(reject, code=root_tenant_cannot_convert)` so `errors-observability` maps to its catalogued `validation` envelope; NO row created per `algo-root-tenant-conversion-refusal` - `inst-flow-init-root-return`
 3. [ ] - `p1` - **IF** target tenant is not `active` (non-convertible lifecycle state) - `inst-flow-init-status-guard`
-   1. [ ] - `p1` - **RETURN** `(reject, sub_code=validation)` via the `errors-observability` envelope - `inst-flow-init-status-return`
+   1. [ ] - `p1` - **RETURN** `(reject, code=validation)` via the `errors-observability` envelope - `inst-flow-init-status-return`
 4. [ ] - `p1` - Invoke ConversionService `initiate(caller_side, tenant_id, actor)` to attempt the `pending` insert via ConversionRepository - `inst-flow-init-service-initiate`
 5. [ ] - `p1` - **IF** partial-unique-index collision on the single-pending invariant - `inst-flow-init-pending-collision`
-   1. [ ] - `p1` - **RETURN** `(reject, sub_code=pending_exists)` with the existing `request_id` body per `algo-single-pending-enforcement` - `inst-flow-init-pending-return`
+   1. [ ] - `p1` - **RETURN** `(reject, code=pending_exists)` with the existing `request_id` body per `algo-single-pending-enforcement` - `inst-flow-init-pending-return`
 6. [ ] - `p1` - **RETURN** 201 Created with `{request_id, target_mode, initiator_side, status=pending, expires_at}` projected per caller scope - `inst-flow-init-success-return`
 
 ### Conversion Approval
@@ -117,7 +117,7 @@ Delivers the post-creation dual-consent conversion workflow described in PRD §5
 
 **Error Scenarios**:
 
-- Caller is the initiator of this request — rejected with `invalid_actor_for_transition` carrying `attempted_status=approved` and `caller_side` (sub-code catalogued by `feature-errors-observability`).
+- Caller is the initiator of this request — rejected with `invalid_actor_for_transition` carrying `attempted_status=approved` and `caller_side` (code catalogued by `feature-errors-observability`).
 - Request is no longer `pending` (any resolved terminal) — rejected with `already_resolved`.
 - Pre-approval `algo-allowed-parent-types-evaluation` from `tenant-type-enforcement` returns reject (post-flip topology illegal) — mapped to the envelope per that feature's contract (`invalid_tenant_type` or `type_not_allowed`); no mode flip; `pending` row remains untouched for retry or explicit reject/cancel.
 
@@ -126,9 +126,9 @@ Delivers the post-creation dual-consent conversion workflow described in PRD §5
 1. [ ] - `p1` - Validate caller identity + `SecurityContext`; resolve `caller_side` from the URL collection via ConversionService - `inst-flow-appr-validate-caller`
 2. [ ] - `p1` - Load the target `ConversionRequest` by `request_id` via ConversionRepository - `inst-flow-appr-load-request`
 3. [ ] - `p1` - **IF** request `status ≠ pending` - `inst-flow-appr-already-resolved`
-   1. [ ] - `p1` - **RETURN** `(reject, sub_code=already_resolved)` via the `errors-observability` envelope - `inst-flow-appr-already-resolved-return`
+   1. [ ] - `p1` - **RETURN** `(reject, code=already_resolved)` via the `errors-observability` envelope - `inst-flow-appr-already-resolved-return`
 4. [ ] - `p1` - **IF** `caller_side == initiator_side` (initiator cannot approve their own request per PRD §5.4) - `inst-flow-appr-actor-guard`
-   1. [ ] - `p1` - **RETURN** `(reject, sub_code=invalid_actor_for_transition, attempted_status=approved, caller_side)` - `inst-flow-appr-actor-return`
+   1. [ ] - `p1` - **RETURN** `(reject, code=invalid_actor_for_transition, attempted_status=approved, caller_side)` - `inst-flow-appr-actor-return`
 5. [ ] - `p1` - Invoke `algo-dual-consent-apply` with `(request_id, actor, caller_side)` — runs the whole approval transaction - `inst-flow-appr-apply`
 6. [ ] - `p1` - **IF** dual-consent-apply returned type-enforcement reject - `inst-flow-appr-type-reject`
    1. [ ] - `p1` - **RETURN** the mapped error (`validation` / `invalid_tenant_type` OR `conflict` / `type_not_allowed`) per the envelope owned by `feature-errors-observability`; the `pending` row is left untouched for retry - `inst-flow-appr-type-reject-return`
@@ -154,9 +154,9 @@ Delivers the post-creation dual-consent conversion workflow described in PRD §5
 1. [ ] - `p1` - Validate caller identity + `SecurityContext`; resolve `caller_side` from the URL collection via ConversionService - `inst-flow-rej-validate-caller`
 2. [ ] - `p1` - Load the target `ConversionRequest` by `request_id` via ConversionRepository - `inst-flow-rej-load-request`
 3. [ ] - `p1` - **IF** request `status ≠ pending` - `inst-flow-rej-already-resolved`
-   1. [ ] - `p1` - **RETURN** `(reject, sub_code=already_resolved)` - `inst-flow-rej-already-resolved-return`
+   1. [ ] - `p1` - **RETURN** `(reject, code=already_resolved)` - `inst-flow-rej-already-resolved-return`
 4. [ ] - `p1` - **IF** `caller_side == initiator_side` - `inst-flow-rej-actor-guard`
-   1. [ ] - `p1` - **RETURN** `(reject, sub_code=invalid_actor_for_transition, attempted_status=rejected, caller_side)` - `inst-flow-rej-actor-return`
+   1. [ ] - `p1` - **RETURN** `(reject, code=invalid_actor_for_transition, attempted_status=rejected, caller_side)` - `inst-flow-rej-actor-return`
 5. [ ] - `p1` - Invoke ConversionService `reject(caller_side, request_id, actor)` — single transaction setting `status=rejected`, `rejected_by=actor`; `tenants.self_managed` untouched; emit audit entry via `errors-observability` - `inst-flow-rej-service-reject`
 6. [ ] - `p1` - **RETURN** 200 OK with the rejected `ConversionRequest` projection - `inst-flow-rej-success-return`
 
@@ -180,9 +180,9 @@ Delivers the post-creation dual-consent conversion workflow described in PRD §5
 1. [ ] - `p1` - Validate caller identity + `SecurityContext`; resolve `caller_side` from the URL collection via ConversionService - `inst-flow-can-validate-caller`
 2. [ ] - `p1` - Load the target `ConversionRequest` by `request_id` via ConversionRepository - `inst-flow-can-load-request`
 3. [ ] - `p1` - **IF** request `status ≠ pending` - `inst-flow-can-already-resolved`
-   1. [ ] - `p1` - **RETURN** `(reject, sub_code=already_resolved)` - `inst-flow-can-already-resolved-return`
+   1. [ ] - `p1` - **RETURN** `(reject, code=already_resolved)` - `inst-flow-can-already-resolved-return`
 4. [ ] - `p1` - **IF** `caller_side ≠ initiator_side` - `inst-flow-can-actor-guard`
-   1. [ ] - `p1` - **RETURN** `(reject, sub_code=invalid_actor_for_transition, attempted_status=cancelled, caller_side)` - `inst-flow-can-actor-return`
+   1. [ ] - `p1` - **RETURN** `(reject, code=invalid_actor_for_transition, attempted_status=cancelled, caller_side)` - `inst-flow-can-actor-return`
 5. [ ] - `p1` - Invoke ConversionService `cancel(caller_side, request_id, actor)` — single transaction setting `status=cancelled`, `cancelled_by=actor`; `tenants.self_managed` untouched; emit audit entry via `errors-observability` - `inst-flow-can-service-cancel`
 6. [ ] - `p1` - **RETURN** 200 OK with the cancelled `ConversionRequest` projection - `inst-flow-can-success-return`
 
@@ -212,7 +212,7 @@ Delivers the post-creation dual-consent conversion workflow described in PRD §5
 3. [ ] - `p1` - **ELSE** request is the single-item endpoint - `inst-flow-pdis-item-branch`
    1. [ ] - `p1` - Load `ConversionRequest` by `request_id` via ConversionRepository; confirm the target tenant's `parent_id` equals `{parent_id}` - `inst-flow-pdis-item-load`
    2. [ ] - `p1` - **IF** not found OR not a direct child of `{parent_id}` - `inst-flow-pdis-item-not-found`
-      1. [ ] - `p1` - **RETURN** `(reject, sub_code=not_found)` via the `errors-observability` envelope - `inst-flow-pdis-item-not-found-return`
+      1. [ ] - `p1` - **RETURN** `(reject, code=not_found)` via the `errors-observability` envelope - `inst-flow-pdis-item-not-found-return`
    3. [ ] - `p1` - **RETURN** 200 OK with the minimal projection for the single row - `inst-flow-pdis-item-return`
 
 ## 3. Processes / Business Logic (CDSL)
@@ -253,12 +253,12 @@ Delivers the post-creation dual-consent conversion workflow described in PRD §5
 
 **Steps**:
 
-> The at-most-one-pending-per-tenant invariant is enforced at the storage layer by the partial unique index catalogued in DESIGN §3.7 `dbtable-conversion-requests`. This algorithm is the service-layer contract that translates the DB collision into the public sub-code.
+> The at-most-one-pending-per-tenant invariant is enforced at the storage layer by the partial unique index catalogued in DESIGN §3.7 `dbtable-conversion-requests`. This algorithm is the service-layer contract that translates the DB collision into the public code.
 
 1. [ ] - `p1` - Attempt the `pending` `ConversionRequest` insert via ConversionRepository with `initiator_side`, `target_mode`, `expires_at = now() + approval_ttl` - `inst-algo-spe-attempt-insert`
 2. [ ] - `p1` - **IF** insert raised the partial-unique-index collision on the single-pending invariant - `inst-algo-spe-collision-detected`
    1. [ ] - `p1` - Load the existing `pending` row for `{tenant_id}` via ConversionRepository to retrieve its `request_id` - `inst-algo-spe-load-existing`
-   2. [ ] - `p1` - **RETURN** `(reject, sub_code=pending_exists, existing_request_id)` — surfaced by the service layer as a `conflict` envelope entry per `feature-errors-observability` - `inst-algo-spe-return-conflict`
+   2. [ ] - `p1` - **RETURN** `(reject, code=pending_exists, existing_request_id)` — surfaced by the service layer as a `conflict` envelope entry per `feature-errors-observability` - `inst-algo-spe-return-conflict`
 3. [ ] - `p1` - **ELSE** insert succeeded - `inst-algo-spe-success`
    1. [ ] - `p1` - **RETURN** success with the new `request_id` - `inst-algo-spe-return-success`
 
@@ -317,7 +317,7 @@ Delivers the post-creation dual-consent conversion workflow described in PRD §5
 
 1. [ ] - `p1` - Load the target tenant row via TenantRepository - `inst-algo-rtcr-load-tenant`
 2. [ ] - `p1` - **IF** tenant is the root (`parent_id IS NULL`) - `inst-algo-rtcr-root-check`
-   1. [ ] - `p1` - **RETURN** `(reject, sub_code=root_tenant_cannot_convert)` — catalogued authoritatively by `feature-errors-observability`; NO `ConversionRequest` row is created - `inst-algo-rtcr-root-return`
+   1. [ ] - `p1` - **RETURN** `(reject, code=root_tenant_cannot_convert)` — catalogued authoritatively by `feature-errors-observability`; NO `ConversionRequest` row is created - `inst-algo-rtcr-root-return`
 3. [ ] - `p1` - **ELSE** tenant is non-root - `inst-algo-rtcr-nonroot-branch`
    1. [ ] - `p1` - **RETURN** pass-through so the initiation flow can apply its remaining guards (status, single-pending, etc.) - `inst-algo-rtcr-nonroot-return`
 
@@ -366,13 +366,13 @@ The system **MUST** execute every dual-consent approval as a single transaction 
 - Entities: `ConversionRequest`, `TenantMode`
 - Data: `cpt-cf-account-management-dbtable-conversion-requests`, `cpt-cf-account-management-dbtable-tenants`, `cpt-cf-account-management-dbtable-tenant-closure`
 - Sibling integration: `cpt-cf-account-management-algo-tenant-type-enforcement-allowed-parent-types-evaluation`, `cpt-cf-account-management-algo-tenant-hierarchy-management-closure-maintenance`
-- Error taxonomy: delegated to `feature-errors-observability` (catalog owner); sub-codes referenced by name only (`invalid_tenant_type`, `type_not_allowed`, `invalid_actor_for_transition`, `already_resolved`), HTTP status mapping owned by `feature-errors-observability`.
+- Error taxonomy: delegated to `feature-errors-observability` (catalog owner); codes referenced by name only (`invalid_tenant_type`, `type_not_allowed`, `invalid_actor_for_transition`, `already_resolved`), HTTP status mapping owned by `feature-errors-observability`.
 
 ### Single-Pending-Request Invariant
 
 - [ ] `p1` - **ID**: `cpt-cf-account-management-dod-managed-self-managed-modes-single-pending-invariant`
 
-The system **MUST** enforce the at-most-one-`pending`-`ConversionRequest`-per-tenant invariant at the storage layer via the partial unique index declared by `dbtable-conversion-requests`. ConversionService **MUST** translate the DB-layer constraint-violation into the public `pending_exists` sub-code carrying the existing `request_id`, surfaced through the `feature-errors-observability` envelope. The service **MUST NOT** substitute a read-then-insert pattern that would open a lost-update window; the storage constraint is the authoritative guard. Subsequent initiation attempts on a tenant that already has a resolved (`approved` / `cancelled` / `rejected` / `expired`) row **MUST** succeed because only `pending` rows participate in the partial-unique index.
+The system **MUST** enforce the at-most-one-`pending`-`ConversionRequest`-per-tenant invariant at the storage layer via the partial unique index declared by `dbtable-conversion-requests`. ConversionService **MUST** translate the DB-layer constraint-violation into the public `pending_exists` code carrying the existing `request_id`, surfaced through the `feature-errors-observability` envelope. The service **MUST NOT** substitute a read-then-insert pattern that would open a lost-update window; the storage constraint is the authoritative guard. Subsequent initiation attempts on a tenant that already has a resolved (`approved` / `cancelled` / `rejected` / `expired`) row **MUST** succeed because only `pending` rows participate in the partial-unique index.
 
 **Implements**:
 
@@ -383,7 +383,7 @@ The system **MUST** enforce the at-most-one-`pending`-`ConversionRequest`-per-te
 
 - Entities: `ConversionRequest`
 - Data: `cpt-cf-account-management-dbtable-conversion-requests`
-- Error taxonomy: delegated to `feature-errors-observability` (catalog owner); `pending_exists` sub-code referenced by name only, HTTP status mapping owned by `feature-errors-observability`.
+- Error taxonomy: delegated to `feature-errors-observability` (catalog owner); `pending_exists` code referenced by name only, HTTP status mapping owned by `feature-errors-observability`.
 
 ### Barrier Re-Materialization Consistency
 
@@ -454,13 +454,13 @@ The system **MUST** expose only minimal conversion-request metadata across the s
 - Entities: `ConversionRequest`
 - Data: `cpt-cf-account-management-dbtable-conversion-requests`
 - Sibling integration: `PolicyEnforcer` at the REST layer (external to this feature's surface)
-- Error taxonomy: delegated to `feature-errors-observability` (catalog owner); `not_found` and `validation` sub-codes referenced by name only.
+- Error taxonomy: delegated to `feature-errors-observability` (catalog owner); `not_found` and `validation` codes referenced by name only.
 
 ### Root-Tenant Non-Convertibility
 
 - [ ] `p1` - **ID**: `cpt-cf-account-management-dod-managed-self-managed-modes-root-tenant-non-convertibility`
 
-The system **MUST** refuse every initiation attempt targeting the root tenant (`parent_id IS NULL`) with `sub_code = root_tenant_cannot_convert`, surfaced through the `feature-errors-observability` envelope. No `ConversionRequest` row **MUST** be created for the root tenant under any code path, including creation-time admission (the root is always admitted with `self_managed = false`). The refusal **MUST** occur at the initiation boundary before any other guard runs; `flow-conversion-initiation` invokes `algo-root-tenant-conversion-refusal` as the first post-authorization check.
+The system **MUST** refuse every initiation attempt targeting the root tenant (`parent_id IS NULL`) with `code = root_tenant_cannot_convert`, surfaced through the `feature-errors-observability` envelope. No `ConversionRequest` row **MUST** be created for the root tenant under any code path, including creation-time admission (the root is always admitted with `self_managed = false`). The refusal **MUST** occur at the initiation boundary before any other guard runs; `flow-conversion-initiation` invokes `algo-root-tenant-conversion-refusal` as the first post-authorization check.
 
 **Implements**:
 
@@ -471,7 +471,7 @@ The system **MUST** refuse every initiation attempt targeting the root tenant (`
 
 - Entities: `ConversionRequest`
 - Data: `cpt-cf-account-management-dbtable-tenants`
-- Error taxonomy: delegated to `feature-errors-observability` (catalog owner); `root_tenant_cannot_convert` sub-code referenced by name only.
+- Error taxonomy: delegated to `feature-errors-observability` (catalog owner); `root_tenant_cannot_convert` code referenced by name only.
 
 ### Mixed-Mode Tree Consistency
 
@@ -497,7 +497,7 @@ The system **MUST** support managed and self-managed tenants coexisting in the s
 
 - [ ] `p1` - **ID**: `cpt-cf-account-management-dod-managed-self-managed-modes-dual-consent-actor-discipline`
 
-The system **MUST** enforce that only the counterparty of a `pending` `ConversionRequest` can approve or reject it, and only the initiator can cancel their own request. Any other `(caller_side, transition)` combination **MUST** be refused with `sub_code = invalid_actor_for_transition`, carrying `attempted_status` and `caller_side` for observability, through the `feature-errors-observability` envelope. Idempotent PATCH attempts on `approved`, `cancelled`, `rejected`, or `expired` rows **MUST** be refused with `sub_code = already_resolved`; the resolved state **MUST NOT** be re-written under any condition. Role evaluation **MUST** happen after the `pending`-state check so that a resolved row returns `already_resolved` regardless of who the caller is.
+The system **MUST** enforce that only the counterparty of a `pending` `ConversionRequest` can approve or reject it, and only the initiator can cancel their own request. Any other `(caller_side, transition)` combination **MUST** be refused with `code = invalid_actor_for_transition`, carrying `attempted_status` and `caller_side` for observability, through the `feature-errors-observability` envelope. Idempotent PATCH attempts on `approved`, `cancelled`, `rejected`, or `expired` rows **MUST** be refused with `code = already_resolved`; the resolved state **MUST NOT** be re-written under any condition. Role evaluation **MUST** happen after the `pending`-state check so that a resolved row returns `already_resolved` regardless of who the caller is.
 
 **Implements**:
 
@@ -509,21 +509,21 @@ The system **MUST** enforce that only the counterparty of a `pending` `Conversio
 
 - Entities: `ConversionRequest`
 - Data: `cpt-cf-account-management-dbtable-conversion-requests`
-- Error taxonomy: delegated to `feature-errors-observability` (catalog owner); `invalid_actor_for_transition` and `already_resolved` sub-codes referenced by name only, HTTP status mapping owned by `feature-errors-observability`.
+- Error taxonomy: delegated to `feature-errors-observability` (catalog owner); `invalid_actor_for_transition` and `already_resolved` codes referenced by name only, HTTP status mapping owned by `feature-errors-observability`.
 
 ## 6. Acceptance Criteria
 
 - [ ] A counterparty PATCH approving a `pending` `ConversionRequest` flips `tenants.self_managed` to `target_mode`, re-materializes `tenant_closure.barrier` via `algo-closure-maintenance` on every `(ancestor, descendant]` strict path touching the converted tenant, transitions `dbtable-conversion-requests.state` to `approved` with `approved_by = counterparty actor uuid`, and emits the `conversion_approved` audit entry — all visible atomically inside one transaction; failure of any sub-step rolls back the whole transaction and leaves no half-applied state externally observable. Fingerprints `dod-managed-self-managed-modes-dual-consent-apply`.
-- [ ] Attempting to create a second `pending` `ConversionRequest` for a tenant that already has a `pending` row returns `sub_code=pending_exists` carrying the existing `request_id`, surfaced through the `feature-errors-observability` envelope; the partial unique index declared on `dbtable-conversion-requests` raises the storage-layer collision so the service-layer translation cannot be bypassed by a read-then-insert race. A subsequent initiation attempt on the same tenant after the prior row is resolved (`approved` / `cancelled` / `rejected` / `expired`) succeeds because only `pending` rows participate in the partial unique index. Fingerprints `dod-managed-self-managed-modes-single-pending-invariant`.
-- [ ] A PATCH approval or rejection invoked by the initiator on their own `pending` row (`caller_side == initiator_side`) returns `sub_code=invalid_actor_for_transition` carrying `attempted_status` and `caller_side`; `dbtable-conversion-requests.state` is not mutated and `tenants.self_managed` is unchanged. Fingerprints `dod-managed-self-managed-modes-dual-consent-actor-discipline`.
-- [ ] A PATCH cancellation invoked by the counterparty (`caller_side ≠ initiator_side`) on a `pending` row returns `sub_code=invalid_actor_for_transition` carrying `attempted_status=cancelled` and `caller_side`; only the initiator can cancel their own `pending` row, and the successful initiator-side cancel sets `dbtable-conversion-requests.state=cancelled` with `cancelled_by = initiator actor uuid` while leaving `tenants.self_managed` unchanged. Fingerprints `dod-managed-self-managed-modes-dual-consent-actor-discipline`.
-- [ ] A PATCH attempt (approve, reject, or cancel) on a `ConversionRequest` row whose state is already `approved`, `cancelled`, `rejected`, or `expired` returns `sub_code=already_resolved` regardless of the caller's side; the resolved state is not re-written, and the role check does not run for resolved rows because the state check precedes actor discipline. Fingerprints `dod-managed-self-managed-modes-dual-consent-actor-discipline`.
+- [ ] Attempting to create a second `pending` `ConversionRequest` for a tenant that already has a `pending` row returns `code=pending_exists` carrying the existing `request_id`, surfaced through the `feature-errors-observability` envelope; the partial unique index declared on `dbtable-conversion-requests` raises the storage-layer collision so the service-layer translation cannot be bypassed by a read-then-insert race. A subsequent initiation attempt on the same tenant after the prior row is resolved (`approved` / `cancelled` / `rejected` / `expired`) succeeds because only `pending` rows participate in the partial unique index. Fingerprints `dod-managed-self-managed-modes-single-pending-invariant`.
+- [ ] A PATCH approval or rejection invoked by the initiator on their own `pending` row (`caller_side == initiator_side`) returns `code=invalid_actor_for_transition` carrying `attempted_status` and `caller_side`; `dbtable-conversion-requests.state` is not mutated and `tenants.self_managed` is unchanged. Fingerprints `dod-managed-self-managed-modes-dual-consent-actor-discipline`.
+- [ ] A PATCH cancellation invoked by the counterparty (`caller_side ≠ initiator_side`) on a `pending` row returns `code=invalid_actor_for_transition` carrying `attempted_status=cancelled` and `caller_side`; only the initiator can cancel their own `pending` row, and the successful initiator-side cancel sets `dbtable-conversion-requests.state=cancelled` with `cancelled_by = initiator actor uuid` while leaving `tenants.self_managed` unchanged. Fingerprints `dod-managed-self-managed-modes-dual-consent-actor-discipline`.
+- [ ] A PATCH attempt (approve, reject, or cancel) on a `ConversionRequest` row whose state is already `approved`, `cancelled`, `rejected`, or `expired` returns `code=already_resolved` regardless of the caller's side; the resolved state is not re-written, and the role check does not run for resolved rows because the state check precedes actor discipline. Fingerprints `dod-managed-self-managed-modes-dual-consent-actor-discipline`.
 - [ ] Approving a `managed → self-managed` conversion causes every `tenant_closure` row whose strict `(ancestor, descendant]` path includes the newly self-managed tenant to have `barrier = 1`; approving a `self-managed → managed` conversion causes every `tenant_closure` row whose strict `(ancestor, descendant]` path no longer contains any `self_managed = true` tenant to have `barrier = 0`, while rows whose strict path is unaffected are not rewritten. Zero half-updated `tenant_closure` rows are visible outside the owning approval transaction because closure re-materialization is delegated to `algo-closure-maintenance` inside the same transaction that flips `tenants.self_managed`. Fingerprints `dod-managed-self-managed-modes-barrier-rematerialization-consistency`.
 - [ ] The background reaper driven by `algo-conversion-expiry-reaper` transitions every `pending` `ConversionRequest` for which `now() >= expires_at` (equivalently `expires_at <= now()`) to `dbtable-conversion-requests.state=expired` without mutating `tenants.self_managed` or `tenant_closure.barrier`; for each reaped row an audit entry with `actor = system` is emitted via the `feature-errors-observability` audit envelope, and `am_conversion_expired_total` is advanced by the reaped count. Fingerprints `dod-managed-self-managed-modes-conversion-expiry`.
 - [ ] A `ConversionRequest` row in a resolved state (`approved`, `cancelled`, `rejected`, or `expired`) remains queryable on the default `/tenants/{tenant_id}/conversions` and `/tenants/{tenant_id}/child-conversions` API surfaces until the soft-delete-and-hard-delete retention cadence owned by `feature-tenant-hierarchy-management` reclaims it via `ON DELETE CASCADE` on `conversion_requests.tenant_id`; no `ConversionRequest` row is deleted solely because it transitioned out of `pending`, and the resolved-retention window does not exceed the tenant hard-delete retention period. Fingerprints `dod-managed-self-managed-modes-conversion-expiry`.
 - [ ] Creating a child tenant with `self_managed = true` at tenant-creation time via the `tenant-hierarchy-management` create saga writes no `ConversionRequest` row and does not invoke the `/tenants/{tenant_id}/conversions` REST surface; `tenant_closure.barrier = 1` is materialized at activation by the `algo-closure-maintenance` activation branch for every `(ancestor, descendant]` strict path whose descendant is the new self-managed tenant. A root-creation path (`parent_id IS NULL`) forces `self_managed = false` regardless of the caller's requested value because the root is non-convertible by deployment convention. Fingerprints `dod-managed-self-managed-modes-creation-time-self-managed`.
-- [ ] A `GET /tenants/{parent_id}/child-conversions` response includes for each conversion-request entry only the minimal cross-barrier projection per DESIGN §3.2 — `request_id`, child `tenant_id`, `child_name`, `initiator_side`, `target_mode`, `status`, actor uuids (`requested_by`, `approved_by`, `cancelled_by`, `rejected_by`), and timestamps; no child-subtree data (tenant metadata beyond `child_name`, descendants, user records, or resource inventories) is surfaced. A `GET /tenants/{parent_id}/child-conversions/{request_id}` targeting a `request_id` that does not belong to a direct child of `{parent_id}` returns `sub_code=not_found` via the `feature-errors-observability` envelope. Fingerprints `dod-managed-self-managed-modes-parent-side-minimal-surface`.
-- [ ] A `POST /tenants/{root_id}/conversions` targeting the root tenant (`parent_id IS NULL`) is refused with `sub_code=root_tenant_cannot_convert` through the `feature-errors-observability` envelope; no row is inserted into `dbtable-conversion-requests`. The refusal applies regardless of which actor initiates the request and is driven by `algo-root-tenant-conversion-refusal` as the first post-authorization guard of `flow-conversion-initiation`, before single-pending or status guards run. Fingerprints `dod-managed-self-managed-modes-root-tenant-non-convertibility`.
+- [ ] A `GET /tenants/{parent_id}/child-conversions` response includes for each conversion-request entry only the minimal cross-barrier projection per DESIGN §3.2 — `request_id`, child `tenant_id`, `child_name`, `initiator_side`, `target_mode`, `status`, actor uuids (`requested_by`, `approved_by`, `cancelled_by`, `rejected_by`), and timestamps; no child-subtree data (tenant metadata beyond `child_name`, descendants, user records, or resource inventories) is surfaced. A `GET /tenants/{parent_id}/child-conversions/{request_id}` targeting a `request_id` that does not belong to a direct child of `{parent_id}` returns `code=not_found` via the `feature-errors-observability` envelope. Fingerprints `dod-managed-self-managed-modes-parent-side-minimal-surface`.
+- [ ] A `POST /tenants/{root_id}/conversions` targeting the root tenant (`parent_id IS NULL`) is refused with `code=root_tenant_cannot_convert` through the `feature-errors-observability` envelope; no row is inserted into `dbtable-conversion-requests`. The refusal applies regardless of which actor initiates the request and is driven by `algo-root-tenant-conversion-refusal` as the first post-authorization guard of `flow-conversion-initiation`, before single-pending or status guards run. Fingerprints `dod-managed-self-managed-modes-root-tenant-non-convertibility`.
 - [ ] A hierarchy containing managed and self-managed tenants mixed across ancestor chains is admitted by both approval and creation paths without tree-shape rejections; on every conversion approval and every creation-time admission, `tenant_closure.barrier` is written via `algo-closure-maintenance` so that every `(ancestor, descendant]` strict path reflects the canonical invariant (`barrier = 1` iff any tenant on the strict path is `self_managed = true`). Hot-path read semantics over the materialized column are not implemented here — this AC binds the write-side contract only. Fingerprints `dod-managed-self-managed-modes-mixed-mode-tree-consistency`.
 
 ## 7. Deliberate Omissions

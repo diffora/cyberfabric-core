@@ -73,9 +73,21 @@ pub mod state {
     #[derive(Debug, Clone, Copy)]
     pub struct AuthNotSet;
 
-    /// Marker for auth requirement set (either `authenticated` or public)
+    /// Marker for an explicitly public route (auth decided, none required).
+    ///
+    /// Reached via `.public()`. Scope-related builders (`required_scope`,
+    /// `require_license_features`, ...) are intentionally **not** available
+    /// in this state.
     #[derive(Debug, Clone, Copy)]
     pub struct AuthSet;
+
+    /// Marker for an authenticated route (auth decided, bearer token required).
+    ///
+    /// Reached via `.authenticated()`. This is the only state in which
+    /// `required_scope(...)` and `require_license_features(...)` are
+    /// available, so `.public().required_scope(...)` will not compile.
+    #[derive(Debug, Clone, Copy)]
+    pub struct AuthRequired;
 
     /// Marker for license requirement not yet set
     #[derive(Debug, Clone, Copy)]
@@ -86,12 +98,48 @@ pub mod state {
     pub struct LicenseSet;
 }
 
+/// Runtime auth requirement on an [`OperationSpec`].
+///
+/// The type-state builder is the source of truth at compile time; this
+/// enum is the materialized record consumed by registries (`OpenAPI`, route
+/// policy) at runtime. The three variants make the prior
+/// `(authenticated: bool, is_public: bool)` pair total: `Unset` is the
+/// intermediate state during builder construction; `Public` and
+/// `Authenticated` are the only states a successfully `register()`ed
+/// operation can be in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AuthMode {
+    /// Auth requirement not yet declared. Cannot reach `register()` —
+    /// the type-state machine forces a transition into `Public` or
+    /// `Authenticated` before registration.
+    Unset,
+    /// Public route — no authentication required.
+    Public,
+    /// Authenticated route — bearer/OAuth credentials required.
+    Authenticated,
+}
+
+impl AuthMode {
+    /// Whether this route requires authentication.
+    #[must_use]
+    pub fn is_authenticated(self) -> bool {
+        matches!(self, Self::Authenticated)
+    }
+
+    /// Whether this route is explicitly public (no auth).
+    #[must_use]
+    pub fn is_public(self) -> bool {
+        matches!(self, Self::Public)
+    }
+}
+
 /// Internal trait mapping handler state to the concrete router slot type.
 /// For `Missing` there is no router slot; for `Present` it is `MethodRouter<S>`.
 /// Private sealed trait to enforce the implementation is only visible within this module.
 mod sealed {
     pub trait Sealed {}
     pub trait SealedAuth {}
+    pub trait SealedAuthDecided {}
     pub trait SealedLicenseReq {}
 }
 
@@ -102,14 +150,28 @@ pub trait HandlerSlot<S>: sealed::Sealed {
 /// Sealed trait for auth state markers
 pub trait AuthState: sealed::SealedAuth {}
 
+/// Sealed trait for auth-decided markers — implemented by both `AuthSet`
+/// (public) and `AuthRequired` (authenticated). Used as the bound on
+/// `register()` so registration is allowed for either route kind, but not
+/// before the auth requirement has been declared.
+pub trait AuthDecided: AuthState + sealed::SealedAuthDecided {}
+
 impl sealed::Sealed for Missing {}
 impl sealed::Sealed for Present {}
 
 impl sealed::SealedAuth for state::AuthNotSet {}
 impl sealed::SealedAuth for state::AuthSet {}
+impl sealed::SealedAuth for state::AuthRequired {}
 
 impl AuthState for state::AuthNotSet {}
 impl AuthState for state::AuthSet {}
+impl AuthState for state::AuthRequired {}
+
+impl sealed::SealedAuthDecided for state::AuthSet {}
+impl sealed::SealedAuthDecided for state::AuthRequired {}
+
+impl AuthDecided for state::AuthSet {}
+impl AuthDecided for state::AuthRequired {}
 
 pub trait LicenseState: sealed::SealedLicenseReq {}
 
@@ -126,7 +188,7 @@ impl<S> HandlerSlot<S> for Present {
     type Slot = MethodRouter<S>;
 }
 
-pub use state::{AuthNotSet, AuthSet, LicenseNotSet, LicenseSet, Missing, Present};
+pub use state::{AuthNotSet, AuthRequired, AuthSet, LicenseNotSet, LicenseSet, Missing, Present};
 
 /// Parameter specification for API operations
 #[derive(Clone, Debug)]
@@ -205,11 +267,16 @@ pub struct OperationSpec {
     pub responses: Vec<ResponseSpec>,
     /// Internal handler id; can be used by registry/generator to map a handler identity
     pub handler_id: String,
-    /// Whether this operation requires authentication.
-    /// `true` = authenticated endpoint, `false` = public endpoint.
-    pub authenticated: bool,
-    /// Explicitly mark route as public (no auth required)
-    pub is_public: bool,
+    /// Auth requirement for this operation.
+    ///
+    /// Replaces the prior `(authenticated: bool, is_public: bool)` pair, which
+    /// admitted invalid `(true, true)` and `(false, false)` runtime states. The
+    /// type-state builder enforces a single transition into `Public` or
+    /// `Authenticated`; the [`AuthMode::Unset`] variant only exists as the
+    /// intermediate state between `OperationBuilder::*` constructors and
+    /// `.authenticated()`/`.public()`. By the time `register()` accepts the
+    /// builder, `auth_mode` is guaranteed to be `Public` or `Authenticated`.
+    pub auth_mode: AuthMode,
     /// Optional rate & concurrency limits for this operation
     pub rate_limit: Option<RateLimitSpec>,
     /// Optional whitelist of allowed request Content-Type values (without parameters).
@@ -221,6 +288,9 @@ pub struct OperationSpec {
     /// `OpenAPI` vendor extensions (x-*)
     pub vendor_extensions: VendorExtensions,
     pub license_requirement: Option<LicenseReqSpec>,
+    /// OAuth/bearer scopes required by this operation. Empty means
+    /// authentication is required but no route-specific scope is declared.
+    pub required_scopes: Vec<String>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
@@ -387,7 +457,7 @@ pub use crate::api::openapi_registry::{OpenApiRegistry, ensure_schema};
 /// - `H`: Handler state (Missing | Present)
 /// - `R`: Response state (Missing | Present)
 /// - `S`: Router state type (what you put into `Router::with_state(S)`).
-/// - `A`: Auth state (`AuthNotSet` | `AuthSet`)
+/// - `A`: Auth state (`AuthNotSet` | `AuthSet` (public) | `AuthRequired` (authenticated))
 /// - `L`: License requirement state (`LicenseNotSet` | `LicenseSet`)
 #[must_use]
 pub struct OperationBuilder<H = Missing, R = Missing, S = (), A = AuthNotSet, L = LicenseNotSet>
@@ -431,12 +501,12 @@ impl<S> OperationBuilder<Missing, Missing, S, AuthNotSet> {
                 request_body: None,
                 responses: Vec::new(),
                 handler_id,
-                authenticated: false,
-                is_public: false,
+                auth_mode: AuthMode::Unset,
                 rate_limit: None,
                 allowed_request_content_types: None,
                 vendor_extensions: VendorExtensions::default(),
                 license_requirement: None,
+                required_scopes: Vec::new(),
             },
             method_router: (), // no router in Missing state
             _has_handler: PhantomData,
@@ -500,7 +570,7 @@ where
 
     /// Require per-route rate and concurrency limits.
     /// Stores metadata for the gateway to enforce.
-    pub fn require_rate_limit(&mut self, rps: u32, burst: u32, in_flight: u32) -> &mut Self {
+    pub fn require_rate_limit(mut self, rps: u32, burst: u32, in_flight: u32) -> Self {
         self.spec.rate_limit = Some(RateLimitSpec {
             rps,
             burst,
@@ -803,8 +873,12 @@ where
     }
 }
 
-/// License requirement setting — transitions `LicenseNotSet` -> `LicenseSet`
-impl<H, R, S> OperationBuilder<H, R, S, AuthSet, LicenseNotSet>
+/// License requirement setting — transitions `LicenseNotSet` -> `LicenseSet`.
+///
+/// Only available on authenticated builders (`AuthRequired`); public routes
+/// reach `LicenseSet` directly via `.public()` and have no use for these
+/// methods.
+impl<H, R, S> OperationBuilder<H, R, S, AuthRequired, LicenseNotSet>
 where
     H: HandlerSlot<S>,
 {
@@ -823,7 +897,7 @@ where
     pub fn require_license_features<F>(
         mut self,
         licenses: impl IntoIterator<Item = F>,
-    ) -> OperationBuilder<H, R, S, AuthSet, LicenseSet>
+    ) -> OperationBuilder<H, R, S, AuthRequired, LicenseSet>
     where
         F: LicenseFeature,
     {
@@ -853,7 +927,84 @@ where
     ///
     /// This transitions from `LicenseNotSet` to `LicenseSet` without
     /// attaching any license requirement.
-    pub fn no_license_required(self) -> OperationBuilder<H, R, S, AuthSet, LicenseSet> {
+    pub fn no_license_required(self) -> OperationBuilder<H, R, S, AuthRequired, LicenseSet> {
+        OperationBuilder {
+            spec: self.spec,
+            method_router: self.method_router,
+            _has_handler: self._has_handler,
+            _has_response: self._has_response,
+            _state: self._state,
+            _auth_state: self._auth_state,
+            _license_state: PhantomData,
+        }
+    }
+
+    /// Declare a bearer/OAuth scope required by this authenticated operation.
+    /// Can be chained to declare multiple scopes; each call appends one scope.
+    /// Records route-policy metadata for generated `OpenAPI` and satisfies the
+    /// license-declaration requirement.
+    ///
+    /// # Panics (debug builds)
+    ///
+    /// Debug-asserts that `scope` is non-empty after `Into<String>` conversion.
+    /// An empty literal would emit `bearerAuth: [""]` in the generated
+    /// `OpenAPI` security requirement and configure a route as
+    /// "authenticated, but with no scope check" — which is almost never the
+    /// caller's intent. Public routes should use `.public()` instead.
+    pub fn required_scope(
+        mut self,
+        scope: impl Into<String>,
+    ) -> OperationBuilder<H, R, S, AuthRequired, LicenseSet> {
+        let scope = scope.into();
+        debug_assert!(
+            !scope.is_empty(),
+            "required_scope(\"\") is almost certainly a bug; use .public() for unauthenticated \
+             routes or pass a non-empty scope literal"
+        );
+        self.spec.required_scopes.push(scope);
+        OperationBuilder {
+            spec: self.spec,
+            method_router: self.method_router,
+            _has_handler: self._has_handler,
+            _has_response: self._has_response,
+            _state: self._state,
+            _auth_state: self._auth_state,
+            _license_state: PhantomData,
+        }
+    }
+}
+
+/// Additional scope chaining once the license requirement has been declared.
+///
+/// Mirrors the `LicenseNotSet` impl so that endpoints can be both
+/// license-gated (via `require_license_features` / `no_license_required`)
+/// and scope-gated, and so multiple `required_scope(...)` calls can be
+/// chained as the doc on that method advertises.
+///
+/// Restricted to `AuthRequired` so `.public().required_scope(...)` does not
+/// compile — public routes have no scope semantics.
+impl<H, R, S> OperationBuilder<H, R, S, AuthRequired, LicenseSet>
+where
+    H: HandlerSlot<S>,
+{
+    /// Declare an additional bearer/OAuth scope on a builder that has already
+    /// transitioned to `LicenseSet`. Each call appends one scope.
+    ///
+    /// # Panics (debug builds)
+    ///
+    /// Same empty-scope guard as the `LicenseNotSet` impl — see that
+    /// `required_scope` for the rationale.
+    pub fn required_scope(
+        mut self,
+        scope: impl Into<String>,
+    ) -> OperationBuilder<H, R, S, AuthRequired, LicenseSet> {
+        let scope = scope.into();
+        debug_assert!(
+            !scope.is_empty(),
+            "required_scope(\"\") is almost certainly a bug; use .public() for unauthenticated \
+             routes or pass a non-empty scope literal"
+        );
+        self.spec.required_scopes.push(scope);
         OperationBuilder {
             spec: self.spec,
             method_router: self.method_router,
@@ -867,7 +1018,7 @@ where
 }
 
 // -------------------------------------------------------------------------------------------------
-// Auth requirement setting — transitions AuthNotSet -> AuthSet
+// Auth requirement setting — transitions AuthNotSet -> AuthRequired (authenticated) or AuthSet (public)
 // -------------------------------------------------------------------------------------------------
 impl<H, R, S, L> OperationBuilder<H, R, S, AuthNotSet, L>
 where
@@ -880,7 +1031,9 @@ where
     /// Scope enforcement (which scopes are needed) is configured at the
     /// gateway level, not per-route.
     ///
-    /// This method transitions from `AuthNotSet` to `AuthSet` state.
+    /// This method transitions from `AuthNotSet` to `AuthRequired` state,
+    /// which is the only state where `required_scope(...)` and
+    /// `require_license_features(...)` are available.
     ///
     /// # Example
     /// ```rust
@@ -923,9 +1076,8 @@ where
     /// #   unimplemented!()
     /// # }
     /// ```
-    pub fn authenticated(mut self) -> OperationBuilder<H, R, S, AuthSet, L> {
-        self.spec.authenticated = true;
-        self.spec.is_public = false;
+    pub fn authenticated(mut self) -> OperationBuilder<H, R, S, AuthRequired, L> {
+        self.spec.auth_mode = AuthMode::Authenticated;
         OperationBuilder {
             spec: self.spec,
             method_router: self.method_router,
@@ -940,7 +1092,10 @@ where
     /// Mark this route as public (no authentication required).
     ///
     /// This explicitly opts out of the `require_auth_by_default` setting.
-    /// This method transitions from `AuthNotSet` to `AuthSet` state.
+    /// This method transitions from `AuthNotSet` to `AuthSet` (the
+    /// "public" decided state) and to `LicenseSet` directly, since public
+    /// routes have no license or scope requirements. Calling
+    /// `.required_scope(...)` after `.public()` will not compile.
     ///
     /// # Example
     /// ```rust
@@ -960,9 +1115,16 @@ where
     ///     .register(router, &registry);
     /// # let _ = router;
     /// ```
+    ///
+    /// Public routes cannot declare scopes — this is enforced at compile time:
+    /// ```compile_fail
+    /// # use modkit::api::operation_builder::OperationBuilder;
+    /// let _ = OperationBuilder::<_, _, ()>::get("/x")
+    ///     .public()
+    ///     .required_scope("nope");
+    /// ```
     pub fn public(mut self) -> OperationBuilder<H, R, S, AuthSet, LicenseSet> {
-        self.spec.is_public = true;
-        self.spec.authenticated = false;
+        self.spec.auth_mode = AuthMode::Public;
         OperationBuilder {
             spec: self.spec,
             method_router: self.method_router,
@@ -1532,9 +1694,10 @@ where
 // -------------------------------------------------------------------------------------------------
 // Registration — only available when handler, response, AND auth are all set
 // -------------------------------------------------------------------------------------------------
-impl<S> OperationBuilder<Present, Present, S, AuthSet, LicenseSet>
+impl<S, A> OperationBuilder<Present, Present, S, A, LicenseSet>
 where
     S: Clone + Send + Sync + 'static,
+    A: AuthDecided,
 {
     /// Register the operation with the router and `OpenAPI` registry.
     ///
@@ -1822,8 +1985,7 @@ mod tests {
             .handler(test_handler)
             .json_response(http::StatusCode::OK, "Success");
 
-        assert!(builder.spec.authenticated);
-        assert!(!builder.spec.is_public);
+        assert_eq!(builder.spec.auth_mode, AuthMode::Authenticated);
     }
 
     #[test]
@@ -1846,7 +2008,32 @@ mod tests {
             .json_response(http::StatusCode::OK, "OK");
 
         assert!(builder.spec.license_requirement.is_none());
-        assert!(!builder.spec.is_public);
+        assert_eq!(builder.spec.auth_mode, AuthMode::Authenticated);
+    }
+
+    #[tokio::test]
+    async fn required_scope_records_scope_and_allows_register() {
+        // The test name promises that `.required_scope(...)` lands the
+        // builder in a state where `.register(...)` is callable; exercise
+        // that compile-time contract end-to-end (not just a state
+        // inspection) so a future refactor that breaks the type-state
+        // path fails the test, not just code review.
+        let registry = MockRegistry::new();
+        let router = Router::new();
+
+        let _router = OperationBuilder::<Missing, Missing, ()>::get("/tests/v1/test")
+            .authenticated()
+            .required_scope("tests.read")
+            .handler(test_handler)
+            .json_response(http::StatusCode::OK, "OK")
+            .register(router, &registry);
+
+        let ops = registry.operations.lock().unwrap();
+        assert_eq!(ops.len(), 1);
+        let op = &ops[0];
+        assert!(op.license_requirement.is_none());
+        assert_eq!(op.required_scopes, vec!["tests.read".to_owned()]);
+        assert_eq!(op.auth_mode, AuthMode::Authenticated);
     }
 
     #[test]

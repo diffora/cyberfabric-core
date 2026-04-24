@@ -76,8 +76,8 @@ One generic flow models how a domain failure surfaces from any AM feature's code
 
 **Success Scenarios**:
 
-- Domain failure classified, mapped to an RFC 9457 Problem envelope, and returned to the client with the correct HTTP status plus stable non-null `code` and `sub_code` fields.
-- Cross-tenant denial surfaces as `cross_tenant_denied` (HTTP 403) without leaking the existence or attributes of the target resource beyond the stable sub-code.
+- Domain failure classified, mapped to an RFC 9457 Problem envelope, and returned to the client with the correct HTTP status and a stable non-null `code` field.
+- Cross-tenant denial surfaces as `cross_tenant_denied` (HTTP 403) without leaking the existence or attributes of the target resource beyond the stable code.
 - IdP contract failure surfaces as `idp_unavailable` (HTTP 503) with deterministic retry semantics per PRD §6.10.
 
 **Error Scenarios**:
@@ -95,7 +95,7 @@ One generic flow models how a domain failure surfaces from any AM feature's code
 4. [ ] - `p1` - Emit domain metric via `algo-metric-emission` using the appropriate metric family for the failure mode (e.g., `dependency_health`, `hierarchy_depth_exceedance`, `cross_tenant_denial`) - `inst-flow-errsurf-metric-emit`
 5. [ ] - `p1` - **IF** the failure is a state-changing or `actor=system`-eligible condition (per `nfr-audit-completeness`) - `inst-flow-errsurf-audit-branch`
    1. [ ] - `p1` - Emit audit event via `algo-audit-emission` with correct actor attribution (tenant identity or `actor=system`) - `inst-flow-errsurf-audit-emit`
-6. [ ] - `p1` - **RETURN** Problem envelope with HTTP status from the category→status mapping and stable non-null `code` + `sub_code` fields - `inst-flow-errsurf-return`
+6. [ ] - `p1` - **RETURN** Problem envelope with HTTP status from the category→status mapping and a stable non-null `code` field - `inst-flow-errsurf-return`
 
 ## 3. Processes / Business Logic (CDSL)
 
@@ -105,30 +105,30 @@ One generic flow models how a domain failure surfaces from any AM feature's code
 
 **Input**: Domain error instance (class or kind, plus feature-specific diagnostic fields)
 
-**Output**: RFC 9457 Problem Details envelope — `{ type, title, status, code, sub_code, detail?, instance? }` — where `code` is one of the 8 public categories and `sub_code` is a non-null stable public discriminator from DESIGN §3.8 / OpenAPI. When no finer feature-specific discriminator applies, `sub_code` uses the matching category discriminator (`validation`, `not_found`, `service_unavailable`, `internal`, etc.).
+**Output**: RFC 9457 Problem Details envelope — `{ type, title, status, code, detail?, instance? }` — where `code` is a non-null stable public discriminator from DESIGN §3.8 / OpenAPI. The broad RFC 9457 category is conveyed by `status` and does not require a separate envelope field. When no finer feature-specific discriminator applies, `code` uses the matching category name (`validation`, `not_found`, `service_unavailable`, `internal`, etc.).
 
 **Steps**:
 
 > This algorithm enumerates the 8 public categories from PRD §5.8 exhaustively. Any domain error not matched by steps 2–8 **MUST** fall through to `internal` via step 9 to preserve public-contract stability; the unmatched diagnostic detail is preserved in the audit trail, not the public Problem body.
 
 1. [ ] - `p1` - Identify the domain error's kind from its type or diagnostic tag - `inst-algo-etp-identify-kind`
-2. [ ] - `p1` - **IF** kind maps to `validation` (invalid input, schema validation failure, missing required field, `invalid_tenant_type`, `root_tenant_cannot_delete`, `root_tenant_cannot_convert`) - `inst-algo-etp-validation`
-   1. [ ] - `p1` - **RETURN** Problem with `code=validation`, HTTP 422, populated `sub_code` per DESIGN §3.8 - `inst-algo-etp-validation-return`
-3. [ ] - `p1` - **IF** kind maps to `not_found` (tenant, group, user, metadata schema or entry not found; distinguished by `metadata_schema_not_registered` vs `metadata_entry_not_found` sub-codes) - `inst-algo-etp-not-found`
-   1. [ ] - `p1` - **RETURN** Problem with `code=not_found`, HTTP 404, populated `sub_code` per DESIGN §3.8 - `inst-algo-etp-not-found-return`
-4. [ ] - `p1` - **IF** kind maps to `conflict` (`type_not_allowed`, `tenant_depth_exceeded`, `tenant_has_children`, `tenant_has_resources`, `pending_exists`, `invalid_actor_for_transition`, `already_resolved`) - `inst-algo-etp-conflict`
-   1. [ ] - `p1` - **RETURN** Problem with `code=conflict`, HTTP 409, populated `sub_code` per DESIGN §3.8 - `inst-algo-etp-conflict-return`
-5. [ ] - `p1` - **IF** kind maps to `cross_tenant_denied` (barrier violation, unauthorized cross-tenant access, non-platform-admin attempting root-tenant-scoped operations) - `inst-algo-etp-xtd`
-   1. [ ] - `p1` - **RETURN** Problem with `code=cross_tenant_denied`, HTTP 403; body **MUST NOT** leak target-resource attributes beyond the stable sub-code - `inst-algo-etp-xtd-return`
+2. [ ] - `p1` - **IF** kind maps to the `validation` category (invalid input, schema validation failure, missing required field, `invalid_tenant_type`, `root_tenant_cannot_delete`, `root_tenant_cannot_convert`) - `inst-algo-etp-validation`
+   1. [ ] - `p1` - **RETURN** Problem with HTTP 422 and `code` populated per DESIGN §3.8 (e.g. `code=validation` when no finer discriminator applies) - `inst-algo-etp-validation-return`
+3. [ ] - `p1` - **IF** kind maps to the `not_found` category (tenant, group, user, metadata schema or entry not found; distinguished by `metadata_schema_not_registered` vs `metadata_entry_not_found` codes) - `inst-algo-etp-not-found`
+   1. [ ] - `p1` - **RETURN** Problem with HTTP 404 and `code` populated per DESIGN §3.8 (e.g. `code=not_found` when no finer discriminator applies) - `inst-algo-etp-not-found-return`
+4. [ ] - `p1` - **IF** kind maps to the `conflict` category (`type_not_allowed`, `tenant_depth_exceeded`, `tenant_has_children`, `tenant_has_resources`, `serialization_conflict` from SQLSTATE 40001 / `AmError::SerializationConflict`, `pending_exists`, `invalid_actor_for_transition`, `already_resolved`) - `inst-algo-etp-conflict`
+   1. [ ] - `p1` - **RETURN** Problem with HTTP 409 and `code` populated per DESIGN §3.8 (e.g. `code=conflict` when no finer discriminator applies) - `inst-algo-etp-conflict-return`
+5. [ ] - `p1` - **IF** kind maps to the `cross_tenant_denied` category (barrier violation, unauthorized cross-tenant access, non-platform-admin attempting root-tenant-scoped operations) - `inst-algo-etp-xtd`
+   1. [ ] - `p1` - **RETURN** Problem with HTTP 403 and `code=cross_tenant_denied`; body **MUST NOT** leak target-resource attributes beyond the stable code - `inst-algo-etp-xtd-return`
 6. [ ] - `p1` - **IF** kind maps to `idp_unavailable` (IdP contract call failed or timed out) - `inst-algo-etp-idp-unavail`
-   1. [ ] - `p1` - **RETURN** Problem with `code=idp_unavailable`, HTTP 503, `sub_code=idp_unavailable` - `inst-algo-etp-idp-unavail-return`
+   1. [ ] - `p1` - **RETURN** Problem with HTTP 503 and `code=idp_unavailable` - `inst-algo-etp-idp-unavail-return`
 7. [ ] - `p1` - **IF** kind maps to `idp_unsupported_operation` (IdP implementation does not support the requested administrative operation) - `inst-algo-etp-idp-unsup`
-   1. [ ] - `p1` - **RETURN** Problem with `code=idp_unsupported_operation`, HTTP 501, `sub_code=idp_unsupported_operation` - `inst-algo-etp-idp-unsup-return`
+   1. [ ] - `p1` - **RETURN** Problem with HTTP 501 and `code=idp_unsupported_operation` - `inst-algo-etp-idp-unsup-return`
 8. [ ] - `p1` - **IF** kind maps to `service_unavailable` (AM DB unavailable, Resource Group unavailable during deletion validation/cleanup, GTS unavailable where the caller delegates classification here, AuthZ/PEP unavailable, or AM itself temporarily unavailable) - `inst-algo-etp-svc-unavail`
-   1. [ ] - `p1` - **RETURN** Problem with `code=service_unavailable`, HTTP 503, `sub_code=service_unavailable` - `inst-algo-etp-svc-unavail-return`
+   1. [ ] - `p1` - **RETURN** Problem with HTTP 503 and `code=service_unavailable` - `inst-algo-etp-svc-unavail-return`
 9. [ ] - `p1` - **ELSE** unclassified domain error (fallthrough to preserve contract stability) - `inst-algo-etp-fallthrough`
    1. [ ] - `p1` - Record the full diagnostic detail in the audit trail (not the public Problem body) via `algo-audit-emission` - `inst-algo-etp-fallthrough-audit`
-   2. [ ] - `p1` - **RETURN** Problem with `code=internal`, HTTP 500, generic `sub_code=internal`; public body **MUST NOT** disclose diagnostic internals - `inst-algo-etp-fallthrough-return`
+   2. [ ] - `p1` - **RETURN** Problem with HTTP 500 and `code=internal`; public body **MUST NOT** disclose diagnostic internals - `inst-algo-etp-fallthrough-return`
 
 ### Metric Emission
 
@@ -193,9 +193,15 @@ One generic flow models how a domain failure surfaces from any AM feature's code
 
 ### Error Taxonomy and RFC 9457 Envelope
 
-- [ ] `p1` - **ID**: `cpt-cf-account-management-dod-errors-observability-error-taxonomy-and-envelope`
+- [x] `p1` - **ID**: `cpt-cf-account-management-dod-errors-observability-error-taxonomy-and-envelope`
 
-The module **MUST** expose exactly the 8 stable public error categories from PRD §5.8 (`validation`, `not_found`, `conflict`, `cross_tenant_denied`, `idp_unavailable`, `idp_unsupported_operation`, `service_unavailable`, `internal`) and the stable public `sub_code` identifiers enumerated in DESIGN §3.8. Every failure response **MUST** carry the RFC 9457 Problem Details envelope with `code`, non-null `sub_code`, and the HTTP status mandated by the category→status mapping. Unclassified domain errors **MUST** fall through to `code=internal` and `sub_code=internal` rather than leaking new public codes.
+The module **MUST** expose exactly the 8 stable public error categories from PRD §5.8 (`validation`, `not_found`, `conflict`, `cross_tenant_denied`, `idp_unavailable`, `idp_unsupported_operation`, `service_unavailable`, `internal`) and the stable public `code` identifiers enumerated in DESIGN §3.8. Every failure response **MUST** carry the RFC 9457 Problem Details envelope with a non-null `code` and the HTTP status mandated by the category→status mapping; the broad RFC 9457 category is conveyed by `status` itself and is not duplicated as a separate envelope field. Unclassified domain errors **MUST** fall through to `code=internal` rather than leaking new public codes.
+
+The authoritative public `code` catalog is [DESIGN.md §3.8 Error Codes Reference](../DESIGN.md#38-error-codes-reference); the table below records only the codes added or refined by this feature. Codes contributed by sibling features (tenant-hierarchy-management, mode-conversion, tenant-metadata, etc.) are documented in their own feature files and aggregated in DESIGN §3.8.
+
+| Public `code` | HTTP status | Domain source |
+|---------------|-------------|---------------|
+| `serialization_conflict` | 409 | `AmError::SerializationConflict`; SQLSTATE 40001 after the SERIALIZABLE retry budget is exhausted |
 
 **Implements**:
 
@@ -209,7 +215,7 @@ The module **MUST** expose exactly the 8 stable public error categories from PRD
 
 ### Observability Metric Catalog
 
-- [ ] `p1` - **ID**: `cpt-cf-account-management-dod-errors-observability-metric-catalog`
+- [x] `p1` - **ID**: `cpt-cf-account-management-dod-errors-observability-metric-catalog`
 
 The module **MUST** export the 7 domain-specific metric families required by PRD §5.9 (dependency health, metadata resolution, bootstrap lifecycle, tenant-retention, conversion lifecycle, hierarchy-depth threshold exceedance, cross-tenant denials). Metric names **MUST** align with platform observability naming conventions; label sets **MUST** be documented and cardinality-guarded so no metric exposes unbounded per-tenant or per-user dimensions without an explicit hashing policy.
 
@@ -222,6 +228,7 @@ The module **MUST** export the 7 domain-specific metric families required by PRD
 | `conversion_lifecycle` | `am.conversion_lifecycle` | counter, histogram | `transition`, `initiator_side`, `outcome` | no request ID, tenant ID, or user ID labels | Informational by default; alert on stuck/expired backlog if platform policy enables | Platform on-call runbook: `account-management/conversions` |
 | `hierarchy_depth_exceedance` | `am.hierarchy_depth_exceedance` | counter, gauge | `mode`, `threshold`, `outcome` | threshold values bucketed; no tenant/parent IDs | Alerting: integrity-check violations and repeated hard-limit rejects | Platform on-call runbook: `account-management/hierarchy-integrity` |
 | `cross_tenant_denial` | `am.cross_tenant_denial` | counter | `operation`, `barrier_mode`, `reason` | no subject or target tenant/user IDs | Security alert candidate; routed through platform security/on-call policy | Platform on-call runbook: `account-management/cross-tenant-denials` |
+| `serializable_retry` | `am.serializable_retry` | counter | `outcome` (`recovered`/`exhausted`), `attempts` | `attempts` bounded by `MAX_SERIALIZABLE_ATTEMPTS`; no tenant/user labels | Alerting: sustained `outcome=exhausted` rate (DB contention); informational `recovered` rate for retry-budget tuning | Platform on-call runbook: `account-management/serializable-retry` |
 
 **Implements**:
 
@@ -233,7 +240,7 @@ The module **MUST** export the 7 domain-specific metric families required by PRD
 
 ### Audit Contract and `actor=system` Emission
 
-- [ ] `p1` - **ID**: `cpt-cf-account-management-dod-errors-observability-audit-contract`
+- [x] `p1` - **ID**: `cpt-cf-account-management-dod-errors-observability-audit-contract`
 
 The module **MUST** emit platform audit records for every AM-owned state-changing operation with actor identity and tenant identity preserved, and **MUST** emit `actor=system` records for the AM-owned background transitions enumerated in `nfr-audit-completeness` (bootstrap completion, conversion expiry, provisioning-reaper compensation, hard-delete / tenant-deprovision cleanup). Audit storage, retention, and tamper resistance are inherited platform controls and are **not** owned by AM.
 
@@ -311,7 +318,7 @@ AM **MUST** inherit the platform core infrastructure SLA (target 99.9% uptime). 
 
 ### Ops-Metrics Treatment
 
-- [ ] `p2` - **ID**: `cpt-cf-account-management-dod-errors-observability-ops-metrics-treatment`
+- [x] `p2` - **ID**: `cpt-cf-account-management-dod-errors-observability-ops-metrics-treatment`
 
 The module **MUST** define which of the 7 domain-specific metric families back SLO / alert rules and on-call escalation paths, and **MUST** provide the naming alignment contract with the platform metric catalog so downstream dashboards and alert-rule authoring can consume the families without renaming. The metric-catalog table in §5.2 is the authoritative source for the canonical metric-family names consumed by `algo-metric-emission`; sibling features' concrete emit instances (e.g., `bootstrap.attempts`, `bootstrap.outcome`) MUST reconcile against the name-alignment entries registered here. Specific alert rules, dashboard panels, and threshold values are deployment-specific and live outside this FEATURE; this DoD defines the integration surface, not the deployed alerts.
 
@@ -341,9 +348,9 @@ AM **MUST** depend only on platform-approved open-source libraries reached throu
 
 ## 6. Acceptance Criteria
 
-- [ ] All 8 PRD §5.8 error categories are reachable from at least one test scenario across the AM test suite; every category returns the documented HTTP status and a Problem body with the expected `code` and a populated `sub_code`.
-- [ ] Every stable public `sub_code` from DESIGN §3.8 appears as an exactly-matching string constant in the module's error enumeration and is covered by at least one test.
-- [ ] Public Problem responses never contain domain-diagnostic internals beyond the stable `sub_code`; unclassified errors return `code=internal` with a generic body while the full diagnostic is recoverable through the audit trail.
+- [ ] All 8 PRD §5.8 error categories are reachable from at least one test scenario across the AM test suite; every category returns the documented HTTP status and a Problem body with a populated `code`.
+- [ ] Every stable public `code` from DESIGN §3.8 appears as an exactly-matching string constant in the module's error enumeration and is covered by at least one test.
+- [ ] Public Problem responses never contain domain-diagnostic internals beyond the stable `code`; unclassified errors return `code=internal` with a generic body while the full diagnostic is recoverable through the audit trail.
 - [ ] All 7 PRD §5.9 metric families are emitted by AM at runtime; each family's label set is documented and cardinality-guarded; dashboards and alert rules can subscribe to them by platform-aligned canonical names.
 - [ ] `actor=system` audit records are emitted for bootstrap completion, conversion expiry, provisioning-reaper compensation, and hard-delete / tenant-deprovision cleanup; tenant-scoped audit records carry the caller's `SecurityContext` identity and tenant identity.
 - [ ] Every REST handler, SDK boundary, and inter-module ClientHub contract rejects or refuses to dispatch invocations without a valid `SecurityContext` before invoking domain logic; bootstrap and background jobs attach `actor=system` explicitly and are the only caller-less exemptions.

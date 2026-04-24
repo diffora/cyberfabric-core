@@ -187,7 +187,7 @@ exceed the 5k rejection threshold during implementation.
   - Invocation of the tenant-provisioning operation for the root tenant via the shared IdP integration contract, forwarding deployer-configured metadata so the IdP provider plugin can establish the tenant-to-IdP binding, and persisting any provisioning metadata the provider returns.
   - Idempotent behaviour across platform upgrade and AM restart: detect an existing root tenant and preserve it without duplication (bootstrap MUST be a no-op when the root already exists).
   - Ordering guarantee: wait for the IdP to be available before completing bootstrap, retry with backoff, and fail after a configurable timeout if the IdP is not ready.
-  - Module-lifecycle plumbing for bootstrap orchestration: `AccountManagementModule` owns the ModKit `lifecycle(entry = ...)` entry point that invokes `BootstrapService` before the module signals ready; `BootstrapService` owns distributed-lock root creation and the IdP-wait loop.
+  - Module-lifecycle plumbing for bootstrap orchestration: `AccountManagementModule` owns the ModKit `lifecycle(entry = ...)` entry point that invokes `BootstrapService` before the module signals ready; `BootstrapService` owns idempotent root creation and the IdP-wait loop.
 
 - **Out of scope**:
   - Creation of the initial Platform Administrator user identity — the Platform Admin is pre-provisioned in the IdP during infrastructure setup; AM does not create this user (covered by the `idp-user-operations-contract` feature for all other user operations).
@@ -588,7 +588,7 @@ exceed the 5k rejection threshold during implementation.
   - Hierarchy walk-up resolution via `parent_id` that stops at the nearest self-managed ancestor (barrier-stop) and skips `suspended` tenants without stopping; empty resolution is the normal terminal state of the walk (not a `not_found`).
   - REST surface `/api/account-management/v1/tenants/{tenant_id}/metadata` (list + per-schema GET/PUT/DELETE + `/resolved` read) with tenant-scope filtering applied by the platform layer, so self-managed barriers apply without AM-specific logic on list.
   - Per-schema AuthZ: `schema_id` is carried in the AuthZ request so policy authors can scope metadata permissions by category.
-  - Distinct 404 sub-codes for unregistered schema vs. missing tenant entry (`metadata_schema_not_registered` vs. `metadata_entry_not_found`).
+  - Distinct 404 codes for unregistered schema vs. missing tenant entry (`metadata_schema_not_registered` vs. `metadata_entry_not_found`).
   - Cascade deletion of all tenant metadata entries when the tenant row is removed.
 
 - **Out of scope**:
@@ -650,7 +650,7 @@ exceed the 5k rejection threshold during implementation.
 
 - **Scope**:
   - Stable public error categories per PRD §5.8: `validation`, `not_found`, `conflict`, `cross_tenant_denied`, `idp_unavailable`, `idp_unsupported_operation`, `service_unavailable`, `internal` (8 public categories; ≥ 6 required by acceptance).
-  - Authoritative HTTP mapping and public `sub_code` identifiers per DESIGN §3.8 (e.g., `invalid_tenant_type`, `type_not_allowed`, `tenant_depth_exceeded`, `tenant_has_children`, `tenant_has_resources`, `root_tenant_cannot_delete`, `pending_exists`, `invalid_actor_for_transition`, `already_resolved`, `root_tenant_cannot_convert`, `metadata_schema_not_registered`, `metadata_entry_not_found`).
+  - Authoritative HTTP mapping and public `code` identifiers per DESIGN §3.8 (e.g., `invalid_tenant_type`, `type_not_allowed`, `tenant_depth_exceeded`, `tenant_has_children`, `tenant_has_resources`, `root_tenant_cannot_delete`, `pending_exists`, `invalid_actor_for_transition`, `already_resolved`, `root_tenant_cannot_convert`, `metadata_schema_not_registered`, `metadata_entry_not_found`).
   - RFC 9457 Problem Details envelope: OpenAPI `Problem` schema defines the authoritative response shape consumed by every feature.
   - Observability metric families (7 required): dependency health, metadata resolution, bootstrap lifecycle, tenant-retention, conversion lifecycle, hierarchy-depth threshold exceedance, cross-tenant denials.
   - Platform-aligned metric naming and exposure conventions; boundary between platform-provided and module-internal metrics kept implementation-side.
@@ -783,7 +783,7 @@ cpt-cf-account-management-feature-tenant-hierarchy-management (deps: platform-bo
   `tenant-hierarchy-management` (the type barrier is invoked inline by
   `TenantService` before any `tenants` or `tenant_closure` row is
   written) and `errors-observability` (emits deterministic `validation`
-  errors with `invalid_tenant_type` / `type_not_allowed` sub-codes).
+  errors with `invalid_tenant_type` / `type_not_allowed` codes).
 
 - `cpt-cf-account-management-feature-managed-self-managed-modes`
   requires `tenant-hierarchy-management` (writes the `barrier` column
@@ -819,7 +819,7 @@ cpt-cf-account-management-feature-tenant-hierarchy-management (deps: platform-bo
   `self_managed` flag written by the modes feature), and
   `errors-observability` (emits
   `metadata_schema_not_registered` vs `metadata_entry_not_found` 404
-  sub-codes and the metadata-resolution metric family). Note:
+  codes and the metadata-resolution metric family). Note:
   `tenant-type-enforcement` is mentioned only as informational context
   in the §2.7 scope because metadata reuses the same GTS-traits
   resolution pattern; the Phase-2 feature-map authoritative edge set

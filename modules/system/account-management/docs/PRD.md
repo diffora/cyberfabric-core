@@ -413,7 +413,7 @@ The system **MUST** allow an administrator to change a tenant's status between `
 
 **Actors**: `cpt-cf-account-management-actor-tenant-admin`, `cpt-cf-account-management-actor-platform-admin`
 
-The system **MUST** allow deletion of a **non-root** tenant only when it has no non-deleted child tenants and no remaining tenant-owned resource associations in the Resource Group ownership graph, transitioning the tenant to `deleted` status (soft delete). Attempts to delete the root tenant **MUST** be rejected with `code=validation` and `sub_code=root_tenant_cannot_delete`. If non-deleted children exist, deletion **MUST** be rejected with `code=conflict` and `sub_code=tenant_has_children`. If resource associations remain under the tenant's ownership scope, deletion **MUST** be rejected with `code=conflict` and `sub_code=tenant_has_resources`. Hard deletion **MUST** occur after a configurable retention period (default: 90 days). The hard-deletion process **MUST NOT** leave orphaned child tenant records. When a parent and child tenant share the same retention window, the hard-deletion background job **MUST** process leaf tenants before their parents (leaf-first ordering).
+The system **MUST** allow deletion of a **non-root** tenant only when it has no non-deleted child tenants and no remaining tenant-owned resource associations in the Resource Group ownership graph, transitioning the tenant to `deleted` status (soft delete). Attempts to delete the root tenant **MUST** be rejected with HTTP `422` and `code=root_tenant_cannot_delete`. If non-deleted children exist, deletion **MUST** be rejected with HTTP `409` and `code=tenant_has_children`. If resource associations remain under the tenant's ownership scope, deletion **MUST** be rejected with HTTP `409` and `code=tenant_has_resources`. Hard deletion **MUST** occur after a configurable retention period (default: 90 days). The hard-deletion process **MUST NOT** leave orphaned child tenant records. When a parent and child tenant share the same retention window, the hard-deletion background job **MUST** process leaf tenants before their parents (leaf-first ordering).
 
 - **Rationale**: Preventing deletion of tenants with active children or remaining resource ownership links protects organizational integrity and prevents orphaned ownership mappings. The root tenant is undeletable so the deployment always retains exactly one hierarchy root. Soft delete with retention enables recovery and compliance. Ensuring no orphaned child records prevents referential integrity violations during retention cleanup.
 
@@ -781,7 +781,7 @@ The module **MUST** map failures to stable public categories:
 
 - **Rationale**: Stable failure categories let clients and operators react consistently across tenant models and IdP providers.
 
-The authoritative HTTP mapping, response fields, and stable sub-codes are defined in the OpenAPI contract. Provider-specific diagnostics may appear in audit trails or problem details without changing the public `code`.
+The authoritative HTTP mapping, response fields, and stable codes are defined in the OpenAPI contract. Provider-specific diagnostics may appear in audit trails or problem details without changing the public `code`.
 
 ### 5.9 Observability Metrics
 
@@ -1326,7 +1326,7 @@ IdP implementations may align with standards such as SCIM 2.0 and OIDC where app
 
 **Postconditions**:
 - `T0` remains unchanged
-- Caller receives `validation` with sub-code `root_tenant_cannot_delete`
+- Caller receives `validation` with code `root_tenant_cannot_delete`
 
 **Alternative Flows**:
 - **None**: No additional alternative flows beyond the root-invariant check
@@ -1519,7 +1519,7 @@ IdP implementations may align with standards such as SCIM 2.0 and OIDC where app
 - Caller can disambiguate which role/status combination was rejected from the deterministic error details
 
 **Alternative Flows**:
-- **Request is already resolved (approved/cancelled/rejected/expired)**: System returns `409 conflict` with sub-code `already_resolved` instead of `invalid_actor_for_transition`
+- **Request is already resolved (approved/cancelled/rejected/expired)**: System returns `409 conflict` with code `already_resolved` instead of `invalid_actor_for_transition`
 
 #### Scenario: Retention of Resolved Conversion Requests
 
@@ -1697,7 +1697,7 @@ IdP implementations may align with standards such as SCIM 2.0 and OIDC where app
 
 **Alternative Flows**:
 - **Schema validation fails**: Write is rejected with `validation` error
-- **Metadata schema not registered**: Write is rejected with `code=not_found` and `sub_code=metadata_schema_not_registered`
+- **Metadata schema not registered**: Write is rejected with HTTP `404` and `code=metadata_schema_not_registered`
 
 #### Scenario: Resolve Inherited Metadata
 
@@ -1807,15 +1807,15 @@ IdP implementations may align with standards such as SCIM 2.0 and OIDC where app
 
 **Main Flow**:
 1. Client requests a metadata entry using the misspelled schema identifier.
-2. System returns `not_found` with `sub_code=metadata_schema_not_registered`.
+2. System returns `not_found` with `code=metadata_schema_not_registered`.
 3. Client corrects the identifier to the registered branding schema and retries the same lookup.
-4. System returns `not_found` with `sub_code=metadata_entry_not_found`.
+4. System returns `not_found` with `code=metadata_entry_not_found`.
 
 **Postconditions**:
-- Client can branch on the sub-code: the typo case is a client/configuration bug; the second case is a normal "unset" state and triggers a write to populate the entry.
+- Client can branch on the code: the typo case is a client/configuration bug; the second case is a normal "unset" state and triggers a write to populate the entry.
 
 **Alternative Flows**:
-- **Client uses the resolution capability**: The same sub-code distinction applies there as well — typos return `metadata_schema_not_registered`, while a registered but empty chain returns the standard empty-resolution response, not `not_found`.
+- **Client uses the resolution capability**: The same code distinction applies there as well — typos return `metadata_schema_not_registered`, while a registered but empty chain returns the standard empty-resolution response, not `not_found`.
 
 #### Scenario: Per-Schema Permission Denial
 
@@ -1858,7 +1858,7 @@ IdP implementations may align with standards such as SCIM 2.0 and OIDC where app
 - [ ] Extensible tenant metadata (e.g., branding, contacts, billing-address) is configurable per tenant via GTS-registered schemas, with per-schema inheritance policy, exposed via tenant metadata resolution API.
 - [ ] Tenant metadata entries written directly on a tenant are discoverable via a dedicated listing endpoint with pagination; listing honors self-managed barriers the same way other tenant-scoped reads do.
 - [ ] Authorization policy can restrict `read`, `write`, `delete`, and `list` actions on resource type `Metadata` at `schema_id` granularity; `PolicyEnforcer` receives `schema_id` as a resource attribute on every metadata operation.
-- [ ] `not_found` errors on metadata endpoints carry the stable sub-codes `metadata_schema_not_registered` and `metadata_entry_not_found`.
+- [ ] `not_found` errors on metadata endpoints carry the stable codes `metadata_schema_not_registered` and `metadata_entry_not_found`.
 - [ ] Tenant isolation is verified by automated security tests: Tenant A cannot access Tenant B data through any path.
 - [ ] Tenant context validation completes in p95 ≤ 5ms (hot path, served by Tenant Resolver Plugin over AM-owned storage).
 - [ ] Control-plane (administrative) endpoints meet the following latency targets on the §13 approved deployment profile (1K rps peak). These are admin-plane targets, not request-path enforcement; the hot-path budget above is the binding p95 for read-path tenant context:

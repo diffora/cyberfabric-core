@@ -1,0 +1,33 @@
+[package]
+name = "cf-account-management-sdk"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "Account Management SDK — public contract surface: audit-event shapes and observability metric-name constants"
+repository.workspace = true
+keywords = ["cyberfabric", "cyberfabric-system"]
+categories = ["web-programming"]
+
+[lib]
+name = "account_management_sdk"
+
+[lints]
+workspace = true
+
+[dependencies]
+# Domain-model derive for stable serde / utoipa shapes. The `domain_model`
+# proc-macro emits `::modkit::domain::DomainModel` impls so the host
+# crate must be in scope as well.
+modkit-macros = { workspace = true }
+modkit = { workspace = true }
+
+# `AuditEvent::from_context` reads subject + tenant from the platform
+# `SecurityContext`. The dep is small (auth-context primitives only)
+# and keeps the constructor on the canonical type.
+modkit-security = { workspace = true }
+
+# Audit-event payload — UUID for tenant/subject ids, `serde_json` for the
+# free-form `payload` envelope.
+uuid = { workspace = true, features = ["v4"] }
+serde_json = { workspace = true }

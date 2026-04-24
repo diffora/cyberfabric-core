@@ -43,7 +43,10 @@
 
 use std::{cell::Cell, future::Future, pin::Pin, sync::Arc};
 
-use sea_orm::{DatabaseConnection, DatabaseTransaction, TransactionTrait};
+use sea_orm::{
+    ConnectionTrait, DatabaseConnection, DatabaseTransaction, QueryResult, Statement,
+    TransactionTrait,
+};
 
 use super::tx_config::TxConfig;
 use super::tx_error::TxError;
@@ -571,6 +574,54 @@ impl std::fmt::Debug for DbConn<'_> {
     }
 }
 
+impl DbConn<'_> {
+    /// Return the database engine identifier (`"postgres"` / `"sqlite"` /
+    /// `"mysql"`).
+    #[must_use]
+    pub fn db_engine(&self) -> &'static str {
+        use sea_orm::DbBackend;
+        match self.conn.get_database_backend() {
+            DbBackend::Postgres => "postgres",
+            DbBackend::MySql => "mysql",
+            DbBackend::Sqlite => "sqlite",
+        }
+    }
+
+    /// Run a prepared SELECT-style [`Statement`] and return every row as a
+    /// raw [`QueryResult`].
+    ///
+    /// This is an explicit escape hatch for read-only queries that cannot
+    /// be expressed through the `SecureSelect` builders — for example, a
+    /// `WITH RECURSIVE` cycle-detection CTE.
+    ///
+    /// # Safety contract for callers
+    ///
+    /// `SecureSelect` enforces row-level scoping (tenant / resource /
+    /// owner / type) automatically; this method bypasses that machinery
+    /// entirely. Callers MUST do one of:
+    ///
+    /// 1. Operate exclusively on a `no_tenant` / `no_owner` table whose
+    ///    rows carry no tenant identity (e.g. `tenant_closure`,
+    ///    `running_audits`). Mark the call site with a comment naming
+    ///    the table and citing this contract.
+    /// 2. Inject the `AccessScope::tenant_root` value as a **bind
+    ///    parameter** (never as interpolated SQL) and constrain results
+    ///    to descendants of that root inside the SQL itself. Document
+    ///    the scoping clause inline.
+    ///
+    /// New call sites SHOULD prefer extending `SecureSelect`; reach for
+    /// `query_raw_all` only when the query genuinely cannot be expressed
+    /// through the typed builder, and have a reviewer specifically
+    /// confirm the scoping argument before merge.
+    ///
+    /// # Errors
+    ///
+    /// Returns `DbError::Sea` if the underlying `SeaORM` query fails.
+    pub async fn query_raw_all(&self, stmt: Statement) -> Result<Vec<QueryResult>, DbError> {
+        Ok(self.conn.query_all(stmt).await?)
+    }
+}
+
 /// Transactional database runner.
 ///
 /// This type is only available inside a transaction closure and represents
@@ -603,6 +654,54 @@ pub struct DbTx<'a> {
 impl std::fmt::Debug for DbTx<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("DbTx").finish_non_exhaustive()
+    }
+}
+
+impl DbTx<'_> {
+    /// Return the database engine identifier (`"postgres"` / `"sqlite"` /
+    /// `"mysql"`).
+    #[must_use]
+    pub fn db_engine(&self) -> &'static str {
+        use sea_orm::DbBackend;
+        match self.tx.get_database_backend() {
+            DbBackend::Postgres => "postgres",
+            DbBackend::MySql => "mysql",
+            DbBackend::Sqlite => "sqlite",
+        }
+    }
+
+    /// Run a prepared SELECT-style [`Statement`] and return every row as a
+    /// raw [`QueryResult`].
+    ///
+    /// This is an explicit escape hatch for read-only queries that cannot
+    /// be expressed through the `SecureSelect` builders — for example, a
+    /// `WITH RECURSIVE` cycle-detection CTE.
+    ///
+    /// # Safety contract for callers
+    ///
+    /// `SecureSelect` enforces row-level scoping (tenant / resource /
+    /// owner / type) automatically; this method bypasses that machinery
+    /// entirely. Callers MUST do one of:
+    ///
+    /// 1. Operate exclusively on a `no_tenant` / `no_owner` table whose
+    ///    rows carry no tenant identity (e.g. `tenant_closure`,
+    ///    `running_audits`). Mark the call site with a comment naming
+    ///    the table and citing this contract.
+    /// 2. Inject the `AccessScope::tenant_root` value as a **bind
+    ///    parameter** (never as interpolated SQL) and constrain results
+    ///    to descendants of that root inside the SQL itself. Document
+    ///    the scoping clause inline.
+    ///
+    /// New call sites SHOULD prefer extending `SecureSelect`; reach for
+    /// `query_raw_all` only when the query genuinely cannot be expressed
+    /// through the typed builder, and have a reviewer specifically
+    /// confirm the scoping argument before merge.
+    ///
+    /// # Errors
+    ///
+    /// Returns `DbError::Sea` if the underlying `SeaORM` query fails.
+    pub async fn query_raw_all(&self, stmt: Statement) -> Result<Vec<QueryResult>, DbError> {
+        Ok(self.tx.query_all(stmt).await?)
     }
 }
 

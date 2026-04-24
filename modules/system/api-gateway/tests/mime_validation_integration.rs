@@ -20,7 +20,7 @@ use tower::ServiceExt; // for oneshot
 use api_gateway::middleware::mime_validation::{
     build_mime_validation_map, mime_validation_middleware,
 };
-use modkit::api::operation_builder::VendorExtensions;
+use modkit::api::operation_builder::{AuthMode, VendorExtensions};
 
 /// Helper to extract Problem from response
 async fn extract_problem(response: axum::response::Response) -> Problem {
@@ -49,9 +49,9 @@ async fn test_middleware_allows_configured_content_type() {
         request_body: None,
         responses: vec![],
         handler_id: "test".to_owned(),
-        authenticated: false,
-        is_public: true,
+        auth_mode: AuthMode::Public,
         license_requirement: None,
+        required_scopes: Vec::new(),
         rate_limit: None,
         allowed_request_content_types: Some(vec!["application/json"]),
         vendor_extensions: VendorExtensions::default(),
@@ -94,9 +94,9 @@ async fn test_middleware_strips_content_type_parameters() {
         request_body: None,
         responses: vec![],
         handler_id: "test".to_owned(),
-        authenticated: false,
-        is_public: true,
+        auth_mode: AuthMode::Public,
         license_requirement: None,
+        required_scopes: Vec::new(),
         rate_limit: None,
         allowed_request_content_types: Some(vec!["application/json"]),
         vendor_extensions: VendorExtensions::default(),
@@ -139,9 +139,9 @@ async fn test_middleware_rejects_disallowed_content_type() {
         request_body: None,
         responses: vec![],
         handler_id: "test".to_owned(),
-        authenticated: false,
-        is_public: true,
+        auth_mode: AuthMode::Public,
         license_requirement: None,
+        required_scopes: Vec::new(),
         rate_limit: None,
         allowed_request_content_types: Some(vec!["application/json"]),
         vendor_extensions: VendorExtensions::default(),
@@ -190,9 +190,9 @@ async fn test_middleware_rejects_missing_content_type() {
         request_body: None,
         responses: vec![],
         handler_id: "test".to_owned(),
-        authenticated: false,
-        is_public: true,
+        auth_mode: AuthMode::Public,
         license_requirement: None,
+        required_scopes: Vec::new(),
         rate_limit: None,
         allowed_request_content_types: Some(vec!["multipart/form-data"]),
         vendor_extensions: VendorExtensions::default(),
@@ -265,9 +265,9 @@ async fn test_middleware_allows_multiple_content_types() {
         request_body: None,
         responses: vec![],
         handler_id: "test".to_owned(),
-        authenticated: false,
-        is_public: true,
+        auth_mode: AuthMode::Public,
         license_requirement: None,
+        required_scopes: Vec::new(),
         rate_limit: None,
         allowed_request_content_types: Some(vec![
             "application/json",

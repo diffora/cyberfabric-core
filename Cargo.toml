@@ -52,6 +52,8 @@ members = [
     "modules/file-parser",
     "modules/system/api-gateway",
     "modules/system/grpc-hub",
+    "modules/system/account-management/account-management",
+    "modules/system/account-management/account-management-sdk",
     "modules/system/nodes-registry/nodes-registry",
     "modules/system/nodes-registry/nodes-registry-sdk",
     "modules/system/resource-group/resource-group-sdk",
@@ -245,6 +247,7 @@ types-registry-sdk = { package = "cf-types-registry-sdk", version = "0.1.5", pat
 tenant-resolver-sdk = { package = "cf-tenant-resolver-sdk", version = "0.3.0", path = "modules/system/tenant-resolver/tenant-resolver-sdk" }
 authz-resolver-sdk = { package = "cf-authz-resolver-sdk", version = "0.3.0", path = "modules/system/authz-resolver/authz-resolver-sdk" }
 resource-group-sdk = { package = "cf-resource-group-sdk", version = "0.1.0", path = "modules/system/resource-group/resource-group-sdk" }
+account-management-sdk = { package = "cf-account-management-sdk", version = "0.1.0", path = "modules/system/account-management/account-management-sdk" }
 oagw-sdk = { package = "cf-oagw-sdk", version = "0.4.1", path = "modules/system/oagw/oagw-sdk" }
 
 # credstore

@@ -60,6 +60,8 @@ pub struct Problem {
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub instance: String,
     /// Optional machine-readable error code defined by the application.
+    /// Serves as the stable client-side discriminator; the broad error
+    /// category is conveyed by `status` per RFC 9457 §3.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub code: String,
     /// Optional trace id useful for tracing.

@@ -137,7 +137,7 @@ pub async fn mime_validation_middleware(
 #[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
     use super::*;
-    use modkit::api::operation_builder::VendorExtensions;
+    use modkit::api::operation_builder::{AuthMode, VendorExtensions};
 
     #[test]
     fn test_build_mime_validation_map() {
@@ -161,9 +161,9 @@ mod tests {
             }),
             responses: vec![],
             handler_id: "test".to_owned(),
-            authenticated: false,
-            is_public: false,
+            auth_mode: AuthMode::Unset,
             license_requirement: None,
+            required_scopes: Vec::new(),
             rate_limit: None,
             allowed_request_content_types: Some(vec!["multipart/form-data", "application/pdf"]),
             vendor_extensions: VendorExtensions::default(),

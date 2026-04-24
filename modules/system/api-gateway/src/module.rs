@@ -148,11 +148,11 @@ impl ApiGateway {
 
             let route_key = (spec.method.clone(), spec.path.clone());
 
-            if spec.authenticated {
+            if spec.auth_mode.is_authenticated() {
                 authenticated_routes.insert(route_key.clone());
             }
 
-            if spec.is_public {
+            if spec.auth_mode.is_public() {
                 public_routes.insert(route_key);
             }
         }
