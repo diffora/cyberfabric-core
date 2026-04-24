@@ -295,7 +295,7 @@ impl OpenApiRegistryImpl {
             if spec.authenticated {
                 let sec_req = utoipa::openapi::security::SecurityRequirement::new(
                     "bearerAuth",
-                    Vec::<String>::new(),
+                    spec.required_scopes.clone(),
                 );
                 op = op.security(sec_req);
             }
@@ -507,6 +507,7 @@ mod tests {
             allowed_request_content_types: None,
             vendor_extensions: VendorExtensions::default(),
             license_requirement: None,
+            required_scopes: Vec::new(),
         };
 
         registry.register_operation(&spec);
@@ -564,12 +565,13 @@ mod tests {
                 schema_name: None,
             }],
             handler_id: "get_users_id".to_owned(),
-            authenticated: false,
+            authenticated: true,
             is_public: false,
             rate_limit: None,
             allowed_request_content_types: None,
             vendor_extensions: VendorExtensions::default(),
             license_requirement: None,
+            required_scopes: vec!["users.read".to_owned()],
         };
 
         registry.register_operation(&spec);
@@ -585,6 +587,10 @@ mod tests {
         let get_op = paths.get("/users/{id}").unwrap().get("get").unwrap();
         assert_eq!(get_op.get("operationId").unwrap(), "get_user");
         assert_eq!(get_op.get("summary").unwrap(), "Get user by ID");
+        assert_eq!(
+            get_op.pointer("/security/0/bearerAuth/0").unwrap(),
+            "users.read"
+        );
     }
 
     #[test]
@@ -630,6 +636,7 @@ mod tests {
             allowed_request_content_types: Some(vec!["application/octet-stream"]),
             vendor_extensions: VendorExtensions::default(),
             license_requirement: None,
+            required_scopes: Vec::new(),
         };
 
         registry.register_operation(&spec);
@@ -709,6 +716,7 @@ mod tests {
             allowed_request_content_types: None,
             vendor_extensions: VendorExtensions::default(),
             license_requirement: None,
+            required_scopes: Vec::new(),
         };
         spec.vendor_extensions.x_odata_filter = Some(filter);
         spec.vendor_extensions.x_odata_orderby = Some(order_by);

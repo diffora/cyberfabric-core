@@ -1,0 +1,104 @@
+[package]
+name = "cf-account-management"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "Account Management module - tenant hierarchy, IdP integration, and audit foundation"
+repository.workspace = true
+keywords = ["cyberfabric", "cyberfabric-system"]
+categories = ["web-programming"]
+
+[lib]
+name = "account_management"
+
+[lints]
+workspace = true
+
+[dependencies]
+# ModKit dependencies
+modkit = { workspace = true }
+modkit-macros = { workspace = true }
+modkit-security = { workspace = true }
+modkit-db = { workspace = true, features = ["sqlite"] }
+modkit-db-macros = { workspace = true }
+modkit-errors = { workspace = true }
+
+# Data types — `v4` is provided transitively, `v7` is required for the
+# create-tenant handler so newly minted tenant IDs are time-ordered
+# (matches the repo's `(created_at ASC, id ASC)` list ordering and keeps
+# B-tree index inserts append-mostly under load).
+uuid = { workspace = true, features = ["v4", "v7"] }
+time = { workspace = true }
+
+# Error handling and serialization
+thiserror = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+
+# Async traits for repository + IdP provisioner contracts
+async-trait = { workspace = true }
+
+# Persistence — SeaORM entities for tenant + tenant_closure
+sea-orm = { workspace = true }
+sea-orm-migration = { workspace = true }
+
+# REST wiring — OperationBuilder + Problem envelope + axum router
+axum = { workspace = true, features = ["macros"] }
+http = { workspace = true }
+utoipa = { workspace = true }
+inventory = { workspace = true }
+
+# Logging (metric / audit emission fallback sink)
+tracing = { workspace = true }
+
+# OpenTelemetry — extract the W3C trace-id from the current tracing
+# span so the Problem envelope's `trace_id` correlates with distributed
+# traces in Jaeger/Tempo. Same dep combo `cf-mini-chat` uses; both
+# crates rely on the platform `tracing` subscriber having an OTel layer
+# attached (see `libs/modkit/src/bootstrap/host/logging.rs`).
+tracing-opentelemetry = { workspace = true }
+opentelemetry = { workspace = true }
+
+# Phase 3 — async runtime + cancellation token for the `serve` lifecycle
+# entry point; `BoxFuture` for the cascade-hook type alias; `parking_lot`
+# for the hook registry mutex (lock-free readers acceptable, no async
+# contention expected).
+tokio = { workspace = true, features = ["macros", "rt", "sync", "time"] }
+tokio-util = { workspace = true }
+futures = { workspace = true }
+parking_lot = { workspace = true }
+
+# FEATURE 2.3 (tenant-type-enforcement) — GTS Types Registry SDK is
+# resolved from `ClientHub` for parent/child type-compatibility checks
+# at saga step 3. Resource Group SDK backs the production
+# `ResourceOwnershipChecker` consumed by `soft_delete`.
+types-registry-sdk = { workspace = true }
+resource-group-sdk = { workspace = true }
+modkit-odata = { workspace = true }
+
+# AuthZ resolver — `AuthZResolverClient` is resolved from `ClientHub`
+# in `init` and wrapped in a `PolicyEnforcer` (PEP). Every CRUD method
+# on `TenantService` calls `enforcer.access_scope(..)` before any
+# structural precondition check, per DESIGN §4.2 ("AM uses
+# `PolicyEnforcer` as the PEP boundary") and DESIGN §4.3 fail-closed
+# posture. The previous interim ancestry-only gate (closure-based
+# `ensure_caller_reaches`) is retained as defense-in-depth behind the
+# PEP gate.
+authz-resolver-sdk = { workspace = true }
+
+[dev-dependencies]
+# Enables `sync::Mutex` used inside the in-memory fake repo/provisioner in
+# domain/tenant/service.rs tests. `tokio` is already pulled in through the
+# workspace "full" feature at runtime, but dev-dependencies make the
+# requirement explicit for cargo test. `test-util` enables
+# `tokio::test(start_paused = true)` for the bootstrap-saga retry tests.
+tokio = { workspace = true, features = ["macros", "rt", "sync", "test-util"] }
+tower = { workspace = true, features = ["util"] }
+
+# Property-based testing for the closure-row invariants (AC#18) — drives
+# `build_activation_rows` over 1,000 randomized hierarchies in
+# `domain/tenant/closure.rs` to verify the self-row, ancestor-coverage,
+# and barrier-materialization invariants hold across the input space.
+proptest = { workspace = true }

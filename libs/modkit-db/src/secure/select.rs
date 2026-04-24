@@ -1,6 +1,7 @@
 use sea_orm::{
     ColumnTrait, EntityTrait, ModelTrait, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect,
-    Related, sea_query::Expr,
+    Related,
+    sea_query::{Expr, LockBehavior, LockType},
 };
 use std::sync::Arc;
 
@@ -289,6 +290,15 @@ where
     /// Add a limit to the scoped query.
     pub fn limit(mut self, limit: u64) -> Self {
         self.inner = QuerySelect::limit(self.inner, limit);
+        self
+    }
+
+    /// Apply a row-level lock with backend-specific behavior.
+    ///
+    /// This preserves scoped-query typestate while allowing repositories to use
+    /// `FOR UPDATE SKIP LOCKED` style claim loops where supported.
+    pub fn lock_with_behavior(mut self, lock_type: LockType, behavior: LockBehavior) -> Self {
+        self.inner = QuerySelect::lock_with_behavior(self.inner, lock_type, behavior);
         self
     }
 

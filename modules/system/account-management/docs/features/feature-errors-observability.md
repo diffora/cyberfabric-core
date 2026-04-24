@@ -116,7 +116,7 @@ One generic flow models how a domain failure surfaces from any AM feature's code
    1. [ ] - `p1` - **RETURN** Problem with `code=validation`, HTTP 422, populated `sub_code` per DESIGN §3.8 - `inst-algo-etp-validation-return`
 3. [ ] - `p1` - **IF** kind maps to `not_found` (tenant, group, user, metadata schema or entry not found; distinguished by `metadata_schema_not_registered` vs `metadata_entry_not_found` sub-codes) - `inst-algo-etp-not-found`
    1. [ ] - `p1` - **RETURN** Problem with `code=not_found`, HTTP 404, populated `sub_code` per DESIGN §3.8 - `inst-algo-etp-not-found-return`
-4. [ ] - `p1` - **IF** kind maps to `conflict` (`type_not_allowed`, `tenant_depth_exceeded`, `tenant_has_children`, `tenant_has_resources`, `pending_exists`, `invalid_actor_for_transition`, `already_resolved`) - `inst-algo-etp-conflict`
+4. [ ] - `p1` - **IF** kind maps to `conflict` (`type_not_allowed`, `tenant_depth_exceeded`, `tenant_has_children`, `tenant_has_resources`, `serialization_conflict` from SQLSTATE 40001 / `AmError::SerializationConflict`, `pending_exists`, `invalid_actor_for_transition`, `already_resolved`) - `inst-algo-etp-conflict`
    1. [ ] - `p1` - **RETURN** Problem with `code=conflict`, HTTP 409, populated `sub_code` per DESIGN §3.8 - `inst-algo-etp-conflict-return`
 5. [ ] - `p1` - **IF** kind maps to `cross_tenant_denied` (barrier violation, unauthorized cross-tenant access, non-platform-admin attempting root-tenant-scoped operations) - `inst-algo-etp-xtd`
    1. [ ] - `p1` - **RETURN** Problem with `code=cross_tenant_denied`, HTTP 403; body **MUST NOT** leak target-resource attributes beyond the stable sub-code - `inst-algo-etp-xtd-return`
@@ -193,9 +193,13 @@ One generic flow models how a domain failure surfaces from any AM feature's code
 
 ### Error Taxonomy and RFC 9457 Envelope
 
-- [ ] `p1` - **ID**: `cpt-cf-account-management-dod-errors-observability-error-taxonomy-and-envelope`
+- [x] `p1` - **ID**: `cpt-cf-account-management-dod-errors-observability-error-taxonomy-and-envelope`
 
 The module **MUST** expose exactly the 8 stable public error categories from PRD §5.8 (`validation`, `not_found`, `conflict`, `cross_tenant_denied`, `idp_unavailable`, `idp_unsupported_operation`, `service_unavailable`, `internal`) and the stable public `sub_code` identifiers enumerated in DESIGN §3.8. Every failure response **MUST** carry the RFC 9457 Problem Details envelope with `code`, non-null `sub_code`, and the HTTP status mandated by the category→status mapping. Unclassified domain errors **MUST** fall through to `code=internal` and `sub_code=internal` rather than leaking new public codes.
+
+| Public `sub_code` | HTTP status | Category `code` | Domain source |
+|-------------------|-------------|-----------------|---------------|
+| `serialization_conflict` | 409 | `conflict` | `AmError::SerializationConflict`; SQLSTATE 40001 after the SERIALIZABLE retry budget is exhausted |
 
 **Implements**:
 
@@ -209,7 +213,7 @@ The module **MUST** expose exactly the 8 stable public error categories from PRD
 
 ### Observability Metric Catalog
 
-- [ ] `p1` - **ID**: `cpt-cf-account-management-dod-errors-observability-metric-catalog`
+- [x] `p1` - **ID**: `cpt-cf-account-management-dod-errors-observability-metric-catalog`
 
 The module **MUST** export the 7 domain-specific metric families required by PRD §5.9 (dependency health, metadata resolution, bootstrap lifecycle, tenant-retention, conversion lifecycle, hierarchy-depth threshold exceedance, cross-tenant denials). Metric names **MUST** align with platform observability naming conventions; label sets **MUST** be documented and cardinality-guarded so no metric exposes unbounded per-tenant or per-user dimensions without an explicit hashing policy.
 
@@ -222,6 +226,7 @@ The module **MUST** export the 7 domain-specific metric families required by PRD
 | `conversion_lifecycle` | `am.conversion_lifecycle` | counter, histogram | `transition`, `initiator_side`, `outcome` | no request ID, tenant ID, or user ID labels | Informational by default; alert on stuck/expired backlog if platform policy enables | Platform on-call runbook: `account-management/conversions` |
 | `hierarchy_depth_exceedance` | `am.hierarchy_depth_exceedance` | counter, gauge | `mode`, `threshold`, `outcome` | threshold values bucketed; no tenant/parent IDs | Alerting: integrity-check violations and repeated hard-limit rejects | Platform on-call runbook: `account-management/hierarchy-integrity` |
 | `cross_tenant_denial` | `am.cross_tenant_denial` | counter | `operation`, `barrier_mode`, `reason` | no subject or target tenant/user IDs | Security alert candidate; routed through platform security/on-call policy | Platform on-call runbook: `account-management/cross-tenant-denials` |
+| `serializable_retry` | `am.serializable_retry` | counter | `outcome` (`recovered`/`exhausted`), `attempts` | `attempts` bounded by `MAX_SERIALIZABLE_ATTEMPTS`; no tenant/user labels | Alerting: sustained `outcome=exhausted` rate (DB contention); informational `recovered` rate for retry-budget tuning | Platform on-call runbook: `account-management/serializable-retry` |
 
 **Implements**:
 
@@ -233,7 +238,7 @@ The module **MUST** export the 7 domain-specific metric families required by PRD
 
 ### Audit Contract and `actor=system` Emission
 
-- [ ] `p1` - **ID**: `cpt-cf-account-management-dod-errors-observability-audit-contract`
+- [x] `p1` - **ID**: `cpt-cf-account-management-dod-errors-observability-audit-contract`
 
 The module **MUST** emit platform audit records for every AM-owned state-changing operation with actor identity and tenant identity preserved, and **MUST** emit `actor=system` records for the AM-owned background transitions enumerated in `nfr-audit-completeness` (bootstrap completion, conversion expiry, provisioning-reaper compensation, hard-delete / tenant-deprovision cleanup). Audit storage, retention, and tamper resistance are inherited platform controls and are **not** owned by AM.
 
@@ -311,7 +316,7 @@ AM **MUST** inherit the platform core infrastructure SLA (target 99.9% uptime). 
 
 ### Ops-Metrics Treatment
 
-- [ ] `p2` - **ID**: `cpt-cf-account-management-dod-errors-observability-ops-metrics-treatment`
+- [x] `p2` - **ID**: `cpt-cf-account-management-dod-errors-observability-ops-metrics-treatment`
 
 The module **MUST** define which of the 7 domain-specific metric families back SLO / alert rules and on-call escalation paths, and **MUST** provide the naming alignment contract with the platform metric catalog so downstream dashboards and alert-rule authoring can consume the families without renaming. The metric-catalog table in §5.2 is the authoritative source for the canonical metric-family names consumed by `algo-metric-emission`; sibling features' concrete emit instances (e.g., `bootstrap.attempts`, `bootstrap.outcome`) MUST reconcile against the name-alignment entries registered here. Specific alert rules, dashboard panels, and threshold values are deployment-specific and live outside this FEATURE; this DoD defines the integration surface, not the deployed alerts.
 

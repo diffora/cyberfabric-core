@@ -221,6 +221,9 @@ pub struct OperationSpec {
     /// `OpenAPI` vendor extensions (x-*)
     pub vendor_extensions: VendorExtensions,
     pub license_requirement: Option<LicenseReqSpec>,
+    /// OAuth/bearer scopes required by this operation. Empty means
+    /// authentication is required but no route-specific scope is declared.
+    pub required_scopes: Vec<String>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
@@ -437,6 +440,7 @@ impl<S> OperationBuilder<Missing, Missing, S, AuthNotSet> {
                 allowed_request_content_types: None,
                 vendor_extensions: VendorExtensions::default(),
                 license_requirement: None,
+                required_scopes: Vec::new(),
             },
             method_router: (), // no router in Missing state
             _has_handler: PhantomData,
@@ -854,6 +858,26 @@ where
     /// This transitions from `LicenseNotSet` to `LicenseSet` without
     /// attaching any license requirement.
     pub fn no_license_required(self) -> OperationBuilder<H, R, S, AuthSet, LicenseSet> {
+        OperationBuilder {
+            spec: self.spec,
+            method_router: self.method_router,
+            _has_handler: self._has_handler,
+            _has_response: self._has_response,
+            _state: self._state,
+            _auth_state: self._auth_state,
+            _license_state: PhantomData,
+        }
+    }
+
+    /// Declare a bearer/OAuth scope required by this authenticated operation.
+    /// Can be chained to declare multiple scopes; each call appends one scope.
+    /// Records route-policy metadata for generated OpenAPI and satisfies the
+    /// license-declaration requirement.
+    pub fn required_scope(
+        mut self,
+        scope: impl Into<String>,
+    ) -> OperationBuilder<H, R, S, AuthSet, LicenseSet> {
+        self.spec.required_scopes.push(scope.into());
         OperationBuilder {
             spec: self.spec,
             method_router: self.method_router,
@@ -1847,6 +1871,18 @@ mod tests {
 
         assert!(builder.spec.license_requirement.is_none());
         assert!(!builder.spec.is_public);
+    }
+
+    #[test]
+    fn required_scope_records_scope_and_allows_register() {
+        let builder = OperationBuilder::<Missing, Missing, ()>::get("/tests/v1/test")
+            .authenticated()
+            .required_scope("tests.read")
+            .handler(|| async {})
+            .json_response(http::StatusCode::OK, "OK");
+
+        assert!(builder.spec.license_requirement.is_none());
+        assert_eq!(builder.spec.required_scopes, vec!["tests.read".to_owned()]);
     }
 
     #[test]

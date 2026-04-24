@@ -52,6 +52,7 @@ members = [
     "modules/file-parser",
     "modules/system/api-gateway",
     "modules/system/grpc-hub",
+    "modules/system/account-management/account-management",
     "modules/system/nodes-registry/nodes-registry",
     "modules/system/nodes-registry/nodes-registry-sdk",
     "modules/system/resource-group/resource-group-sdk",
@@ -354,6 +355,10 @@ http-body = "1"
 # HTTP client (default-tls = rustls + aws-lc-rs in 0.13)
 reqwest = { version = "0.13", features = ["stream"] }
 rand = "0.9"
+
+# Property-based testing — used by AM closure-invariant proptest (AC#18)
+# to drive `build_activation_rows` over 1,000 randomized hierarchies.
+proptest = "1.5"
 
 # Synchronous locks for better performance
 parking_lot = "0.12"

@@ -187,7 +187,7 @@ exceed the 5k rejection threshold during implementation.
   - Invocation of the tenant-provisioning operation for the root tenant via the shared IdP integration contract, forwarding deployer-configured metadata so the IdP provider plugin can establish the tenant-to-IdP binding, and persisting any provisioning metadata the provider returns.
   - Idempotent behaviour across platform upgrade and AM restart: detect an existing root tenant and preserve it without duplication (bootstrap MUST be a no-op when the root already exists).
   - Ordering guarantee: wait for the IdP to be available before completing bootstrap, retry with backoff, and fail after a configurable timeout if the IdP is not ready.
-  - Module-lifecycle plumbing for bootstrap orchestration: `AccountManagementModule` owns the ModKit `lifecycle(entry = ...)` entry point that invokes `BootstrapService` before the module signals ready; `BootstrapService` owns distributed-lock root creation and the IdP-wait loop.
+  - Module-lifecycle plumbing for bootstrap orchestration: `AccountManagementModule` owns the ModKit `lifecycle(entry = ...)` entry point that invokes `BootstrapService` before the module signals ready; `BootstrapService` owns idempotent root creation and the IdP-wait loop.
 
 - **Out of scope**:
   - Creation of the initial Platform Administrator user identity — the Platform Admin is pre-provisioned in the IdP during infrastructure setup; AM does not create this user (covered by the `idp-user-operations-contract` feature for all other user operations).

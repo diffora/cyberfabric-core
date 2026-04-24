@@ -399,15 +399,44 @@ fn map_to_tenant_ref(group: &ResourceGroupWithDepth) -> TenantRef {
 
 // -- Metadata parsing helpers --
 
+/// Parse the `status` field from RG metadata into a [`TenantStatus`].
+///
+/// Fail-closed semantics: an **unknown** or **non-string** status value
+/// MUST NOT silently degrade to `Active`. The resolver's default filter
+/// set treats `Active` as visible, so coercing typos / schema drift to
+/// `Active` would widen the resolved tenant set — exactly the failure
+/// mode `tr-authz-plugin::parse_tenant_statuses` already denies on. We
+/// fall back to `Suspended` instead so bad metadata stays out of
+/// default visibility until ops fix it. The offending value is logged
+/// at `warn` so the divergence is investigable.
+///
+/// Missing `status` (no metadata or no `status` key) preserves the
+/// legacy default of `Active` — RG groups created before status
+/// metadata existed remain visible.
 fn parse_status_from_metadata(metadata: Option<&serde_json::Value>) -> TenantStatus {
-    metadata
-        .and_then(|m| m.get("status"))
-        .and_then(serde_json::Value::as_str)
-        .map_or(TenantStatus::Active, |s| match s {
-            "suspended" => TenantStatus::Suspended,
-            "deleted" => TenantStatus::Deleted,
-            _ => TenantStatus::Active,
-        })
+    let Some(value) = metadata.and_then(|m| m.get("status")) else {
+        return TenantStatus::Active;
+    };
+    let Some(s) = value.as_str() else {
+        tracing::warn!(
+            target: "rg_tr_plugin",
+            "non-string status in RG metadata; falling back to Suspended (fail-closed)"
+        );
+        return TenantStatus::Suspended;
+    };
+    match s {
+        "active" => TenantStatus::Active,
+        "suspended" => TenantStatus::Suspended,
+        "deleted" => TenantStatus::Deleted,
+        other => {
+            tracing::warn!(
+                target: "rg_tr_plugin",
+                bad_status = %other,
+                "unknown status in RG metadata; falling back to Suspended (fail-closed)"
+            );
+            TenantStatus::Suspended
+        }
+    }
 }
 
 fn parse_self_managed_from_metadata(metadata: Option<&serde_json::Value>) -> bool {
@@ -521,4 +550,75 @@ fn filter_descendants_by_barrier(
     }
 
     result
+}
+
+#[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn parse_status_missing_metadata_defaults_to_active() {
+        assert_eq!(parse_status_from_metadata(None), TenantStatus::Active);
+    }
+
+    #[test]
+    fn parse_status_missing_field_defaults_to_active() {
+        let m = json!({ "self_managed": true });
+        assert_eq!(parse_status_from_metadata(Some(&m)), TenantStatus::Active);
+    }
+
+    #[test]
+    fn parse_status_known_values_round_trip() {
+        let active = json!({ "status": "active" });
+        let suspended = json!({ "status": "suspended" });
+        let deleted = json!({ "status": "deleted" });
+        assert_eq!(
+            parse_status_from_metadata(Some(&active)),
+            TenantStatus::Active
+        );
+        assert_eq!(
+            parse_status_from_metadata(Some(&suspended)),
+            TenantStatus::Suspended
+        );
+        assert_eq!(
+            parse_status_from_metadata(Some(&deleted)),
+            TenantStatus::Deleted
+        );
+    }
+
+    #[test]
+    fn parse_status_unknown_string_fails_closed_to_suspended() {
+        // Pin the fail-closed invariant: typos and schema drift MUST
+        // NOT widen the resolved tenant set by silently becoming
+        // Active. Suspended keeps the tenant out of default
+        // Active-only filters in the resolver.
+        let m = json!({ "status": "Active" }); // wrong case
+        assert_eq!(
+            parse_status_from_metadata(Some(&m)),
+            TenantStatus::Suspended,
+            "unknown status must fail closed to Suspended, not Active"
+        );
+
+        let m = json!({ "status": "purgatory" });
+        assert_eq!(
+            parse_status_from_metadata(Some(&m)),
+            TenantStatus::Suspended
+        );
+    }
+
+    #[test]
+    fn parse_status_non_string_fails_closed_to_suspended() {
+        let m = json!({ "status": 42 });
+        assert_eq!(
+            parse_status_from_metadata(Some(&m)),
+            TenantStatus::Suspended
+        );
+        let m = json!({ "status": null });
+        assert_eq!(
+            parse_status_from_metadata(Some(&m)),
+            TenantStatus::Suspended
+        );
+    }
 }

@@ -62,6 +62,10 @@ pub struct Problem {
     /// Optional machine-readable error code defined by the application.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub code: String,
+    /// Optional stable sub-code defined by the application for
+    /// finer-grained client handling within a broad error category.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub sub_code: String,
     /// Optional trace id useful for tracing.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub trace_id: Option<String>,
@@ -119,6 +123,7 @@ impl Problem {
             detail: detail.into(),
             instance: String::new(),
             code: String::new(),
+            sub_code: String::new(),
             trace_id: None,
             errors: None,
             context: None,
@@ -137,6 +142,12 @@ impl Problem {
 
     pub fn with_code(mut self, code: impl Into<String>) -> Self {
         self.code = code.into();
+        self
+    }
+
+    /// Set a stable sub-code for finer-grained client handling within a broad error category.
+    pub fn with_sub_code(mut self, sub_code: impl Into<String>) -> Self {
+        self.sub_code = sub_code.into();
         self
     }
 
@@ -199,6 +210,7 @@ mod tests {
             "Input validation errors",
         )
         .with_code("VALIDATION_ERROR")
+        .with_sub_code("validation")
         .with_instance("/users/123")
         .with_trace_id("req-456")
         .with_errors(vec![ValidationViolation {
@@ -209,6 +221,7 @@ mod tests {
 
         assert_eq!(p.status, StatusCode::UNPROCESSABLE_ENTITY);
         assert_eq!(p.code, "VALIDATION_ERROR");
+        assert_eq!(p.sub_code, "validation");
         assert_eq!(p.instance, "/users/123");
         assert_eq!(p.trace_id, Some("req-456".to_owned()));
         assert!(p.errors.is_some());

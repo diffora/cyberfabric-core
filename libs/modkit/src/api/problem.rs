@@ -59,6 +59,7 @@ mod tests {
             "Input validation errors",
         )
         .with_code("VALIDATION_ERROR")
+        .with_sub_code("validation")
         .with_instance("/users/123")
         .with_trace_id("req-456")
         .with_errors(vec![ValidationViolation {
@@ -69,6 +70,7 @@ mod tests {
 
         assert_eq!(p.status, StatusCode::UNPROCESSABLE_ENTITY);
         assert_eq!(p.code, "VALIDATION_ERROR");
+        assert_eq!(p.sub_code, "validation");
         assert_eq!(p.instance, "/users/123");
         assert_eq!(p.trace_id, Some("req-456".to_owned()));
         assert!(p.errors.is_some());

@@ -18,6 +18,12 @@ modules:
       priority: 50  # Set lower than static-authz (100) to take precedence
 ```
 
+## Trust Boundary
+
+This plugin currently runs **in-process** within the modkit module boundary. It uses `SecurityContext::anonymous()` for all TR calls, which is safe only when the TR client is a local in-process implementation (no network hop).
+
+**Extraction blocker**: do not move this plugin to a separate service until issue [#1597](https://github.com/cyberfabric/cyberfabric-core/issues/1597) is resolved. Extraction without replacing the anonymous context with a valid S2S service identity (mTLS-backed) would allow unauthenticated calls to the TR over the network.
+
 ## Dependencies
 
 - **`tenant-resolver-sdk`** — `TenantResolverClient` trait for tenant hierarchy queries

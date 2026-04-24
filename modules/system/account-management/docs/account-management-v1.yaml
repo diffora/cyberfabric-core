@@ -44,6 +44,8 @@ paths:
     post:
       operationId: createTenant
       tags: [tenants]
+      security:
+        - bearerAuth: [am.tenants.write]
       summary: Create a child tenant
       description: |
         Creates a non-root tenant under an existing parent tenant. The server
@@ -74,6 +76,8 @@ paths:
     get:
       operationId: getTenant
       tags: [tenants]
+      security:
+        - bearerAuth: [am.tenants.read]
       summary: Read tenant details
       responses:
         '200':
@@ -87,6 +91,8 @@ paths:
     patch:
       operationId: updateTenant
       tags: [tenants]
+      security:
+        - bearerAuth: [am.tenants.write]
       summary: Update mutable tenant fields
       requestBody:
         required: true
@@ -106,6 +112,8 @@ paths:
     delete:
       operationId: deleteTenant
       tags: [tenants]
+      security:
+        - bearerAuth: [am.tenants.write]
       summary: Soft-delete a tenant
       responses:
         '200':
@@ -126,6 +134,8 @@ paths:
     get:
       operationId: listChildren
       tags: [tenants]
+      security:
+        - bearerAuth: [am.tenants.read]
       summary: List direct children of a tenant
       responses:
         '200':
@@ -434,6 +444,12 @@ paths:
           $ref: '#/components/responses/Problem'
 
 components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
   parameters:
     TenantId:
       name: tenant_id
@@ -545,6 +561,7 @@ components:
           type: integer
         total:
           type: integer
+          format: int64
           nullable: true
 
     Tenant:
@@ -965,6 +982,7 @@ components:
             - tenant_depth_exceeded
             - tenant_has_children
             - tenant_has_resources
+            - serialization_conflict
             - root_tenant_cannot_delete
             - pending_exists
             - invalid_actor_for_transition

@@ -164,6 +164,7 @@ mod tests {
             authenticated: false,
             is_public: false,
             license_requirement: None,
+            required_scopes: Vec::new(),
             rate_limit: None,
             allowed_request_content_types: Some(vec!["multipart/form-data", "application/pdf"]),
             vendor_extensions: VendorExtensions::default(),

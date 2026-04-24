@@ -766,6 +766,31 @@ where
         }
     }
 
+    /// Execute the update and return the updated models.
+    ///
+    /// This keeps the scoped update conditions in place while supporting
+    /// atomic claim-and-return patterns.
+    ///
+    /// # Backend compatibility
+    ///
+    /// Relies on `RETURNING *` which requires **PostgreSQL** (any version) or
+    /// **SQLite ≥ 3.35.0** (released March 2021). Older SQLite versions will
+    /// return a SeaORM error at runtime. The CI SQLite runner must be ≥ 3.35.0.
+    #[allow(clippy::disallowed_methods)]
+    pub async fn exec_with_returning(
+        self,
+        runner: &impl DBRunner,
+    ) -> Result<Vec<E::Model>, ScopeError>
+    {
+        if self.tenant_update_attempted {
+            return Err(ScopeError::Denied("tenant_id is immutable"));
+        }
+        match DBRunnerInternal::as_seaorm(runner) {
+            SeaOrmRunner::Conn(db) => Ok(self.inner.exec_with_returning(db).await?),
+            SeaOrmRunner::Tx(tx) => Ok(self.inner.exec_with_returning(tx).await?),
+        }
+    }
+
     /// Unwrap the inner `SeaORM` `UpdateMany` for advanced use cases.
     ///
     /// # Safety

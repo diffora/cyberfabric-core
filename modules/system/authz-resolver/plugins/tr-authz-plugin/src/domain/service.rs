@@ -94,13 +94,18 @@ impl Service {
         // yield wrong allow/deny decisions. The plugin must keep its full-tree
         // visibility either way.
         //
+        // EXTRACTION BLOCKER — resolve issue #1597 before moving this plugin
+        // out of the modkit in-process trust boundary. `SecurityContext::anonymous()`
+        // is safe only when the TR client is an in-process implementation
+        // (no network hop, no mTLS). Extracting this plugin to a separate
+        // service without replacing the anonymous context with a valid S2S
+        // service identity would allow any caller to impersonate this plugin
+        // over the wire.
+        //
         // TODO(https://github.com/cyberfabric/cyberfabric-core/issues/1597):
         // once the platform S2S authentication subsystem and the gRPC + mTLS
         // transport land, replace `SecurityContext::anonymous()` here with the
-        // S2S-issued service context identifying this caller as
-        // `tr-authz-plugin`. Anonymous is safe today (in-process trust boundary
-        // between modkit modules) but unsafe over a network boundary — there
-        // is no cryptographic identity on the wire.
+        // S2S-issued service context identifying this caller as `tr-authz-plugin`.
         let ctx = SecurityContext::anonymous();
 
         let mut response = if request.resource.id.is_some() {
@@ -457,5 +462,588 @@ impl Service {
             AuthzBarrierMode::Respect => BarrierMode::Respect,
             AuthzBarrierMode::Ignore => BarrierMode::Ignore,
         }
+    }
+}
+
+#[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+
+    use async_trait::async_trait;
+    use authz_resolver_sdk::{Action, EvaluationRequestContext, Resource, Subject, TenantContext};
+    use serde_json::json;
+    use tenant_resolver_sdk::{
+        GetAncestorsOptions, GetAncestorsResponse, GetTenantsOptions, TenantInfo, TenantRef,
+    };
+
+    #[derive(Debug, Clone, Default)]
+    struct FakeTenantResolver {
+        tenants: HashMap<Uuid, TenantRef>,
+    }
+
+    impl FakeTenantResolver {
+        fn standard() -> Self {
+            let mut fake = Self::default();
+            fake.insert(root(), None, TenantStatus::Active);
+            fake.insert(child(), Some(root()), TenantStatus::Active);
+            fake.insert(grandchild(), Some(child()), TenantStatus::Active);
+            fake.insert(sibling(), Some(root()), TenantStatus::Active);
+            fake.insert(suspended_child(), Some(child()), TenantStatus::Suspended);
+            fake
+        }
+
+        fn insert(&mut self, id: Uuid, parent_id: Option<Uuid>, status: TenantStatus) {
+            self.tenants.insert(
+                id,
+                TenantRef {
+                    id: TenantId(id),
+                    status,
+                    tenant_type: None,
+                    parent_id: parent_id.map(TenantId),
+                    self_managed: false,
+                },
+            );
+        }
+
+        fn tenant_ref(&self, id: TenantId) -> Result<TenantRef, TenantResolverError> {
+            self.tenants
+                .get(&id.0)
+                .cloned()
+                .ok_or(TenantResolverError::TenantNotFound { tenant_id: id })
+        }
+
+        fn tenant_info(reference: &TenantRef) -> TenantInfo {
+            TenantInfo {
+                id: reference.id,
+                name: reference.id.to_string(),
+                status: reference.status,
+                tenant_type: reference.tenant_type.clone(),
+                parent_id: reference.parent_id,
+                self_managed: reference.self_managed,
+            }
+        }
+
+        fn is_descendant_of(
+            &self,
+            ancestor: Uuid,
+            candidate: Uuid,
+        ) -> Result<bool, TenantResolverError> {
+            let _ = self.tenant_ref(TenantId(ancestor))?;
+            let mut current = self.tenant_ref(TenantId(candidate))?;
+            while let Some(parent_id) = current.parent_id {
+                if parent_id.0 == ancestor {
+                    return Ok(true);
+                }
+                current = self.tenant_ref(parent_id)?;
+            }
+            Ok(false)
+        }
+
+        fn descendants(
+            &self,
+            tenant_id: Uuid,
+            statuses: &[TenantStatus],
+        ) -> Result<Vec<TenantRef>, TenantResolverError> {
+            let _ = self.tenant_ref(TenantId(tenant_id))?;
+            let mut descendants = self
+                .tenants
+                .values()
+                .filter(|tenant| tenant.id.0 != tenant_id)
+                .filter(|tenant| statuses.is_empty() || statuses.contains(&tenant.status))
+                .filter(|tenant| {
+                    self.is_descendant_of(tenant_id, tenant.id.0)
+                        .unwrap_or(false)
+                })
+                .cloned()
+                .collect::<Vec<_>>();
+            descendants.sort_by_key(|tenant| tenant.id.0.as_u128());
+            Ok(descendants)
+        }
+    }
+
+    #[async_trait]
+    impl TenantResolverClient for FakeTenantResolver {
+        async fn get_tenant(
+            &self,
+            _ctx: &SecurityContext,
+            id: TenantId,
+        ) -> Result<TenantInfo, TenantResolverError> {
+            Ok(Self::tenant_info(&self.tenant_ref(id)?))
+        }
+
+        async fn get_root_tenant(
+            &self,
+            _ctx: &SecurityContext,
+        ) -> Result<TenantInfo, TenantResolverError> {
+            let root = self
+                .tenants
+                .values()
+                .find(|tenant| tenant.parent_id.is_none())
+                .ok_or_else(|| TenantResolverError::Internal("root tenant missing".to_owned()))?;
+            Ok(Self::tenant_info(root))
+        }
+
+        async fn get_tenants(
+            &self,
+            _ctx: &SecurityContext,
+            ids: &[TenantId],
+            options: &GetTenantsOptions,
+        ) -> Result<Vec<TenantInfo>, TenantResolverError> {
+            Ok(ids
+                .iter()
+                .filter_map(|id| self.tenants.get(&id.0))
+                .filter(|tenant| {
+                    options.status.is_empty() || options.status.contains(&tenant.status)
+                })
+                .map(Self::tenant_info)
+                .collect())
+        }
+
+        async fn get_ancestors(
+            &self,
+            _ctx: &SecurityContext,
+            id: TenantId,
+            _options: &GetAncestorsOptions,
+        ) -> Result<GetAncestorsResponse, TenantResolverError> {
+            let tenant = self.tenant_ref(id)?;
+            let mut ancestors = Vec::new();
+            let mut current = tenant.clone();
+            while let Some(parent_id) = current.parent_id {
+                current = self.tenant_ref(parent_id)?;
+                ancestors.push(current.clone());
+            }
+            Ok(GetAncestorsResponse { tenant, ancestors })
+        }
+
+        async fn get_descendants(
+            &self,
+            _ctx: &SecurityContext,
+            id: TenantId,
+            options: &GetDescendantsOptions,
+        ) -> Result<tenant_resolver_sdk::GetDescendantsResponse, TenantResolverError> {
+            Ok(tenant_resolver_sdk::GetDescendantsResponse {
+                tenant: self.tenant_ref(id)?,
+                descendants: self.descendants(id.0, &options.status)?,
+            })
+        }
+
+        async fn is_ancestor(
+            &self,
+            _ctx: &SecurityContext,
+            ancestor_id: TenantId,
+            descendant_id: TenantId,
+            _options: &IsAncestorOptions,
+        ) -> Result<bool, TenantResolverError> {
+            // Strictly non-reflexive: a tenant is NOT its own ancestor.
+            // Callers that need reflexive containment (e.g. `is_in_subtree`)
+            // must add the self-equality short-circuit before calling this.
+            if ancestor_id == descendant_id {
+                return Ok(false);
+            }
+            self.is_descendant_of(ancestor_id.0, descendant_id.0)
+        }
+    }
+
+    #[derive(Debug, Clone)]
+    struct RuleCase {
+        single_resource: bool,
+        subject: Uuid,
+        owner: Option<Uuid>,
+        root_id: Option<Uuid>,
+        mode: TenantMode,
+        expected_decision: bool,
+    }
+
+    #[tokio::test]
+    async fn r1_to_r8_allow_deny_matrix() {
+        use TenantMode::{RootOnly, Subtree};
+
+        let cases = vec![
+            (
+                "R1 allow",
+                rule(true, root(), Some(child()), Some(child()), RootOnly, true),
+            ),
+            (
+                "R1 deny owner != root",
+                rule(
+                    true,
+                    root(),
+                    Some(grandchild()),
+                    Some(child()),
+                    RootOnly,
+                    false,
+                ),
+            ),
+            (
+                "R2 allow",
+                rule(
+                    true,
+                    root(),
+                    Some(grandchild()),
+                    Some(child()),
+                    Subtree,
+                    true,
+                ),
+            ),
+            (
+                "R2 deny owner outside root subtree",
+                rule(true, root(), Some(sibling()), Some(child()), Subtree, false),
+            ),
+            (
+                "R3 allow",
+                rule(true, child(), Some(child()), None, RootOnly, true),
+            ),
+            (
+                "R3 deny owner differs",
+                rule(true, child(), Some(grandchild()), None, RootOnly, false),
+            ),
+            (
+                "R4 allow",
+                rule(true, child(), Some(grandchild()), None, Subtree, true),
+            ),
+            (
+                "R4 deny owner outside subject subtree",
+                rule(true, child(), Some(sibling()), None, Subtree, false),
+            ),
+            (
+                "R5 allow",
+                rule(false, root(), None, Some(child()), RootOnly, true),
+            ),
+            (
+                "R5 deny subject not ancestor",
+                rule(false, sibling(), None, Some(child()), RootOnly, false),
+            ),
+            (
+                "R6 allow",
+                rule(false, root(), None, Some(child()), Subtree, true),
+            ),
+            (
+                "R6 deny subject not ancestor",
+                rule(false, sibling(), None, Some(child()), Subtree, false),
+            ),
+            ("R7 allow", rule(false, child(), None, None, RootOnly, true)),
+            (
+                "R7 deny nil subject",
+                rule(false, Uuid::nil(), None, None, RootOnly, false),
+            ),
+            ("R8 allow", rule(false, child(), None, None, Subtree, true)),
+            (
+                "R8 deny unknown subject",
+                rule(false, unknown(), None, None, Subtree, false),
+            ),
+        ];
+
+        for (name, case) in cases {
+            assert_rule_case(name, case).await;
+        }
+    }
+
+    fn rule(
+        single_resource: bool,
+        subject: Uuid,
+        owner: Option<Uuid>,
+        root_id: Option<Uuid>,
+        mode: TenantMode,
+        expected_decision: bool,
+    ) -> RuleCase {
+        RuleCase {
+            single_resource,
+            subject,
+            owner,
+            root_id,
+            mode,
+            expected_decision,
+        }
+    }
+
+    async fn assert_rule_case(name: &str, case: RuleCase) {
+        let service = Service::new(Arc::new(FakeTenantResolver::standard()));
+        let request = request_for(&case, None, HashMap::new());
+        let response = service.evaluate(&request).await;
+
+        assert_eq!(
+            response.decision, case.expected_decision,
+            "{name} should have decision {}: {case:?}",
+            case.expected_decision
+        );
+        if case.expected_decision {
+            assert!(
+                !response.context.constraints.is_empty(),
+                "{name} should carry tenant constraints: {case:?}"
+            );
+        } else {
+            assert!(
+                response.context.constraints.is_empty(),
+                "{name} should not carry constraints: {case:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn parse_tenant_statuses_accepts_active_suspended_deleted() {
+        let input = vec![
+            "active".to_owned(),
+            "suspended".to_owned(),
+            "deleted".to_owned(),
+        ];
+
+        let statuses = Service::parse_tenant_statuses(&input).expect("valid statuses parse");
+
+        assert_eq!(
+            statuses,
+            vec![
+                TenantStatus::Active,
+                TenantStatus::Suspended,
+                TenantStatus::Deleted
+            ]
+        );
+    }
+
+    #[test]
+    fn parse_tenant_statuses_rejects_unknown_archived() {
+        let input = vec!["active".to_owned(), "archived".to_owned()];
+
+        let err = Service::parse_tenant_statuses(&input).expect_err("unknown status rejects");
+
+        assert_eq!(err, "archived");
+    }
+
+    #[test]
+    fn parse_tenant_statuses_accepts_missing_empty_input() {
+        let input = Vec::<String>::new();
+
+        let statuses = Service::parse_tenant_statuses(&input).expect("empty status filter parses");
+
+        assert!(statuses.is_empty());
+    }
+
+    #[tokio::test]
+    async fn evaluate_denies_unknown_tenant_status_before_resolving_subtree() {
+        let service = Service::new(Arc::new(FakeTenantResolver::standard()));
+        let case = RuleCase {
+            single_resource: false,
+            subject: child(),
+            owner: None,
+            root_id: None,
+            mode: TenantMode::Subtree,
+            expected_decision: false,
+        };
+        let request = request_for(&case, Some(vec!["archived"]), HashMap::new());
+
+        let response = service.evaluate(&request).await;
+
+        assert!(!response.decision);
+        assert!(response.context.constraints.is_empty());
+    }
+
+    #[tokio::test]
+    async fn evaluate_applies_tenant_status_filter_to_descendants() {
+        let service = Service::new(Arc::new(FakeTenantResolver::standard()));
+        let case = RuleCase {
+            single_resource: false,
+            subject: root(),
+            owner: None,
+            root_id: Some(child()),
+            mode: TenantMode::Subtree,
+            expected_decision: true,
+        };
+        let request = request_for(&case, Some(vec!["suspended"]), HashMap::new());
+
+        let response = service.evaluate(&request).await;
+
+        assert!(response.decision);
+        let Predicate::In(predicate) = &response.context.constraints[0].predicates[0] else {
+            panic!("tenant scope should be an In predicate");
+        };
+        let mut actual = predicate.values.clone();
+        actual.sort_by(|a, b| a.to_string().cmp(&b.to_string()));
+        let mut expected = vec![
+            json!(child().to_string()),
+            json!(suspended_child().to_string()),
+        ];
+        expected.sort_by(|a, b| a.to_string().cmp(&b.to_string()));
+        assert_eq!(actual, expected);
+    }
+
+    #[tokio::test]
+    async fn is_in_subtree_is_reflexive() {
+        // `is_ancestor` in the fake is strictly non-reflexive; `is_in_subtree`
+        // must add the self-equality short-circuit so a tenant is always
+        // considered inside its own subtree.
+        let service = Service::new(Arc::new(FakeTenantResolver::standard()));
+        let ctx = SecurityContext::anonymous();
+        assert!(
+            service
+                .is_in_subtree(&ctx, child(), child(), BarrierMode::default())
+                .await,
+            "is_in_subtree should be reflexive"
+        );
+    }
+
+    #[test]
+    fn group_predicates_append_valid_membership_and_subtree() {
+        let group_id = Uuid::from_u128(101);
+        let ancestor_group_id = Uuid::from_u128(102);
+        let mut response = Service::allow_eq(child());
+        let mut props = HashMap::new();
+        props.insert("group_ids".to_owned(), json!([group_id.to_string()]));
+        props.insert(
+            "ancestor_group_ids".to_owned(),
+            json!([ancestor_group_id.to_string()]),
+        );
+
+        Service::append_group_predicates(&mut response, &props).expect("valid group props append");
+
+        let predicates = &response.context.constraints[0].predicates;
+        assert_eq!(predicates.len(), 3);
+        assert!(matches!(predicates[1], Predicate::InGroup(_)));
+        assert!(matches!(predicates[2], Predicate::InGroupSubtree(_)));
+        let Predicate::InGroup(predicate) = &predicates[1] else {
+            panic!("expected InGroup predicate");
+        };
+        assert_eq!(predicate.property, "id");
+        assert_eq!(predicate.group_ids, vec![json!(group_id.to_string())]);
+        let Predicate::InGroupSubtree(predicate) = &predicates[2] else {
+            panic!("expected InGroupSubtree predicate");
+        };
+        assert_eq!(predicate.property, "id");
+        assert_eq!(
+            predicate.ancestor_ids,
+            vec![json!(ancestor_group_id.to_string())]
+        );
+    }
+
+    #[test]
+    fn group_predicates_reject_invalid_group_id_shapes() {
+        let cases = vec![
+            ("group_ids_not_array", "group_ids", json!("not-an-array")),
+            ("group_ids_invalid_uuid", "group_ids", json!(["not-a-uuid"])),
+            (
+                "ancestor_group_ids_invalid_uuid",
+                "ancestor_group_ids",
+                json!(["not-a-uuid"]),
+            ),
+        ];
+
+        for (name, key, value) in cases {
+            let mut response = Service::allow_eq(child());
+            let mut props = HashMap::new();
+            props.insert(key.to_owned(), value);
+
+            let result = Service::append_group_predicates(&mut response, &props);
+
+            assert!(result.is_err(), "{name} should fail closed");
+        }
+    }
+
+    #[test]
+    fn group_predicates_ignore_missing_and_empty_arrays() {
+        let mut response = Service::allow_eq(child());
+        let mut props = HashMap::new();
+        props.insert("group_ids".to_owned(), json!([]));
+        props.insert("ancestor_group_ids".to_owned(), json!([]));
+
+        Service::append_group_predicates(&mut response, &props).expect("empty arrays are valid");
+
+        assert_eq!(response.context.constraints[0].predicates.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn evaluate_denies_when_allowed_rule_has_malformed_group_scope() {
+        let service = Service::new(Arc::new(FakeTenantResolver::standard()));
+        let case = RuleCase {
+            single_resource: false,
+            subject: child(),
+            owner: None,
+            root_id: None,
+            mode: TenantMode::RootOnly,
+            expected_decision: false,
+        };
+        let mut props = HashMap::new();
+        props.insert("group_ids".to_owned(), json!(["not-a-uuid"]));
+        let request = request_for(&case, None, props);
+
+        let response = service.evaluate(&request).await;
+
+        assert!(!response.decision);
+        assert!(response.context.constraints.is_empty());
+    }
+
+    fn request_for(
+        case: &RuleCase,
+        tenant_status: Option<Vec<&str>>,
+        extra_resource_props: HashMap<String, serde_json::Value>,
+    ) -> EvaluationRequest {
+        let mut subject_props = HashMap::new();
+        subject_props.insert("tenant_id".to_owned(), json!(case.subject.to_string()));
+
+        let mut resource_props = HashMap::new();
+        if let Some(owner) = case.owner {
+            resource_props.insert(
+                pep_properties::OWNER_TENANT_ID.to_owned(),
+                json!(owner.to_string()),
+            );
+        }
+        resource_props.extend(extra_resource_props);
+
+        EvaluationRequest {
+            subject: Subject {
+                id: Uuid::from_u128(1_000),
+                subject_type: Some("user".to_owned()),
+                properties: subject_props,
+            },
+            action: Action {
+                name: if case.single_resource {
+                    "get".to_owned()
+                } else {
+                    "list".to_owned()
+                },
+            },
+            resource: Resource {
+                resource_type: "task".to_owned(),
+                id: case.single_resource.then(|| Uuid::from_u128(2_000)),
+                properties: resource_props,
+            },
+            context: EvaluationRequestContext {
+                tenant_context: Some(TenantContext {
+                    mode: case.mode.clone(),
+                    root_id: case.root_id,
+                    barrier_mode: AuthzBarrierMode::Respect,
+                    tenant_status: tenant_status
+                        .map(|statuses| statuses.into_iter().map(str::to_owned).collect()),
+                }),
+                token_scopes: Vec::new(),
+                require_constraints: true,
+                capabilities: Vec::new(),
+                supported_properties: vec![pep_properties::OWNER_TENANT_ID.to_owned()],
+                bearer_token: None,
+            },
+        }
+    }
+
+    fn root() -> Uuid {
+        Uuid::from_u128(1)
+    }
+
+    fn child() -> Uuid {
+        Uuid::from_u128(2)
+    }
+
+    fn grandchild() -> Uuid {
+        Uuid::from_u128(3)
+    }
+
+    fn sibling() -> Uuid {
+        Uuid::from_u128(4)
+    }
+
+    fn suspended_child() -> Uuid {
+        Uuid::from_u128(5)
+    }
+
+    fn unknown() -> Uuid {
+        Uuid::from_u128(99)
     }
 }
