@@ -51,8 +51,10 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Update Rust
-        run: rustup update
+      - name: Install Rust toolchain from rust-toolchain.toml
+        run: |
+          rustup show active-toolchain || rustup toolchain install
+          rustup show
 
       - name: Install Python dependencies
         run: pip install -r testing/e2e/requirements.txt

@@ -80,8 +80,10 @@ jobs:
           go-version: 'stable'
           cache: false
 
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@e081816240890017053eacbb1bdf337761dc5582 # 1.95.0
+      - name: Install Rust toolchain from rust-toolchain.toml
+        run: |
+          rustup show active-toolchain || rustup toolchain install
+          rustup show
 
       # Cache Cargo registry/git + target/ across platforms.
       - name: Cache Cargo/target
