@@ -51,10 +51,13 @@ fn is_db_availability_error(err: &DbError) -> bool {
 /// The raw `DbError` is logged via `tracing::warn!` (correlatable by
 /// trace-id) and, for the `Internal` fallback, stored in the
 /// audit-visible `diagnostic` field. It MUST NOT reach the
-/// client-facing Problem `detail` for `Conflict` or
-/// `SerializationConflict`: those carry a generic, non-leaky message
-/// only — exposing driver text (table names, SQL fragments, dialect
-/// hints) on every retryable conflict is an information disclosure.
+/// client-facing Problem `detail` for `Conflict`,
+/// `SerializationConflict`, or `ServiceUnavailable`: those carry a
+/// generic, non-leaky message only — driver text can expose table
+/// names / SQL fragments / dialect hints on conflicts, and connection
+/// errors can leak hostnames / IP addresses / ports. Operators read
+/// the raw error from the `am.db` `warn!` log (correlatable by
+/// trace-id), not the public Problem envelope.
 ///
 /// Classification ladder (most specific first):
 ///
@@ -110,8 +113,11 @@ impl From<DbError> for AmError {
                 error = %err,
                 "db connectivity failure mapped to AmError::ServiceUnavailable"
             );
+            // Generic, non-leaky detail — connection errors can carry
+            // hostnames, IP addresses, or port numbers in their text.
+            // Operators get the raw `err` from the `warn!` above.
             return AmError::ServiceUnavailable {
-                detail: format!("db unavailable: {err}"),
+                detail: "database unavailable; retry later".to_owned(),
             };
         }
         warn!(target: "am.db", error = %err, "db error mapped to AmError::Internal");
@@ -226,21 +232,25 @@ mod tests {
     }
 
     #[test]
-    fn service_unavailable_diagnostic_carries_db_error_text_for_ops() {
-        // The 503 detail is operator-facing (no PII / SQL leakage
-        // concern equivalent to Conflict/Serialization where the
-        // public detail is generic). Pin that the detail includes the
-        // raw DbError formatting so dashboards / logs can surface the
-        // root cause.
-        let am_err: AmError =
-            DbError::Sea(DbErr::ConnectionAcquire(ConnAcquireErr::Timeout)).into();
+    fn service_unavailable_detail_does_not_leak_db_error_text() {
+        // Pin the no-leak invariant for 503: the public Problem
+        // `detail` must not echo the raw driver / connection error,
+        // which can carry hostnames, IP addresses, or port numbers.
+        // Operators read the raw error from the `am.db` `warn!` log
+        // (correlatable by trace-id), not the Problem envelope.
+        let io_err = std::io::Error::new(
+            std::io::ErrorKind::ConnectionRefused,
+            "tcp connect to db.internal.example:5432 refused",
+        );
+        let am_err: AmError = DbError::Io(io_err).into();
         let AmError::ServiceUnavailable { detail } = am_err else {
             panic!("expected ServiceUnavailable variant");
         };
         assert!(
-            detail.starts_with("db unavailable:"),
-            "detail must be prefixed with `db unavailable:` for log filtering; got {detail:?}"
+            !detail.contains("db.internal.example") && !detail.contains("5432"),
+            "503 detail must not echo connection-error text; got: {detail:?}"
         );
+        assert_eq!(detail, "database unavailable; retry later");
     }
 
     #[test]

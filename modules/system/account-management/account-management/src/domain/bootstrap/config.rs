@@ -22,9 +22,12 @@ use uuid::Uuid;
 
 /// Bootstrap-feature configuration.
 ///
-/// All numeric fields are in **seconds**. UUIDs are deployment-stable —
-/// changing `root_id` between platform restarts breaks the
-/// `fr-bootstrap-idempotency` contract.
+/// Duration fields carry their unit in the field name: `_secs` is seconds
+/// and `_ms` is milliseconds (e.g. `idp_check_availability_backoff_ms` is
+/// the probe cadence in **milliseconds**, not seconds). Counts
+/// (`idp_check_availability_attempts`) are unitless. UUIDs are
+/// deployment-stable — changing `root_id` between platform restarts
+/// breaks the `fr-bootstrap-idempotency` contract.
 #[domain_model]
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default, deny_unknown_fields)]

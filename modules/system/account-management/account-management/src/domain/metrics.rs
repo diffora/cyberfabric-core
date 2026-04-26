@@ -220,14 +220,19 @@ pub fn emit_metric(family: &'static str, kind: MetricKind, labels: &[(&'static s
 // @cpt-end:cpt-cf-account-management-algo-errors-observability-metric-emission:p1:inst-algo-metric-emit-validate
 
 fn emit_sample(desc: &'static FamilyDescriptor, kind: MetricKind, labels: &[(&'static str, &str)]) {
-    #[cfg(test)]
-    capture_metric_sample(desc.name, kind, labels);
-
-    // Fast path: if nothing is listening on `metrics.am` at INFO, skip
-    // serialization entirely. Label allow-list violations still surface
-    // because they `warn!` on their own target.
+    // Fast path: if nothing is listening on `metrics.am` at INFO, skip the
+    // string rendering. Label allow-list violations still surface because
+    // they `warn!` on their own target during normalization.
     let render = enabled!(target: "metrics.am", Level::INFO);
-    let rendered = render_labels(desc, labels, render);
+    let (normalized, rendered) = render_labels(desc, labels, render);
+
+    // Capture (test) and info! emission must agree with the
+    // production-visible label set: allow-list-filtered and value-escaped.
+    #[cfg(test)]
+    capture_metric_sample(desc.name, kind, &normalized);
+    #[cfg(not(test))]
+    let _ = &normalized;
+
     if render {
         info!(
             target: "metrics.am",
@@ -256,13 +261,17 @@ thread_local! {
 }
 
 #[cfg(test)]
-fn capture_metric_sample(family: &'static str, kind: MetricKind, labels: &[(&'static str, &str)]) {
+fn capture_metric_sample(
+    family: &'static str,
+    kind: MetricKind,
+    labels: &[(&'static str, Cow<'_, str>)],
+) {
     let sample = CapturedMetricSample {
         family,
         kind,
         labels: labels
             .iter()
-            .map(|(key, value)| (*key, (*value).to_owned()))
+            .map(|(key, value)| (*key, value.as_ref().to_owned()))
             .collect(),
     };
     CAPTURED_METRIC_SAMPLES.with(|samples| samples.borrow_mut().push(sample));
@@ -278,17 +287,21 @@ pub(crate) fn take_captured_metric_samples() -> Vec<CapturedMetricSample> {
     CAPTURED_METRIC_SAMPLES.with(|samples| std::mem::take(&mut *samples.borrow_mut()))
 }
 
-fn render_labels(
+/// Filter `labels` against `desc.allowed_labels`, escape each accepted
+/// value, and (when `render` is `true`) format the accepted pairs into the
+/// `k=v,k=v` rendering used by `info!`.
+///
+/// The structured `Vec` return value is the **single source of truth** for
+/// the production-visible label set: both `capture_metric_sample` (in test
+/// builds) and the `info!` emission below are driven from it, so they
+/// cannot disagree about which labels were dropped or how their values
+/// were escaped.
+fn render_labels<'a>(
     desc: &'static FamilyDescriptor,
-    labels: &[(&'static str, &str)],
+    labels: &'a [(&'static str, &'a str)],
     render: bool,
-) -> String {
-    let mut out = if render {
-        String::with_capacity(labels.len() * 16)
-    } else {
-        String::new()
-    };
-    let mut first = true;
+) -> (Vec<(&'static str, Cow<'a, str>)>, String) {
+    let mut normalized: Vec<(&'static str, Cow<'a, str>)> = Vec::with_capacity(labels.len());
     for (k, v) in labels {
         if !desc.allowed_labels.contains(k) {
             warn!(
@@ -299,17 +312,26 @@ fn render_labels(
             );
             continue;
         }
-        if render {
+        normalized.push((*k, escape_label_value(v)));
+    }
+
+    let out = if render {
+        let mut out = String::with_capacity(normalized.len() * 16);
+        let mut first = true;
+        for (k, v) in &normalized {
             if !first {
                 out.push(',');
             }
             first = false;
             out.push_str(k);
             out.push('=');
-            out.push_str(&escape_label_value(v));
+            out.push_str(v);
         }
-    }
-    out
+        out
+    } else {
+        String::new()
+    };
+    (normalized, out)
 }
 
 /// Percent-encode characters that would corrupt the `k=v,k=v` rendering
@@ -423,8 +445,71 @@ mod tests {
         // The k=v,k=v rendering must not be corruptible by a label value that
         // happens to contain `,`, `=`, `\n`, `\r`, or `%` itself.
         let desc = lookup(AM_AUDIT_DROP).expect("AM_AUDIT_DROP descriptor");
-        let rendered = render_labels(desc, &[("kind", "a,b=c\nd\re%f")], true);
+        let (normalized, rendered) = render_labels(desc, &[("kind", "a,b=c\nd\re%f")], true);
         assert_eq!(rendered, "kind=a%2Cb%3Dc%0Ad%0De%25f");
+        // The normalized view that feeds the test capture must carry the
+        // same escaped value the info! emission renders.
+        assert_eq!(normalized.len(), 1);
+        assert_eq!(normalized[0].0, "kind");
+        assert_eq!(normalized[0].1.as_ref(), "a%2Cb%3Dc%0Ad%0De%25f");
+    }
+
+    #[test]
+    fn capture_omits_labels_dropped_by_allow_list() {
+        // Regression: tests must not see labels that production would
+        // never emit. emit_sample now drives capture from the same
+        // filtered/escaped list it hands to info!, so a non-allow-listed
+        // label is dropped from both paths.
+        clear_captured_metric_samples();
+        emit_metric(
+            AM_CROSS_TENANT_DENIAL,
+            MetricKind::Counter,
+            &[
+                ("operation", "create_child"),
+                ("totally_made_up_label", "x"),
+                ("barrier_mode", "strict"),
+                ("reason", "non_platform_admin"),
+            ],
+        );
+        let samples = take_captured_metric_samples();
+        let leaked = samples
+            .iter()
+            .flat_map(|s| s.labels.iter().map(|(k, _)| *k))
+            .any(|k| k == "totally_made_up_label");
+        assert!(
+            !leaked,
+            "non-allow-listed label leaked into capture: {samples:?}"
+        );
+        let kept_keys: Vec<&'static str> = samples
+            .iter()
+            .flat_map(|s| s.labels.iter().map(|(k, _)| *k))
+            .collect();
+        assert!(kept_keys.contains(&"operation"));
+        assert!(kept_keys.contains(&"barrier_mode"));
+        assert!(kept_keys.contains(&"reason"));
+    }
+
+    #[test]
+    fn capture_records_escaped_label_values() {
+        // The capture path stores the same escaped values the info!
+        // emission renders, so a test asserting on captured values
+        // matches what production logs would carry.
+        clear_captured_metric_samples();
+        emit_metric(
+            AM_AUDIT_DROP,
+            MetricKind::Counter,
+            &[("kind", "a,b=c\nd\re%f")],
+        );
+        let samples = take_captured_metric_samples();
+        let kind_value: Option<String> = samples
+            .iter()
+            .flat_map(|s| s.labels.iter().cloned())
+            .find_map(|(k, v)| (k == "kind").then_some(v));
+        assert_eq!(
+            kind_value.as_deref(),
+            Some("a%2Cb%3Dc%0Ad%0De%25f"),
+            "captured value must be escaped: {samples:?}"
+        );
     }
 
     #[test]
