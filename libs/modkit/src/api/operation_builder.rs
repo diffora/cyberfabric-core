@@ -1950,16 +1950,30 @@ mod tests {
         assert!(!builder.spec.is_public);
     }
 
-    #[test]
-    fn required_scope_records_scope_and_allows_register() {
-        let builder = OperationBuilder::<Missing, Missing, ()>::get("/tests/v1/test")
+    #[tokio::test]
+    async fn required_scope_records_scope_and_allows_register() {
+        // The test name promises that `.required_scope(...)` lands the
+        // builder in a state where `.register(...)` is callable; exercise
+        // that compile-time contract end-to-end (not just a state
+        // inspection) so a future refactor that breaks the type-state
+        // path fails the test, not just code review.
+        let registry = MockRegistry::new();
+        let router = Router::new();
+
+        let _router = OperationBuilder::<Missing, Missing, ()>::get("/tests/v1/test")
             .authenticated()
             .required_scope("tests.read")
-            .handler(|| async {})
-            .json_response(http::StatusCode::OK, "OK");
+            .handler(test_handler)
+            .json_response(http::StatusCode::OK, "OK")
+            .register(router, &registry);
 
-        assert!(builder.spec.license_requirement.is_none());
-        assert_eq!(builder.spec.required_scopes, vec!["tests.read".to_owned()]);
+        let ops = registry.operations.lock().unwrap();
+        assert_eq!(ops.len(), 1);
+        let op = &ops[0];
+        assert!(op.license_requirement.is_none());
+        assert_eq!(op.required_scopes, vec!["tests.read".to_owned()]);
+        assert!(op.authenticated);
+        assert!(!op.is_public);
     }
 
     #[test]

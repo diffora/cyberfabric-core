@@ -178,7 +178,8 @@ fn lookup(family: &str) -> Option<&'static FamilyDescriptor> {
     FAMILIES.iter().find(|f| f.name == family)
 }
 
-/// Emit a metric sample against one of the seven AM families.
+/// Emit a metric sample against one of the AM metric families declared
+/// in this module's `FAMILIES` catalog.
 ///
 /// Contract (fire-and-forget, see `algo-metric-emission`):
 ///
@@ -220,14 +221,24 @@ pub fn emit_metric(family: &'static str, kind: MetricKind, labels: &[(&'static s
 // @cpt-end:cpt-cf-account-management-algo-errors-observability-metric-emission:p1:inst-algo-metric-emit-validate
 
 fn emit_sample(desc: &'static FamilyDescriptor, kind: MetricKind, labels: &[(&'static str, &str)]) {
-    // Fast path: if nothing is listening on `metrics.am` at INFO, skip the
-    // string rendering. Label allow-list violations still surface because
-    // they `warn!` on their own target during normalization.
     let render = enabled!(target: "metrics.am", Level::INFO);
+
+    // Cold production path: nothing listens on `metrics.am` at INFO and
+    // there is no test capture buffer to populate, so don't allocate the
+    // normalized `Vec` or escape values — but still walk `labels` once to
+    // surface allow-list violations on the `warn!` target.
+    #[cfg(not(test))]
+    if !render {
+        warn_invalid_labels(desc, labels);
+        return;
+    }
+
+    // Hot/test path: build the normalized labels (used by capture in test
+    // builds) and, when INFO is enabled, the rendered `k=v,k=v` string.
+    // Capture and `info!` must agree with the production-visible label
+    // set — allow-list-filtered and value-escaped.
     let (normalized, rendered) = render_labels(desc, labels, render);
 
-    // Capture (test) and info! emission must agree with the
-    // production-visible label set: allow-list-filtered and value-escaped.
     #[cfg(test)]
     capture_metric_sample(desc.name, kind, &normalized);
     #[cfg(not(test))]
@@ -241,6 +252,25 @@ fn emit_sample(desc: &'static FamilyDescriptor, kind: MetricKind, labels: &[(&'s
             labels = %rendered,
             "am metric sample"
         );
+    }
+}
+
+/// No-allocation cold-path validator: walks `labels` once and emits a
+/// `warn!` for each entry whose key is not in the family's allow-list,
+/// matching `render_labels`' allow-list-violation diagnostic verbatim so
+/// the cold and hot paths produce identical warnings. Used by
+/// [`emit_sample`] in non-test builds when nothing is listening at
+/// `metrics.am=INFO`.
+fn warn_invalid_labels(desc: &'static FamilyDescriptor, labels: &[(&'static str, &str)]) {
+    for (k, _) in labels {
+        if !desc.allowed_labels.contains(k) {
+            warn!(
+                target: "metrics.am",
+                family = desc.name,
+                label = k,
+                "metric label not in allow-list; dropping label"
+            );
+        }
     }
 }
 

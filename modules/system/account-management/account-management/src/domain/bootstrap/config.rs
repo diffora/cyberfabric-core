@@ -8,6 +8,11 @@
 //! `idp_retry_backoff_initial = 2s`, `idp_retry_backoff_max = 30s`,
 //! `idp_retry_timeout = 5min`. The non-mutating availability probe
 //! defaults to 5 attempts with a 250ms fixed backoff, and the bootstrap
+//! saga itself is gated by [`BootstrapConfig::strict`] — `true` makes a
+//! bootstrap failure lifecycle-fatal during module `init`, while `false`
+//! logs the failure and lets the module proceed (useful for dev or
+//! multi-region splits where the root tenant is bootstrapped out of
+//! band).
 //!
 //! `BootstrapConfig` is deliberately separate from
 //! [`crate::config::AccountManagementConfig`] so deployments that bootstrap
