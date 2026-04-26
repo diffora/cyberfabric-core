@@ -260,7 +260,9 @@ fn emit_sample(desc: &'static FamilyDescriptor, kind: MetricKind, labels: &[(&'s
 /// matching `render_labels`' allow-list-violation diagnostic verbatim so
 /// the cold and hot paths produce identical warnings. Used by
 /// [`emit_sample`] in non-test builds when nothing is listening at
-/// `metrics.am=INFO`.
+/// `metrics.am=INFO`; in test builds the cold path is short-circuited so
+/// this helper is unreachable.
+#[cfg(not(test))]
 fn warn_invalid_labels(desc: &'static FamilyDescriptor, labels: &[(&'static str, &str)]) {
     for (k, _) in labels {
         if !desc.allowed_labels.contains(k) {
@@ -415,6 +417,7 @@ mod tests {
 
     #[test]
     fn serializable_retry_accepts_outcome_and_attempts_as_counter() {
+        clear_captured_metric_samples();
         emit_metric(
             AM_SERIALIZABLE_RETRY,
             MetricKind::Counter,
@@ -425,39 +428,104 @@ mod tests {
             MetricKind::Counter,
             &[("outcome", "recovered"), ("attempts", "2")],
         );
+        let samples = take_captured_metric_samples();
+        assert_eq!(
+            samples.len(),
+            2,
+            "both emits must be recorded; got: {samples:?}"
+        );
+        assert_eq!(samples[0].family, AM_SERIALIZABLE_RETRY);
+        assert_eq!(samples[0].kind, MetricKind::Counter);
+        assert_eq!(
+            samples[0].labels,
+            vec![
+                ("outcome", "exhausted".to_owned()),
+                ("attempts", "4".to_owned()),
+            ]
+        );
+        assert_eq!(samples[1].family, AM_SERIALIZABLE_RETRY);
+        assert_eq!(samples[1].kind, MetricKind::Counter);
+        assert_eq!(
+            samples[1].labels,
+            vec![
+                ("outcome", "recovered".to_owned()),
+                ("attempts", "2".to_owned()),
+            ]
+        );
     }
 
     #[test]
     fn dependency_health_accepts_bound_inert_gauge() {
+        clear_captured_metric_samples();
         emit_metric(
             AM_DEPENDENCY_HEALTH,
             MetricKind::Gauge,
             &[("target", "rg"), ("op", "bound"), ("outcome", "inert")],
+        );
+        let samples = take_captured_metric_samples();
+        assert_eq!(samples.len(), 1, "emit must be recorded; got: {samples:?}");
+        assert_eq!(samples[0].family, AM_DEPENDENCY_HEALTH);
+        assert_eq!(samples[0].kind, MetricKind::Gauge);
+        assert_eq!(
+            samples[0].labels,
+            vec![
+                ("target", "rg".to_owned()),
+                ("op", "bound".to_owned()),
+                ("outcome", "inert".to_owned()),
+            ]
         );
     }
 
     #[test]
     fn integrity_violations_accepts_category_label_as_gauge() {
         // Happy-path: category label + Gauge kind are in the allow-list.
+        clear_captured_metric_samples();
         emit_metric(
             AM_HIERARCHY_INTEGRITY_VIOLATIONS,
             MetricKind::Gauge,
             &[("category", "orphaned_child")],
         );
+        let samples = take_captured_metric_samples();
+        assert_eq!(samples.len(), 1, "emit must be recorded; got: {samples:?}");
+        assert_eq!(samples[0].family, AM_HIERARCHY_INTEGRITY_VIOLATIONS);
+        assert_eq!(samples[0].kind, MetricKind::Gauge);
+        assert_eq!(
+            samples[0].labels,
+            vec![("category", "orphaned_child".to_owned())]
+        );
     }
 
     #[test]
     fn integrity_violations_accepts_category_label_as_counter() {
+        clear_captured_metric_samples();
         emit_metric(
             AM_HIERARCHY_INTEGRITY_VIOLATIONS,
             MetricKind::Counter,
             &[("category", "cycle_detected")],
         );
+        let samples = take_captured_metric_samples();
+        assert_eq!(samples.len(), 1, "emit must be recorded; got: {samples:?}");
+        assert_eq!(samples[0].family, AM_HIERARCHY_INTEGRITY_VIOLATIONS);
+        assert_eq!(samples[0].kind, MetricKind::Counter);
+        assert_eq!(
+            samples[0].labels,
+            vec![("category", "cycle_detected".to_owned())]
+        );
     }
 
     #[test]
     fn retention_invalid_window_accepts_counter_without_labels() {
+        clear_captured_metric_samples();
         emit_metric(AM_RETENTION_INVALID_WINDOW, MetricKind::Counter, &[]);
+        let samples = take_captured_metric_samples();
+        assert_eq!(samples.len(), 1, "emit must be recorded; got: {samples:?}");
+        assert_eq!(samples[0].family, AM_RETENTION_INVALID_WINDOW);
+        assert_eq!(samples[0].kind, MetricKind::Counter);
+        assert!(
+            samples[0].labels.is_empty(),
+            "no labels expected; got: {:?}",
+            samples[0].labels
+        );
     }
 
     #[test]
@@ -552,6 +620,7 @@ mod tests {
 
     #[test]
     fn valid_sample_emits_cleanly() {
+        clear_captured_metric_samples();
         emit_metric(
             AM_CROSS_TENANT_DENIAL,
             MetricKind::Counter,
@@ -560,6 +629,18 @@ mod tests {
                 ("barrier_mode", "strict"),
                 ("reason", "non_platform_admin"),
             ],
+        );
+        let samples = take_captured_metric_samples();
+        assert_eq!(samples.len(), 1, "emit must be recorded; got: {samples:?}");
+        assert_eq!(samples[0].family, AM_CROSS_TENANT_DENIAL);
+        assert_eq!(samples[0].kind, MetricKind::Counter);
+        assert_eq!(
+            samples[0].labels,
+            vec![
+                ("operation", "create_child".to_owned()),
+                ("barrier_mode", "strict".to_owned()),
+                ("reason", "non_platform_admin".to_owned()),
+            ]
         );
     }
 }
