@@ -256,14 +256,18 @@ fn emit_sample(desc: &'static FamilyDescriptor, kind: MetricKind, labels: &[(&'s
 }
 
 /// No-allocation cold-path validator: walks `labels` once and emits a
-/// `warn!` for each entry whose key is not in the family's allow-list,
-/// matching `render_labels`' allow-list-violation diagnostic verbatim so
-/// the cold and hot paths produce identical warnings. Used by
-/// [`emit_sample`] in non-test builds when nothing is listening at
-/// `metrics.am=INFO`; in test builds the cold path is short-circuited so
-/// this helper is unreachable.
+/// `warn!` for each entry whose key is not in the family's allow-list
+/// or duplicates a previous accepted key, matching `render_labels`'
+/// diagnostics verbatim so the cold and hot paths produce identical
+/// warnings. Used by [`emit_sample`] in non-test builds when nothing is
+/// listening at `metrics.am=INFO`; in test builds the cold path is
+/// short-circuited so this helper is unreachable.
 #[cfg(not(test))]
 fn warn_invalid_labels(desc: &'static FamilyDescriptor, labels: &[(&'static str, &str)]) {
+    // Bounded by `desc.allowed_labels.len()` (≤3 for live families); a
+    // tiny stack-resident slice is cheaper than a hash set here.
+    let mut seen: [&'static str; 8] = [""; 8];
+    let mut seen_len: usize = 0;
     for (k, _) in labels {
         if !desc.allowed_labels.contains(k) {
             warn!(
@@ -272,6 +276,20 @@ fn warn_invalid_labels(desc: &'static FamilyDescriptor, labels: &[(&'static str,
                 label = k,
                 "metric label not in allow-list; dropping label"
             );
+            continue;
+        }
+        if seen[..seen_len].iter().any(|s| s == k) {
+            warn!(
+                target: "metrics.am",
+                family = desc.name,
+                label = k,
+                "duplicate metric label; dropping duplicate"
+            );
+            continue;
+        }
+        if seen_len < seen.len() {
+            seen[seen_len] = *k;
+            seen_len += 1;
         }
     }
 }
@@ -334,6 +352,11 @@ fn render_labels<'a>(
     render: bool,
 ) -> (Vec<(&'static str, Cow<'a, str>)>, String) {
     let mut normalized: Vec<(&'static str, Cow<'a, str>)> = Vec::with_capacity(labels.len());
+    // Track seen keys via linear scan over `normalized` itself: catalog
+    // families allow at most a handful of labels (the largest live entry
+    // has 3), so a hash set would dominate the cost of the work it saves.
+    // First-occurrence wins; later duplicates are warned-and-dropped so
+    // the rendered `k=v,k=v` cannot contain `kind=a,kind=b`-style ambiguity.
     for (k, v) in labels {
         if !desc.allowed_labels.contains(k) {
             warn!(
@@ -341,6 +364,15 @@ fn render_labels<'a>(
                 family = desc.name,
                 label = k,
                 "metric label not in allow-list; dropping label"
+            );
+            continue;
+        }
+        if normalized.iter().any(|(seen, _)| seen == k) {
+            warn!(
+                target: "metrics.am",
+                family = desc.name,
+                label = k,
+                "duplicate metric label; dropping duplicate"
             );
             continue;
         }
@@ -585,6 +617,43 @@ mod tests {
         assert!(kept_keys.contains(&"operation"));
         assert!(kept_keys.contains(&"barrier_mode"));
         assert!(kept_keys.contains(&"reason"));
+    }
+
+    #[test]
+    fn render_labels_drops_duplicate_keys_first_wins() {
+        // Pin the first-occurrence-wins rule for duplicate keys at the
+        // render_labels level: a caller passing two `("kind", _)` entries
+        // must not produce the ambiguous `kind=a,kind=b` rendering — the
+        // second entry is dropped (with a `warn!`) so both the captured
+        // sample and the rendered string carry exactly one `kind` pair.
+        let desc = lookup(AM_AUDIT_DROP).expect("AM_AUDIT_DROP descriptor");
+        let (normalized, rendered) =
+            render_labels(desc, &[("kind", "first"), ("kind", "second")], true);
+        assert_eq!(normalized.len(), 1);
+        assert_eq!(normalized[0].0, "kind");
+        assert_eq!(normalized[0].1.as_ref(), "first");
+        assert_eq!(rendered, "kind=first");
+    }
+
+    #[test]
+    fn capture_drops_duplicate_label_keys() {
+        // End-to-end: emit_metric with a duplicate label key records a
+        // single, unambiguous sample — duplicates are filtered before
+        // hitting capture, just like they are before info!.
+        clear_captured_metric_samples();
+        emit_metric(
+            AM_AUDIT_DROP,
+            MetricKind::Counter,
+            &[("kind", "first"), ("kind", "second")],
+        );
+        let samples = take_captured_metric_samples();
+        assert_eq!(samples.len(), 1, "emit must be recorded; got: {samples:?}");
+        assert_eq!(
+            samples[0].labels,
+            vec![("kind", "first".to_owned())],
+            "duplicate `kind` must be dropped, first wins; got: {:?}",
+            samples[0].labels
+        );
     }
 
     #[test]
