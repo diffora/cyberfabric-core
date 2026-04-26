@@ -15,6 +15,50 @@ use tracing::warn;
 
 use crate::domain::error::AmError;
 
+/// Returns a non-secret string description of `err` suitable for the
+/// `am.db` `warn!` log and for `AmError::Internal::diagnostic`.
+///
+/// Config-bearing variants (`UnknownDsn`, `InvalidConfig`,
+/// `ConfigConflict`, `InvalidSqlitePragma`, `UnknownSqlitePragma`,
+/// `InvalidParameter`, `SqlitePragma`, `EnvVar`, `UrlParse`) can carry
+/// DSN strings, env-var names/values, or other operator-supplied text
+/// that may include passwords / hostnames / tokens — their bodies are
+/// dropped, only the variant kind survives. Pass-through wrappers
+/// (`Sqlx`, `Sea`, `Io`, `Lock`, `Other`) are also reduced to a kind
+/// label because their Display impls forward arbitrary driver text.
+/// Variants whose Display payload is statically defined and known-safe
+/// (`FeatureDisabled`, `ConnRequestedInsideTx`) round-trip verbatim.
+///
+/// Operators correlate by trace-id between the `am.db` log and the
+/// Problem envelope; they read the *kind* from the redacted diagnostic
+/// and the surrounding request context for the *what*. This matches
+/// the no-leak posture already applied to `Conflict`,
+/// `SerializationConflict`, and `ServiceUnavailable`.
+fn redacted_db_diagnostic(err: &DbError) -> &'static str {
+    match err {
+        DbError::UnknownDsn(_) => "db error: unknown DSN (text redacted)",
+        DbError::FeatureDisabled(_) => "db error: feature not enabled",
+        DbError::InvalidConfig(_) => "db error: invalid configuration (text redacted)",
+        DbError::ConfigConflict(_) => "db error: configuration conflict (text redacted)",
+        DbError::InvalidSqlitePragma { .. } => {
+            "db error: invalid SQLite pragma parameter (text redacted)"
+        }
+        DbError::UnknownSqlitePragma(_) => "db error: unknown SQLite pragma (text redacted)",
+        DbError::InvalidParameter(_) => "db error: invalid connection parameter (text redacted)",
+        DbError::SqlitePragma(_) => "db error: SQLite pragma error (text redacted)",
+        DbError::EnvVar { .. } => "db error: environment variable error (text redacted)",
+        DbError::UrlParse(_) => "db error: URL parse error (text redacted)",
+        DbError::Sqlx(_) => "db error: sqlx (text redacted)",
+        DbError::Sea(_) => "db error: sea-orm (text redacted)",
+        DbError::Io(_) => "db error: io (text redacted)",
+        DbError::Lock(_) => "db error: lock (text redacted)",
+        DbError::Other(_) => "db error: other (text redacted)",
+        DbError::ConnRequestedInsideTx => {
+            "db error: connection requested inside active transaction"
+        }
+    }
+}
+
 /// Returns `true` iff `err` is a typed database connectivity / outage
 /// signal — pool acquire timeout, connection closed, connection-level
 /// runtime error, or a raw `std::io::Error` surfaced through
@@ -120,9 +164,19 @@ impl From<DbError> for AmError {
                 detail: "database unavailable; retry later".to_owned(),
             };
         }
-        warn!(target: "am.db", error = %err, "db error mapped to AmError::Internal");
+        // Config-bearing DbError variants (UnknownDsn, InvalidConfig,
+        // ConfigConflict, ...) can carry DSN credentials, env-var
+        // values, or other operator-supplied text. Funnel both the log
+        // and the audit-visible diagnostic through `redacted_db_diagnostic`
+        // so a leaky DSN can never reach either.
+        let diagnostic = redacted_db_diagnostic(&err);
+        warn!(
+            target: "am.db",
+            error = diagnostic,
+            "db error mapped to AmError::Internal"
+        );
         AmError::Internal {
-            diagnostic: format!("db error: {err}"),
+            diagnostic: diagnostic.to_owned(),
         }
     }
 }
@@ -270,6 +324,74 @@ mod tests {
             !detail.contains("duplicate key") && !detail.contains("tenants_pkey"),
             "conflict detail must not echo the raw DB error; got: {detail:?}"
         );
+    }
+
+    #[test]
+    fn internal_diagnostic_redacts_dsn_credentials() {
+        // Pin the redaction invariant for config-bearing DbError
+        // variants: a DSN with credentials must not leak into the
+        // audit-visible `Internal::diagnostic` field. The variant kind
+        // is preserved (operators correlate via the `am.db` warn!),
+        // but the embedded string is dropped.
+        let dsn_with_secret = "postgres://leaky_user:hunter2@db.internal.example:5432/myapp";
+        let am_err: AmError = DbError::UnknownDsn(dsn_with_secret.to_owned()).into();
+        let AmError::Internal { diagnostic } = am_err else {
+            panic!("expected Internal variant");
+        };
+        for needle in [
+            "leaky_user",
+            "hunter2",
+            "db.internal.example",
+            "5432",
+            "myapp",
+            dsn_with_secret,
+        ] {
+            assert!(
+                !diagnostic.contains(needle),
+                "Internal diagnostic must not echo DSN substring {needle:?}; got: {diagnostic:?}"
+            );
+        }
+        assert_eq!(
+            diagnostic,
+            redacted_db_diagnostic(&DbError::UnknownDsn(String::new())),
+            "diagnostic must equal the redacted label for the variant"
+        );
+    }
+
+    #[test]
+    fn internal_diagnostic_redacts_other_config_variants() {
+        // Sweep the other config-bearing variants the redactor covers
+        // — any future change that reverts to `format!("...{err}")`
+        // would fail here even if the UnknownDsn case kept passing.
+        for (err, expected) in [
+            (
+                DbError::InvalidConfig("dsn=postgres://u:p@h/db".to_owned()),
+                "db error: invalid configuration (text redacted)",
+            ),
+            (
+                DbError::ConfigConflict("password=secret in two places".to_owned()),
+                "db error: configuration conflict (text redacted)",
+            ),
+            (
+                DbError::InvalidParameter("connect_timeout=postgres://u:p@h".to_owned()),
+                "db error: invalid connection parameter (text redacted)",
+            ),
+            (
+                DbError::EnvVar {
+                    name: "DATABASE_PASSWORD".to_owned(),
+                    source: std::env::VarError::NotPresent,
+                },
+                "db error: environment variable error (text redacted)",
+            ),
+        ] {
+            let am_err: AmError = err.into();
+            let AmError::Internal { diagnostic } = am_err else {
+                panic!("expected Internal variant; got {:?}", am_err.sub_code());
+            };
+            assert_eq!(diagnostic, expected);
+            assert!(!diagnostic.contains("postgres://"));
+            assert!(!diagnostic.contains("secret"));
+        }
     }
 
     #[test]
