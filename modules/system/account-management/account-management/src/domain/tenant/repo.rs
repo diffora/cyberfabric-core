@@ -182,9 +182,26 @@ pub trait TenantRepo: Send + Sync {
         limit: usize,
     ) -> Result<Vec<TenantProvisioningRow>, AmError>;
 
-    /// Count direct children under `parent_id`. When `include_deleted`
-    /// is `true`, `status = Deleted` rows are included; otherwise only
-    /// SDK-visible statuses are counted.
+    /// Count direct children under `parent_id`.
+    ///
+    /// `include_deleted` toggles **only the `Deleted` bucket**:
+    ///
+    /// * `true`  → counts every status: `Provisioning + Active + Suspended + Deleted`.
+    /// * `false` → counts `Provisioning + Active + Suspended` (excludes `Deleted` only).
+    ///
+    /// `Provisioning` children are *deliberately* counted in both
+    /// modes. This is the soft-delete guard's saga-correctness contract
+    /// (see [`crate::domain::tenant::service::TenantService::soft_delete`]):
+    /// a child mid-saga may still settle into `Active`, so its parent
+    /// must not be permitted to enter `Deleted` while the saga is in
+    /// flight — otherwise the post-settle state is an `Active` tenant
+    /// under a `Deleted` parent, the `BrokenParentReference` violation
+    /// classified in [`crate::domain::tenant::integrity`].
+    ///
+    /// Note: this differs from "SDK-visible" semantics — `Deleted` is
+    /// itself SDK-visible (callers can fetch it via `?status=deleted`),
+    /// so the toggle name reflects the wire-level filter, not
+    /// SDK-visibility.
     async fn count_children(
         &self,
         scope: &AccessScope,
@@ -206,11 +223,33 @@ pub trait TenantRepo: Send + Sync {
         retention: Option<Duration>,
     ) -> Result<TenantModel, AmError>;
 
-    /// Transactional hard-delete of a single tenant: re-check the
-    /// status + child-existence guard under `FOR UPDATE`, delete
-    /// closure rows first, then the tenant row. The outcome discriminates
-    /// between "cleaned", "deferred because a child still exists", and
-    /// "not eligible" (row no longer matches the retention predicate).
+    /// Transactional hard-delete of a single tenant. Re-checks the
+    /// **structural** eligibility guard (`status = Deleted` and
+    /// `deletion_scheduled_at IS NOT NULL`) plus the **child-existence**
+    /// guard under `FOR UPDATE`, then deletes closure rows first and
+    /// the tenant row.
+    ///
+    /// **Temporal eligibility (`scheduled_at + retention_window <= now`)
+    /// is the caller's responsibility**, performed up-front at
+    /// candidate-selection time (see [`Self::scan_retention_due`],
+    /// which already does the temporal filter at the DB with
+    /// `FOR UPDATE SKIP LOCKED` and a `claimed_by` claim TTL). This
+    /// method does NOT recompute "due" — and does not need to: once a
+    /// row is due, it remains due (`now` is monotonic, `Deleted` is a
+    /// terminal status, and `retention_window_secs` is not mutable for
+    /// already-`Deleted` rows because `schedule_deletion` rejects them
+    /// with `Conflict`).
+    ///
+    /// The outcome therefore discriminates between:
+    /// * `Cleaned` — closure and tenant rows gone (also returned for
+    ///   "row already absent" idempotency).
+    /// * `DeferredChildPresent` — at least one child still names this
+    ///   tenant as parent; retry on the next tick (leaf-first ordering
+    ///   means children clear first).
+    /// * `NotEligible` — the structural guard failed (row exists but
+    ///   `status != Deleted` or `deletion_scheduled_at IS NULL`),
+    ///   indicating either a stale candidate set or a data-integrity
+    ///   anomaly.
     async fn hard_delete_one(
         &self,
         scope: &AccessScope,

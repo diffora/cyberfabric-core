@@ -79,8 +79,14 @@ pub enum HardDeleteOutcome {
     /// A child still exists under this tenant. Defer to a later tick;
     /// children will be cleaned first thanks to leaf-first ordering.
     DeferredChildPresent,
-    /// Row is no longer eligible (status changed, `scheduled_at` cleared,
-    /// retention extended past `now`).
+    /// Row failed the structural eligibility guard at hard-delete time:
+    /// either `status != Deleted` or `deletion_scheduled_at IS NULL`.
+    /// Temporal eligibility (`scheduled_at + retention <= now`) is
+    /// established at candidate-selection time by
+    /// [`crate::domain::tenant::repo::TenantRepo::scan_retention_due`]
+    /// and is not re-checked here, so this variant indicates a stale
+    /// candidate set or a data-integrity anomaly rather than a
+    /// retention-window extension.
     NotEligible,
     /// A cascade hook returned [`crate::domain::tenant::hooks::HookError::Retryable`].
     /// Defer to next tick.

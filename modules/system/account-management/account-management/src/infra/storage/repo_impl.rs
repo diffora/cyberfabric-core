@@ -46,11 +46,11 @@ use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 
 use async_trait::async_trait;
+use modkit_db::DBProvider;
 use modkit_db::secure::{
     DbTx, SecureDeleteExt, SecureEntityExt, SecureInsertExt, SecureUpdateExt, TxAccessMode,
     TxConfig, TxIsolationLevel, is_unique_violation,
 };
-use modkit_db::DBProvider;
 use modkit_security::AccessScope;
 use sea_orm::sea_query::{Expr, LockBehavior, LockType};
 use sea_orm::{ColumnTrait, Condition, EntityTrait, Order, QueryFilter};
@@ -145,8 +145,7 @@ fn id_eq(id: Uuid) -> Condition {
     Condition::all().add(tenants::Column::Id.eq(id))
 }
 
-static GTS_NAMESPACE: LazyLock<Uuid> =
-    LazyLock::new(|| Uuid::new_v5(&Uuid::NAMESPACE_URL, b"gts"));
+static GTS_NAMESPACE: LazyLock<Uuid> = LazyLock::new(|| Uuid::new_v5(&Uuid::NAMESPACE_URL, b"gts"));
 
 fn schema_uuid_from_gts_id(gts_id: &str) -> Uuid {
     Uuid::new_v5(&GTS_NAMESPACE, gts_id.as_bytes())
@@ -281,7 +280,7 @@ impl TenantRepo for TenantRepoImpl {
         let conn = self.db.conn()?;
 
         // Base filter: parent_id = query.parent_id AND status filter.
-        let status_filter_cond = if let Some(ref statuses) = query.status_filter {
+        let status_filter_cond = if let Some(statuses) = query.status_filter() {
             let mut any_of = Condition::any();
             for s in statuses {
                 any_of = any_of.add(tenants::Column::Status.eq(s.as_smallint()));
@@ -919,7 +918,10 @@ impl TenantRepo for TenantRepoImpl {
             out.push(TenantRetentionRow {
                 id: r.id,
                 depth: u32::try_from(r.depth).map_err(|_| AmError::Internal {
-                    diagnostic: format!("tenants.depth negative for retention row {}: {}", r.id, r.depth),
+                    diagnostic: format!(
+                        "tenants.depth negative for retention row {}: {}",
+                        r.id, r.depth
+                    ),
                 })?,
                 deletion_scheduled_at: scheduled_at,
                 retention_window: retention,

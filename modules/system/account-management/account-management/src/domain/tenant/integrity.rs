@@ -60,8 +60,10 @@ pub enum IntegrityCategory {
     /// An ancestor is present in the `parent_id` walk but missing from
     /// the closure as an `(ancestor, tenant)` row.
     ClosureCoverageGap,
-    /// A closure row references a tenant (ancestor or descendant) that
-    /// no longer exists.
+    /// A closure row that should not be in `tenant_closure`: either it
+    /// references a tenant (ancestor or descendant) that no longer
+    /// exists, or both endpoints exist but the asserted ancestry is not
+    /// present in the `parent_id` walk.
     StaleClosureRow,
     /// `tenant_closure.barrier` is inconsistent with the `self_managed`
     /// flag on the strict path (barrier-materialization invariant).
@@ -223,8 +225,12 @@ pub fn classify_tree_shape_anomalies(rows: &[TenantModel]) -> Vec<Violation> {
     }
 
     // Category 3: depth-mismatch. Walk parents; expected depth is the
-    // walk length. Bail out if the walk exceeds `rows.len()` steps to
-    // protect against cycles (a separate defect we do not classify).
+    // walk length. Bail out if the walk exceeds `rows.len()` steps —
+    // that exit branch records a `Cycle` violation and is mutually
+    // exclusive with `DepthMismatch` for the same tenant: the walked
+    // `expected` is a partial count and `t.depth != expected` would
+    // otherwise produce a redundant DepthMismatch pointing at the same
+    // root cause (same rationale as the `OrphanedChild` skip above).
     for t in rows {
         if orphaned.contains(&t.id) {
             continue;
@@ -233,10 +239,12 @@ pub fn classify_tree_shape_anomalies(rows: &[TenantModel]) -> Vec<Violation> {
         let mut cursor = t.parent_id;
         let mut steps = 0;
         let limit = rows.len() + 1;
+        let mut cycle_detected = false;
         while let Some(pid) = cursor {
             steps += 1;
             if steps > limit {
                 out.push(record_cycle_detected(Some(t.id), pid, "tenant_depth"));
+                cycle_detected = true;
                 break;
             }
             match by_id.get(&pid) {
@@ -247,7 +255,7 @@ pub fn classify_tree_shape_anomalies(rows: &[TenantModel]) -> Vec<Violation> {
                 None => break,
             }
         }
-        if t.depth != expected {
+        if !cycle_detected && t.depth != expected {
             out.push(Violation {
                 category: IntegrityCategory::DepthMismatch,
                 tenant_id: Some(t.id),
@@ -396,6 +404,7 @@ pub fn classify_closure_shape_anomalies(
         let limit = rows.len() + 1;
         let mut steps = 0;
         let mut reached_ancestor = false;
+        let mut cycle_detected = false;
         while let Some(pid) = cursor {
             steps += 1;
             if steps > limit {
@@ -404,6 +413,7 @@ pub fn classify_closure_shape_anomalies(
                     pid,
                     "barrier_path",
                 ));
+                cycle_detected = true;
                 break;
             }
             if pid == row.ancestor_id {
@@ -415,8 +425,25 @@ pub fn classify_closure_shape_anomalies(
         }
         if !reached_ancestor {
             // The closure row claims an ancestry relationship the
-            // parent_id walk cannot confirm — flag as a coverage
-            // inconsistency rather than a barrier anomaly.
+            // parent_id walk cannot confirm. Both endpoints exist (the
+            // missing-tenant case is caught by Category 7 above), so
+            // this is a stale row that should not be in `tenant_closure`
+            // at all — surface it instead of silently swallowing it,
+            // since it would otherwise mask a real divergence between
+            // `tenants` and `tenant_closure`. Skip when a Cycle was
+            // just recorded for this row to avoid double-reporting the
+            // same root cause.
+            if !cycle_detected {
+                out.push(Violation {
+                    category: IntegrityCategory::StaleClosureRow,
+                    tenant_id: Some(row.descendant_id),
+                    details: format!(
+                        "closure({ancestor} -> {descendant}) asserts ancestry not present in parent_id walk",
+                        ancestor = row.ancestor_id,
+                        descendant = row.descendant_id,
+                    ),
+                });
+            }
             continue;
         }
         let expected_barrier = path
@@ -650,6 +677,29 @@ mod tests {
     }
 
     #[test]
+    fn cycle_does_not_double_report_depth_mismatch() {
+        // Same rationale as `orphaned_child_does_not_double_report_depth_mismatch`:
+        // a cycle exit makes `expected` a partial walk count, so a follow-on
+        // DepthMismatch would point at the same root cause and inflate the
+        // depth_mismatch metric. Lock the no-double-count behavior in.
+        let rows = vec![
+            t(0x1, Some(0x2), 1, TenantStatus::Active, false),
+            t(0x2, Some(0x1), 1, TenantStatus::Active, false),
+        ];
+        let viols = classify_tree_shape_anomalies(&rows);
+        assert!(
+            viols.iter().any(|v| v.category == IntegrityCategory::Cycle),
+            "{viols:?}"
+        );
+        assert!(
+            !viols
+                .iter()
+                .any(|v| v.category == IntegrityCategory::DepthMismatch),
+            "{viols:?}"
+        );
+    }
+
+    #[test]
     fn classifies_missing_closure_self_row() {
         let rows = vec![t(0x1, None, 0, TenantStatus::Active, false)];
         let closure: Vec<ClosureRow> = vec![]; // No self-row.
@@ -692,6 +742,33 @@ mod tests {
             viols
                 .iter()
                 .any(|v| v.category == IntegrityCategory::StaleClosureRow),
+            "{viols:?}"
+        );
+    }
+
+    #[test]
+    fn classifies_stale_closure_row_when_ancestry_not_in_parent_walk() {
+        // 0x1 (root) and 0x2 (sibling root with no parent) both exist,
+        // but the closure asserts (0x1 -> 0x2) — an ancestry the
+        // parent_id walk cannot confirm. Both endpoints exist, so the
+        // Category-7 missing-tenant pass would not catch it; the
+        // barrier-walk used to silently `continue`. We now surface this
+        // as StaleClosureRow so the divergence is visible to operators.
+        let rows = vec![
+            t(0x1, None, 0, TenantStatus::Active, false),
+            t(0x2, None, 0, TenantStatus::Active, false),
+        ];
+        let closure = vec![
+            self_row(0x1, TenantStatus::Active),
+            self_row(0x2, TenantStatus::Active),
+            strict_row(0x1, 0x2, 0, TenantStatus::Active),
+        ];
+        let viols = classify_closure_shape_anomalies(&rows, &closure);
+        assert!(
+            viols
+                .iter()
+                .any(|v| v.category == IntegrityCategory::StaleClosureRow
+                    && v.tenant_id == Some(Uuid::from_u128(0x2))),
             "{viols:?}"
         );
     }

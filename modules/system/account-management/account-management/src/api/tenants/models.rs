@@ -342,12 +342,7 @@ impl ChildListQuery {
                 if out.is_empty() { None } else { Some(out) }
             }
         };
-        Ok(ListChildrenQuery {
-            parent_id,
-            status_filter,
-            top,
-            skip,
-        })
+        ListChildrenQuery::new(parent_id, status_filter, top, skip)
     }
     // @cpt-end:cpt-cf-account-management-dod-tenant-hierarchy-management-children-query-paginated:p1:inst-dod-children-query-api-clamp
 }
@@ -615,7 +610,7 @@ mod tests {
             status: Some("active,suspended".into()),
         };
         let dq = q.into_domain_query(Uuid::nil(), 200).expect("ok");
-        let filters = dq.status_filter.expect("filter");
+        let filters = dq.status_filter().expect("filter");
         assert_eq!(filters.len(), 2);
         assert!(filters.contains(&DomainTenantStatus::Active));
         assert!(filters.contains(&DomainTenantStatus::Suspended));

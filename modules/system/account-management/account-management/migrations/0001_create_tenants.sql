@@ -13,6 +13,11 @@
 
 -- ── Tenants ──────────────────────────────────────────────────────────────────
 
+-- `gen_random_uuid()` lives in `pgcrypto` on PostgreSQL < 13 and is built-in
+-- on >= 13; ensuring the extension is present here makes the migration safe
+-- on fresh installs of either version.
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+
 CREATE TABLE tenants (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     parent_id UUID NULL,

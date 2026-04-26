@@ -39,6 +39,15 @@ tags:
   - name: metadata
     description: Tenant-scoped extensible metadata and effective-value resolution.
 
+# Default security requirement applied to every operation. Operations
+# that need a specific scope override this block at the operation level
+# (see e.g. `createTenant` declaring `bearerAuth: [am.tenants.write]`);
+# any genuinely public endpoint would override with `security: []`.
+# AM has no public endpoints — the entire surface is tenant-scoped
+# control-plane and requires bearer authentication.
+security:
+  - bearerAuth: []
+
 paths:
   /api/account-management/v1/tenants:
     post:

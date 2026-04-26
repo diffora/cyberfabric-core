@@ -626,7 +626,7 @@ impl TenantRepo for FakeTenantRepo {
                 Some(vis) => vis.contains(&t.id),
                 None => true,
             })
-            .filter(|t| match &query.status_filter {
+            .filter(|t| match query.status_filter() {
                 Some(allowed) => allowed.contains(&t.status),
                 // Default: active and suspended only, matching repo_impl default.
                 None => !matches!(t.status, TenantStatus::Deleted),

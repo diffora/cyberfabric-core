@@ -96,7 +96,7 @@ impl Default for BootstrapConfig {
             root_tenant_type_uuid: Uuid::nil(),
             root_tenant_type: String::new(),
             root_tenant_metadata: None,
-idp_check_availability_attempts: 5,
+            idp_check_availability_attempts: 5,
             idp_check_availability_backoff_ms: 250,
             idp_wait_timeout_secs: 300,
             idp_retry_backoff_initial_secs: 2,

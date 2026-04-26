@@ -13,6 +13,8 @@
 // `ModuleCtx` once ModKit surfaces one; until then the structured
 // `tracing::info!` sink is scraped by the platform log-to-metric pipeline.
 
+use std::borrow::Cow;
+
 use modkit_macros::domain_model;
 use tracing::{Level, enabled, info, warn};
 
@@ -304,10 +306,35 @@ fn render_labels(
             first = false;
             out.push_str(k);
             out.push('=');
-            out.push_str(v);
+            out.push_str(&escape_label_value(v));
         }
     }
     out
+}
+
+/// Percent-encode characters that would corrupt the `k=v,k=v` rendering
+/// or forge log lines (`\n`, `\r`). `%` is encoded first so the output is
+/// reversible. Returns `Cow::Borrowed` when no escaping is required, so the
+/// common (well-behaved) path stays allocation-free on the hot emit path.
+fn escape_label_value(value: &str) -> Cow<'_, str> {
+    if !value
+        .bytes()
+        .any(|b| matches!(b, b'%' | b',' | b'=' | b'\n' | b'\r'))
+    {
+        return Cow::Borrowed(value);
+    }
+    let mut out = String::with_capacity(value.len() + 4);
+    for c in value.chars() {
+        match c {
+            '%' => out.push_str("%25"),
+            ',' => out.push_str("%2C"),
+            '=' => out.push_str("%3D"),
+            '\n' => out.push_str("%0A"),
+            '\r' => out.push_str("%0D"),
+            other => out.push(other),
+        }
+    }
+    Cow::Owned(out)
 }
 
 #[cfg(test)]
@@ -389,6 +416,23 @@ mod tests {
             MetricKind::Counter,
             &[("totally_made_up_label", "x")],
         );
+    }
+
+    #[test]
+    fn render_labels_escapes_delimiter_and_newline_chars() {
+        // The k=v,k=v rendering must not be corruptible by a label value that
+        // happens to contain `,`, `=`, `\n`, `\r`, or `%` itself.
+        let desc = lookup(AM_AUDIT_DROP).expect("AM_AUDIT_DROP descriptor");
+        let rendered = render_labels(desc, &[("kind", "a,b=c\nd\re%f")], true);
+        assert_eq!(rendered, "kind=a%2Cb%3Dc%0Ad%0De%25f");
+    }
+
+    #[test]
+    fn render_labels_does_not_allocate_for_clean_values() {
+        // Sanity: the no-special-char path returns a borrow (no extra alloc
+        // beyond the outer `out` buffer).
+        let cleaned = super::escape_label_value("orphaned_child");
+        assert!(matches!(cleaned, std::borrow::Cow::Borrowed(_)));
     }
 
     #[test]

@@ -1726,12 +1726,7 @@ mod tests {
         let page = svc
             .list_children(
                 &ctx_for(root),
-                ListChildrenQuery {
-                    parent_id: root,
-                    status_filter: None,
-                    top: 2,
-                    skip: 1,
-                },
+                ListChildrenQuery::new(root, None, 2, 1).expect("query"),
             )
             .await
             .expect("list ok");
@@ -1768,12 +1763,8 @@ mod tests {
         let active_only = svc
             .list_children(
                 &ctx_for(root),
-                ListChildrenQuery {
-                    parent_id: root,
-                    status_filter: Some(vec![TenantStatus::Active]),
-                    top: 10,
-                    skip: 0,
-                },
+                ListChildrenQuery::new(root, Some(vec![TenantStatus::Active]), 10, 0)
+                    .expect("query"),
             )
             .await
             .expect("list ok");
@@ -1783,12 +1774,8 @@ mod tests {
         let suspended_only = svc
             .list_children(
                 &ctx_for(root),
-                ListChildrenQuery {
-                    parent_id: root,
-                    status_filter: Some(vec![TenantStatus::Suspended]),
-                    top: 10,
-                    skip: 0,
-                },
+                ListChildrenQuery::new(root, Some(vec![TenantStatus::Suspended]), 10, 0)
+                    .expect("query"),
             )
             .await
             .expect("list ok");
@@ -2727,12 +2714,7 @@ mod tests {
         let err = svc
             .list_children(
                 &ctx_for(stranger),
-                ListChildrenQuery {
-                    parent_id: child_a,
-                    status_filter: None,
-                    top: 10,
-                    skip: 0,
-                },
+                ListChildrenQuery::new(child_a, None, 10, 0).expect("query"),
             )
             .await
             .expect_err("cross-tenant must be denied");

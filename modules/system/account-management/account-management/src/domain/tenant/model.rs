@@ -196,16 +196,62 @@ impl TenantUpdate {
 /// Matches the `top` / `skip` pagination used by the `OpenAPI`
 /// `listChildren` endpoint. `status_filter`, when present, restricts the
 /// result set to the listed SDK-visible statuses. `provisioning` is never
-/// a legal filter value per FEATURE §2 `List Children`.
+/// a legal filter value per FEATURE §2 `List Children`; the field is
+/// private and the only way to set it is via [`ListChildrenQuery::new`],
+/// which rejects [`TenantStatus::Provisioning`] at construction time.
 #[domain_model]
 #[derive(Debug, Clone)]
 pub struct ListChildrenQuery {
     pub parent_id: Uuid,
-    pub status_filter: Option<Vec<TenantStatus>>,
+    status_filter: Option<Vec<TenantStatus>>,
     /// Requested page size. Callers are expected to clamp to the platform
     /// cap before calling the repo; the repo does not enforce a cap.
     pub top: u32,
     pub skip: u32,
+}
+
+impl ListChildrenQuery {
+    /// Construct a validated query. Rejects `status_filter` values
+    /// containing [`TenantStatus::Provisioning`]: provisioning rows are
+    /// SDK-invisible by FEATURE §2 `List Children`, and letting one
+    /// reach the repo would surface rows the public contract promises
+    /// will never appear.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AmError::Validation`] when `status_filter` contains
+    /// `TenantStatus::Provisioning`.
+    pub fn new(
+        parent_id: Uuid,
+        status_filter: Option<Vec<TenantStatus>>,
+        top: u32,
+        skip: u32,
+    ) -> Result<Self, AmError> {
+        if let Some(ref filters) = status_filter
+            && filters
+                .iter()
+                .any(|s| matches!(s, TenantStatus::Provisioning))
+        {
+            return Err(AmError::Validation {
+                detail: "status_filter cannot contain `provisioning` (SDK-invisible)".into(),
+            });
+        }
+        Ok(Self {
+            parent_id,
+            status_filter,
+            top,
+            skip,
+        })
+    }
+
+    /// Read-only access to the validated `status_filter`. `None` means
+    /// "default visibility set" (the repo applies its own SDK-visible
+    /// default); `Some(&[])` is not produced by [`Self::new`] callers
+    /// today but is treated identically to `None` by the repo.
+    #[must_use]
+    pub fn status_filter(&self) -> Option<&[TenantStatus]> {
+        self.status_filter.as_deref()
+    }
 }
 
 /// Page returned by `TenantRepo::list_children`.
@@ -320,5 +366,42 @@ mod tests {
                 .sub_code(),
             "validation"
         );
+    }
+
+    #[test]
+    fn list_children_query_rejects_provisioning_in_status_filter() {
+        // Provisioning rows are SDK-invisible; the constructor must
+        // reject any filter that names them so a bogus internal caller
+        // cannot leak them via list_children.
+        let err = ListChildrenQuery::new(
+            Uuid::nil(),
+            Some(vec![TenantStatus::Active, TenantStatus::Provisioning]),
+            10,
+            0,
+        )
+        .expect_err("provisioning must be rejected");
+        assert_eq!(err.sub_code(), "validation");
+    }
+
+    #[test]
+    fn list_children_query_accepts_sdk_visible_filters() {
+        let q = ListChildrenQuery::new(
+            Uuid::nil(),
+            Some(vec![
+                TenantStatus::Active,
+                TenantStatus::Suspended,
+                TenantStatus::Deleted,
+            ]),
+            10,
+            0,
+        )
+        .expect("sdk-visible filter accepted");
+        assert_eq!(q.status_filter().expect("filter").len(), 3);
+    }
+
+    #[test]
+    fn list_children_query_accepts_none_filter() {
+        let q = ListChildrenQuery::new(Uuid::nil(), None, 10, 0).expect("none accepted");
+        assert!(q.status_filter().is_none());
     }
 }

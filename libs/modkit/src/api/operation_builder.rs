@@ -890,6 +890,35 @@ where
     }
 }
 
+/// Additional scope chaining once the license requirement has been declared.
+///
+/// Mirrors the `LicenseNotSet` impl so that endpoints can be both
+/// license-gated (via `require_license_features` / `no_license_required`)
+/// and scope-gated, and so multiple `required_scope(...)` calls can be
+/// chained as the doc on that method advertises.
+impl<H, R, S> OperationBuilder<H, R, S, AuthSet, LicenseSet>
+where
+    H: HandlerSlot<S>,
+{
+    /// Declare an additional bearer/OAuth scope on a builder that has already
+    /// transitioned to `LicenseSet`. Each call appends one scope.
+    pub fn required_scope(
+        mut self,
+        scope: impl Into<String>,
+    ) -> OperationBuilder<H, R, S, AuthSet, LicenseSet> {
+        self.spec.required_scopes.push(scope.into());
+        OperationBuilder {
+            spec: self.spec,
+            method_router: self.method_router,
+            _has_handler: self._has_handler,
+            _has_response: self._has_response,
+            _state: self._state,
+            _auth_state: self._auth_state,
+            _license_state: PhantomData,
+        }
+    }
+}
+
 // -------------------------------------------------------------------------------------------------
 // Auth requirement setting — transitions AuthNotSet -> AuthSet
 // -------------------------------------------------------------------------------------------------

@@ -780,8 +780,7 @@ where
     pub async fn exec_with_returning(
         self,
         runner: &impl DBRunner,
-    ) -> Result<Vec<E::Model>, ScopeError>
-    {
+    ) -> Result<Vec<E::Model>, ScopeError> {
         if self.tenant_update_attempted {
             return Err(ScopeError::Denied("tenant_id is immutable"));
         }

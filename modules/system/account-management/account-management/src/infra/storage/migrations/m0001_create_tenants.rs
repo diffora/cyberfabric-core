@@ -33,6 +33,7 @@ impl MigrationTrait for Migration {
 
         let statements: Vec<&str> = match backend {
             sea_orm::DatabaseBackend::Postgres => vec![
+                "CREATE EXTENSION IF NOT EXISTS pgcrypto;",
                 r"
 CREATE TABLE IF NOT EXISTS tenants (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -96,7 +97,19 @@ CREATE TABLE IF NOT EXISTS tenants (
         CHECK ((parent_id IS NULL AND depth = 0) OR (parent_id IS NOT NULL AND depth > 0))
 );
                 ",
-                "CREATE UNIQUE INDEX IF NOT EXISTS ux_tenants_single_root ON tenants (parent_id) WHERE parent_id IS NULL;",
+                // The PG version uses `ON tenants ((1))` — a constant
+                // expression — so every root row collapses to the same
+                // index key and the UNIQUE constraint catches a second
+                // root. The earlier SQLite form `ON tenants(parent_id)
+                // WHERE parent_id IS NULL` was silently broken because
+                // SQLite (per SQL standard) treats NULLs in a unique
+                // index as distinct, so multiple roots never collided.
+                // `COALESCE(parent_id, '')` collapses the indexed value
+                // to a fixed sentinel for every row caught by the
+                // partial filter, restoring the single-root invariant
+                // that `bootstrap::service` depends on (see comment at
+                // `bootstrap/service.rs:371`).
+                "CREATE UNIQUE INDEX IF NOT EXISTS ux_tenants_single_root ON tenants (COALESCE(parent_id, '')) WHERE parent_id IS NULL;",
                 "CREATE INDEX IF NOT EXISTS idx_tenants_parent_status ON tenants (parent_id, status);",
                 "CREATE INDEX IF NOT EXISTS idx_tenants_status ON tenants (status);",
                 "CREATE INDEX IF NOT EXISTS idx_tenants_type ON tenants (tenant_type_uuid);",

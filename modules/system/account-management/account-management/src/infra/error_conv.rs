@@ -3,17 +3,48 @@
 //!
 //! This module is the ONLY place where `modkit_db::DbError` reaches into
 //! AM's domain layer. Phase 1's `domain/error.rs` stays strictly pure —
-//! the `DBProvider<AmError>` parameterization picked in Phase 2 routes
-//! every database-side failure through [`AmError::Internal`] here so
-//! that no low-level driver variant ever leaks through the public
-//! contract.
+//! the `DBProvider<AmError>` parameterization picked in Phase 2 funnels
+//! every database-side failure through this mapping so that no
+//! low-level driver variant ever leaks through the public contract.
 
 use modkit_db::DbError;
 use modkit_db::deadlock::is_serialization_failure;
 use modkit_db::secure::is_unique_violation;
+use sea_orm::DbErr;
 use tracing::warn;
 
 use crate::domain::error::AmError;
+
+/// Returns `true` iff `err` is a typed database connectivity / outage
+/// signal — pool acquire timeout, connection closed, connection-level
+/// runtime error, or a raw `std::io::Error` surfaced through
+/// [`DbError::Io`]. Used to route those failures to
+/// [`AmError::ServiceUnavailable`] (HTTP 503) rather than
+/// [`AmError::Internal`] (HTTP 500), so clients see a "retry later,
+/// transient infra outage" status that matches reality.
+///
+/// Classification is deliberately conservative: only **typed** signals
+/// from `sea_orm::DbErr` and the modkit-db wrapper count. Unstructured
+/// `RuntimeErr::Internal(String)` text — including driver messages like
+/// `"connection closed by peer"` — stays in the `Internal` bucket;
+/// string-matching driver text is fragile and the project's existing
+/// classifiers (`is_serialization_failure`, `is_unique_violation`) are
+/// SQLSTATE-typed for the same reason.
+fn is_db_availability_error(err: &DbError) -> bool {
+    // `DbError::Io(_)`: modkit-db's typed `std::io::Error` wrapper —
+    // only emitted for genuine system-level IO failures (socket reset, etc.).
+    // `DbErr::ConnectionAcquire(_)` covers `Timeout` and `ConnectionClosed`
+    // (the only `ConnAcquireErr` variants).
+    // `DbErr::Conn(_)` is sea-orm's documented "problem with the database
+    // connection" discriminant — connection-level by definition.
+    // `DbErr::Exec(_)` / `DbErr::Query(_)` wrap a `RuntimeErr` whose
+    // layering hides whether the failure was connectivity or query-level,
+    // so they fall through to the `Internal` bucket rather than guess.
+    matches!(
+        err,
+        DbError::Io(_) | DbError::Sea(DbErr::ConnectionAcquire(_) | DbErr::Conn(_))
+    )
+}
 
 /// Wrap a [`DbError`] into the appropriate [`AmError`] variant.
 ///
@@ -38,11 +69,18 @@ use crate::domain::error::AmError;
 ///    `validation`". Without this branch, closure-row-insert
 ///    collisions in `activate_tenant` and similar paths bleed through
 ///    as 500.
-/// 3. Anything else → [`AmError::Internal`]. The Problem envelope's
+/// 3. Typed connectivity / outage signal (see [`is_db_availability_error`])
+///    → [`AmError::ServiceUnavailable`] (HTTP 503). Aligns the DB
+///    transient-outage path with how AM already classifies outages
+///    from every other dependency (Resource Group, Types Registry,
+///    `AuthZ` PDP) so a transient pool-timeout doesn't masquerade as a
+///    generic 500.
+/// 4. Anything else → [`AmError::Internal`]. The Problem envelope's
 ///    public `detail` is empty; the diagnostic stays in the
 ///    audit-visible field only.
 // @cpt-begin:cpt-cf-account-management-algo-errors-observability-error-to-problem-mapping:p1:inst-algo-etp-db-error-classification
 impl From<DbError> for AmError {
+    #[allow(clippy::cognitive_complexity)] // flat classification ladder; branchy warn! paths, no logic
     fn from(err: DbError) -> Self {
         if let DbError::Sea(ref db_err) = err {
             if is_serialization_failure(db_err) {
@@ -66,6 +104,16 @@ impl From<DbError> for AmError {
                 };
             }
         }
+        if is_db_availability_error(&err) {
+            warn!(
+                target: "am.db",
+                error = %err,
+                "db connectivity failure mapped to AmError::ServiceUnavailable"
+            );
+            return AmError::ServiceUnavailable {
+                detail: format!("db unavailable: {err}"),
+            };
+        }
         warn!(target: "am.db", error = %err, "db error mapped to AmError::Internal");
         AmError::Internal {
             diagnostic: format!("db error: {err}"),
@@ -78,7 +126,7 @@ impl From<DbError> for AmError {
 #[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
     use super::*;
-    use sea_orm::{DbErr, RuntimeErr};
+    use sea_orm::{ConnAcquireErr, DbErr, RuntimeErr};
 
     #[test]
     fn db_error_maps_to_internal_am_error() {
@@ -122,13 +170,77 @@ mod tests {
 
     #[test]
     fn unrelated_sea_errors_still_map_to_internal() {
-        // A DB error that is neither a serialization failure nor a
-        // unique-constraint violation funnels into `Internal`/500 —
-        // the public contract preserves the existing fallback path.
+        // Untyped runtime errors — i.e. `RuntimeErr::Internal(String)`
+        // wrapping arbitrary driver text, even text that *mentions* a
+        // connection problem — stay in the `Internal` bucket. The
+        // typed availability classifier deliberately does not
+        // string-match driver messages; only typed sea-orm signals
+        // (`ConnectionAcquire`, `Conn`) and `DbError::Io` are
+        // re-routed to `ServiceUnavailable`. See
+        // `is_db_availability_error` for the rationale.
         let sea_err = DbErr::Exec(RuntimeErr::Internal("connection closed by peer".to_owned()));
         let am_err: AmError = DbError::Sea(sea_err).into();
         assert_eq!(am_err.sub_code(), "internal");
         assert!(matches!(am_err, AmError::Internal { .. }));
+    }
+
+    #[test]
+    fn pool_acquire_timeout_maps_to_service_unavailable() {
+        // Typed availability signal: a pool-timeout from sea-orm's
+        // `ConnectionAcquire(Timeout)` is unambiguously a transient
+        // outage and must surface as 503, not 500. Aligns the DB
+        // transient-outage path with how AM already classifies outages
+        // from RG / Types-Registry / AuthZ PDP.
+        let am_err: AmError =
+            DbError::Sea(DbErr::ConnectionAcquire(ConnAcquireErr::Timeout)).into();
+        assert_eq!(am_err.sub_code(), "service_unavailable");
+        assert!(matches!(am_err, AmError::ServiceUnavailable { .. }));
+        assert_eq!(am_err.http_status(), 503);
+    }
+
+    #[test]
+    fn connection_closed_during_acquire_maps_to_service_unavailable() {
+        let am_err: AmError =
+            DbError::Sea(DbErr::ConnectionAcquire(ConnAcquireErr::ConnectionClosed)).into();
+        assert_eq!(am_err.sub_code(), "service_unavailable");
+        assert_eq!(am_err.http_status(), 503);
+    }
+
+    #[test]
+    fn sea_orm_conn_variant_maps_to_service_unavailable() {
+        // `DbErr::Conn(_)` is sea-orm's typed "problem with the
+        // database connection" discriminant — connection-level by
+        // definition, regardless of the inner runtime payload.
+        let am_err: AmError =
+            DbError::Sea(DbErr::Conn(RuntimeErr::Internal("link broken".to_owned()))).into();
+        assert_eq!(am_err.sub_code(), "service_unavailable");
+        assert_eq!(am_err.http_status(), 503);
+    }
+
+    #[test]
+    fn modkit_db_io_error_maps_to_service_unavailable() {
+        let io_err = std::io::Error::new(std::io::ErrorKind::ConnectionReset, "reset");
+        let am_err: AmError = DbError::Io(io_err).into();
+        assert_eq!(am_err.sub_code(), "service_unavailable");
+        assert_eq!(am_err.http_status(), 503);
+    }
+
+    #[test]
+    fn service_unavailable_diagnostic_carries_db_error_text_for_ops() {
+        // The 503 detail is operator-facing (no PII / SQL leakage
+        // concern equivalent to Conflict/Serialization where the
+        // public detail is generic). Pin that the detail includes the
+        // raw DbError formatting so dashboards / logs can surface the
+        // root cause.
+        let am_err: AmError =
+            DbError::Sea(DbErr::ConnectionAcquire(ConnAcquireErr::Timeout)).into();
+        let AmError::ServiceUnavailable { detail } = am_err else {
+            panic!("expected ServiceUnavailable variant");
+        };
+        assert!(
+            detail.starts_with("db unavailable:"),
+            "detail must be prefixed with `db unavailable:` for log filtering; got {detail:?}"
+        );
     }
 
     #[test]
