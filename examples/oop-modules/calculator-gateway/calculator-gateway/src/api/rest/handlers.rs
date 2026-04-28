@@ -2,9 +2,9 @@
 
 use std::sync::Arc;
 
-use axum::{Extension, Json};
+use axum::Extension;
 
-use modkit::api::problem::{Problem, internal_error};
+use modkit::api::canonical_prelude::*;
 use modkit_security::SecurityContext;
 
 use crate::domain::Service;
@@ -19,11 +19,11 @@ pub async fn handle_add(
     Extension(ctx): Extension<SecurityContext>,
     Extension(service): Extension<Arc<Service>>,
     Json(req): Json<AddRequest>,
-) -> Result<Json<AddResponse>, Problem> {
-    let sum = service
-        .add(&ctx, req.a, req.b)
-        .await
-        .map_err(|e| internal_error(format!("Addition failed: {}", e)))?;
+) -> ApiResult<Json<AddResponse>> {
+    let sum = service.add(&ctx, req.a, req.b).await.map_err(|e| {
+        tracing::error!(error = %e, "addition failed");
+        Problem::from(CanonicalError::internal(format!("Addition failed: {e}")).create())
+    })?;
 
     Ok(Json(AddResponse { sum }))
 }

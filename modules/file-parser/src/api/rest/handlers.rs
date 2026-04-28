@@ -16,7 +16,7 @@ use crate::api::rest::dto::{
 use crate::domain::error::DomainError;
 use crate::domain::markdown::MarkdownRenderer;
 use crate::domain::service::FileParserService;
-use modkit::api::prelude::*;
+use modkit::api::canonical_prelude::*;
 use modkit_security::SecurityContext;
 
 /// Query parameter for `render_markdown` flag

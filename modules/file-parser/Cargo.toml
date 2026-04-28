@@ -68,5 +68,6 @@ docx-rust = { workspace = true }
 
 # Local dependencies
 modkit = { workspace = true }
+modkit-canonical-errors = { workspace = true, features = ["axum"] }
 modkit-security = { workspace = true }
 modkit-macros = { workspace = true }

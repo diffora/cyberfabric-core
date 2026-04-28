@@ -17,6 +17,8 @@ name = "modkit_canonical_errors"
 [features]
 default = []
 sea-orm = ["dep:sea-orm"]
+axum = ["dep:axum", "dep:http", "dep:tracing"]
+utoipa = ["dep:utoipa"]
 
 [lints]
 workspace = true
@@ -25,6 +27,10 @@ workspace = true
 serde = { workspace = true }
 serde_json = { workspace = true }
 sea-orm = { workspace = true, optional = true }
+axum = { workspace = true, optional = true }
+http = { workspace = true, optional = true }
+utoipa = { workspace = true, optional = true }
+tracing = { workspace = true, optional = true }
 modkit-canonical-errors-macro = { workspace = true }
 
 [dev-dependencies]

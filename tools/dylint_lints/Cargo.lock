@@ -547,6 +547,7 @@ dependencies = [
  "arc-swap",
  "async-trait",
  "axum 0.8.9",
+ "cf-modkit-canonical-errors",
  "cf-modkit-db",
  "cf-modkit-errors",
  "cf-modkit-macros",
@@ -584,6 +585,29 @@ dependencies = [
  "utoipa",
  "uuid",
  "zip",
+]
+
+[[package]]
+name = "cf-modkit-canonical-errors"
+version = "0.7.1"
+dependencies = [
+ "axum 0.8.9",
+ "cf-modkit-canonical-errors-macro",
+ "http",
+ "serde",
+ "serde_json",
+ "tracing",
+ "utoipa",
+]
+
+[[package]]
+name = "cf-modkit-canonical-errors-macro"
+version = "0.6.1"
+dependencies = [
+ "proc-macro-crate",
+ "proc-macro2",
+ "quote",
+ "syn 2.0.117",
 ]
 
 [[package]]

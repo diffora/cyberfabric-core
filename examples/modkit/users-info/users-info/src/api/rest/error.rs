@@ -1,16 +1,14 @@
-use modkit::api::problem::{Problem, ValidationViolation};
-use modkit_canonical_errors::{CanonicalError, FieldViolation, InvalidArgument};
+use modkit::api::canonical_prelude::*;
 
 use crate::domain::error::DomainError;
 
-// Resource-scoped canonical error types for each entity in this module.
-#[modkit_canonical_errors::resource_error("gts.hx.example1.users.user.v1~")]
+#[resource_error("gts.hx.example1.users.user.v1~")]
 struct UserResourceError;
 
-#[modkit_canonical_errors::resource_error("gts.hx.example1.users.city.v1~")]
+#[resource_error("gts.hx.example1.users.city.v1~")]
 struct CityResourceError;
 
-#[modkit_canonical_errors::resource_error("gts.hx.example1.users.address.v1~")]
+#[resource_error("gts.hx.example1.users.address.v1~")]
 struct AddressResourceError;
 
 /// Convert a [`DomainError`] into a [`CanonicalError`].
@@ -83,107 +81,20 @@ fn domain_error_to_canonical(e: &DomainError) -> CanonicalError {
     }
 }
 
-/// Convert a [`CanonicalError`] into the axum-compatible [`Problem`].
-fn canonical_to_problem(ce: &CanonicalError) -> Problem {
-    let status = http::StatusCode::from_u16(ce.status_code())
-        .unwrap_or(http::StatusCode::INTERNAL_SERVER_ERROR);
-
-    let mut problem =
-        Problem::new(status, ce.title(), ce.detail()).with_type(format!("gts://{}", ce.gts_type()));
-
-    if let Some(diag) = ce.diagnostic() {
-        tracing::debug!(diagnostic = %diag, "Canonical error diagnostic");
-    }
-
-    // Build context from canonical error metadata
-    let mut ctx = serde_json::Map::new();
-    if let Some(rt) = ce.resource_type() {
-        ctx.insert(
-            "resource_type".to_owned(),
-            serde_json::Value::String(rt.to_owned()),
-        );
-    }
-    if let Some(rn) = ce.resource_name() {
-        ctx.insert(
-            "resource_name".to_owned(),
-            serde_json::Value::String(rn.to_owned()),
-        );
-    }
-    if !ctx.is_empty() {
-        problem = problem.with_context(serde_json::Value::Object(ctx));
-    }
-
-    // Extract structured violations from applicable error categories
-    let errors = extract_violations(ce);
-    if !errors.is_empty() {
-        problem = problem.with_errors(errors);
-    }
-
-    // Enrich trace_id from current span
-    if let Some(span_id) = tracing::Span::current().id() {
-        problem = problem.with_trace_id(span_id.into_u64().to_string());
-    }
-
-    problem
-}
-
-/// Implement `Into<Problem>` for `DomainError` so `?` works in handlers
 impl From<DomainError> for Problem {
     fn from(e: DomainError) -> Self {
         let ce = domain_error_to_canonical(&e);
-        canonical_to_problem(&ce)
-    }
-}
 
-/// Map a [`FieldViolation`] to a [`ValidationViolation`].
-fn field_violation_to_validation(fv: &FieldViolation) -> ValidationViolation {
-    ValidationViolation {
-        field: fv.field.clone(),
-        message: fv.description.clone(),
-        code: Some(fv.reason.clone()),
-    }
-}
+        if let Some(diag) = ce.diagnostic() {
+            tracing::debug!(diagnostic = %diag, "Canonical error diagnostic");
+        }
 
-/// Extract structured violations from a [`CanonicalError`] into a flat
-/// [`ValidationViolation`] list.  Covers every category that carries
-/// violation arrays: `InvalidArgument`, `OutOfRange`, `FailedPrecondition`,
-/// and `ResourceExhausted`.
-fn extract_violations(ce: &CanonicalError) -> Vec<ValidationViolation> {
-    match ce {
-        CanonicalError::InvalidArgument {
-            ctx: InvalidArgument::FieldViolations { field_violations },
-            ..
-        } => field_violations
-            .iter()
-            .map(field_violation_to_validation)
-            .collect(),
+        let mut problem = Problem::from(ce);
 
-        CanonicalError::OutOfRange { ctx, .. } => ctx
-            .field_violations
-            .iter()
-            .map(field_violation_to_validation)
-            .collect(),
+        if let Some(span_id) = tracing::Span::current().id() {
+            problem = problem.with_trace_id(span_id.into_u64().to_string());
+        }
 
-        CanonicalError::FailedPrecondition { ctx, .. } => ctx
-            .violations
-            .iter()
-            .map(|pv| ValidationViolation {
-                field: pv.subject.clone(),
-                message: pv.description.clone(),
-                code: Some(pv.type_.clone()),
-            })
-            .collect(),
-
-        CanonicalError::ResourceExhausted { ctx, .. } => ctx
-            .violations
-            .iter()
-            .map(|qv| ValidationViolation {
-                field: qv.subject.clone(),
-                message: qv.description.clone(),
-                code: None,
-            })
-            .collect(),
-
-        _ => Vec::new(),
+        problem
     }
 }

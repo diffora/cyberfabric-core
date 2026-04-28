@@ -2,6 +2,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::CanonicalError;
 
+/// Media type for RFC 9457 `application/problem+json` responses.
+pub const APPLICATION_PROBLEM_JSON: &str = "application/problem+json";
+
 // ---------------------------------------------------------------------------
 // Problem (RFC 9457)
 // ---------------------------------------------------------------------------
@@ -130,5 +133,108 @@ impl From<CanonicalError> for Problem {
                 context: serde_json::Value::String(ser_err.to_string()),
             },
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// axum integration (feature = "axum")
+// ---------------------------------------------------------------------------
+
+#[cfg(feature = "axum")]
+impl axum::response::IntoResponse for Problem {
+    fn into_response(self) -> axum::response::Response {
+        match serde_json::to_vec(&self) {
+            Ok(body) => {
+                let status = http::StatusCode::from_u16(self.status)
+                    .unwrap_or(http::StatusCode::INTERNAL_SERVER_ERROR);
+                (
+                    status,
+                    [(http::header::CONTENT_TYPE, APPLICATION_PROBLEM_JSON)],
+                    body,
+                )
+                    .into_response()
+            }
+            Err(e) => {
+                tracing::error!(
+                    error = %e,
+                    problem_type = %self.problem_type,
+                    status = self.status,
+                    "failed to serialize Problem; emitting fallback body",
+                );
+                let body: &[u8] = br#"{"type":"gts://gts.cf.core.errors.err.v1~cf.core.err.internal.v1~","title":"Internal","status":500,"detail":"failed to serialize problem","context":{}}"#;
+                (
+                    http::StatusCode::INTERNAL_SERVER_ERROR,
+                    [(http::header::CONTENT_TYPE, APPLICATION_PROBLEM_JSON)],
+                    body,
+                )
+                    .into_response()
+            }
+        }
+    }
+}
+
+#[cfg(feature = "axum")]
+impl axum::response::IntoResponse for CanonicalError {
+    fn into_response(self) -> axum::response::Response {
+        Problem::from(self).into_response()
+    }
+}
+
+// ---------------------------------------------------------------------------
+// utoipa integration (feature = "utoipa")
+// ---------------------------------------------------------------------------
+
+#[cfg(feature = "utoipa")]
+impl utoipa::PartialSchema for Problem {
+    fn schema() -> utoipa::openapi::RefOr<utoipa::openapi::schema::Schema> {
+        use utoipa::openapi::schema::{KnownFormat, ObjectBuilder, SchemaFormat, SchemaType, Type};
+
+        ObjectBuilder::new()
+            .property(
+                "type",
+                ObjectBuilder::new().schema_type(SchemaType::Type(Type::String)),
+            )
+            .required("type")
+            .property(
+                "title",
+                ObjectBuilder::new().schema_type(SchemaType::Type(Type::String)),
+            )
+            .required("title")
+            .property(
+                "status",
+                ObjectBuilder::new()
+                    .schema_type(SchemaType::Type(Type::Integer))
+                    .format(Some(SchemaFormat::KnownFormat(KnownFormat::Int32))),
+            )
+            .required("status")
+            .property(
+                "detail",
+                ObjectBuilder::new().schema_type(SchemaType::Type(Type::String)),
+            )
+            .required("detail")
+            .property(
+                "instance",
+                ObjectBuilder::new().schema_type(SchemaType::Type(Type::String)),
+            )
+            .property(
+                "trace_id",
+                ObjectBuilder::new().schema_type(SchemaType::Type(Type::String)),
+            )
+            .property(
+                "context",
+                ObjectBuilder::new().schema_type(SchemaType::Type(Type::Object)),
+            )
+            .required("context")
+            .description(Some(
+                "RFC 9457 problem+json. `context` varies by error category.",
+            ))
+            .into()
+    }
+}
+
+#[cfg(feature = "utoipa")]
+impl utoipa::ToSchema for Problem {
+    fn name() -> std::borrow::Cow<'static, str> {
+        std::borrow::Cow::Borrowed("Problem")
     }
 }

@@ -57,6 +57,7 @@ bootstrap = [
 # Project-local crates
 modkit-macros = { workspace = true }
 modkit-errors = { workspace = true, features = ["utoipa", "axum"] }
+modkit-canonical-errors = { workspace = true, features = ["axum", "utoipa"] }
 modkit-db = { workspace = true, optional = true }
 sea-orm-migration = { workspace = true, optional = true }
 modkit-odata = { workspace = true }

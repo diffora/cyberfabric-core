@@ -13,6 +13,7 @@ calculator-sdk = { path = "../../calculator/calculator-sdk" }
 
 # ModKit
 modkit = { workspace = true }
+modkit-canonical-errors = { workspace = true, features = ["axum"] }
 modkit-security = { workspace = true }
 modkit-macros = { workspace = true }
 

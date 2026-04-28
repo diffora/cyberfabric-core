@@ -50,3 +50,27 @@ pub mod prelude {
     // Useful axum bits (common in handlers)
     pub use axum::{Json, http::StatusCode, response::IntoResponse};
 }
+
+/// Parallel prelude for modules migrated to the canonical error catalog.
+///
+/// Mirrors [`prelude`] but re-exports `Problem` and `ApiResult` from
+/// `modkit-canonical-errors` so handlers can write the usual
+/// `ApiResult<JsonBody<T>>` signature without name clashes against the legacy
+/// types. Each per-module migration PR swaps `use modkit::api::prelude::*;`
+/// for `use modkit::api::canonical_prelude::*;` — no per-signature edits.
+///
+/// This module is collapsed into [`prelude`] and
+/// the legacy entries above are deleted.
+pub mod canonical_prelude {
+    // Canonical error types
+    pub use modkit_canonical_errors::{CanonicalError, Problem, resource_error};
+
+    /// Result type alias matching `prelude::ApiResult` but parameterised on
+    /// canonical `Problem`.
+    pub type ApiResult<T = ()> = std::result::Result<T, Problem>;
+
+    // Same response sugar / OData / axum re-exports as the legacy prelude
+    pub use super::response::{JsonBody, JsonPage, created_json, no_content, ok_json};
+    pub use super::select::apply_select;
+    pub use axum::{Json, http::StatusCode, response::IntoResponse};
+}

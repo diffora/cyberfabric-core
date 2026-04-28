@@ -62,7 +62,7 @@ modkit-http = { workspace = true }
 modkit-db = { workspace = true, features = ["sqlite", "pg"] }
 modkit-db-macros = { workspace = true }
 modkit-security = { workspace = true }
-modkit-canonical-errors = { workspace = true }
+modkit-canonical-errors = { workspace = true, features = ["axum", "utoipa"] }
 modkit-odata = { workspace = true, features = ["with-utoipa"] }
 modkit-sdk = { workspace = true }
 modkit-macros = { workspace = true }
