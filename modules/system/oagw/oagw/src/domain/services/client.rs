@@ -297,6 +297,7 @@ fn sdk_create_upstream_to_domain(
     req: oagw_sdk::CreateUpstreamRequest,
 ) -> model::CreateUpstreamRequest {
     model::CreateUpstreamRequest {
+        id: None,
         server: server_to_domain(req.server().clone()),
         protocol: req.protocol().to_string(),
         alias: req.alias().map(|s| s.to_string()),
@@ -329,6 +330,7 @@ fn sdk_update_upstream_to_domain(
 
 fn sdk_create_route_to_domain(req: oagw_sdk::CreateRouteRequest) -> model::CreateRouteRequest {
     model::CreateRouteRequest {
+        id: None,
         upstream_id: req.upstream_id(),
         match_rules: match_rules_to_domain(req.match_rules().clone()),
         plugins: req.plugins().cloned().map(plugins_config_to_domain),

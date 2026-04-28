@@ -88,7 +88,7 @@ impl ControlPlaneService for ControlPlaneServiceImpl {
         let alias = enforce_alias_create(req.alias.as_deref(), &req.server.endpoints)?;
 
         let tenant_id = ctx.subject_tenant_id();
-        let id = Uuid::new_v4();
+        let id = req.id.unwrap_or_else(Uuid::new_v4);
         let tenant_chain = self.build_tenant_chain(ctx).await?;
 
         // Check if an ancestor tenant has an upstream with this alias.
@@ -310,7 +310,7 @@ impl ControlPlaneService for ControlPlaneServiceImpl {
             })?;
 
         let route = Route {
-            id: Uuid::new_v4(),
+            id: req.id.unwrap_or_else(Uuid::new_v4),
             tenant_id,
             upstream_id: req.upstream_id,
             match_rules: req.match_rules,
@@ -1958,6 +1958,7 @@ mod tests {
     /// Hostname-based upstream — alias is auto-derived as `api.openai.com`.
     fn make_create_upstream_hostname() -> CreateUpstreamRequest {
         CreateUpstreamRequest {
+            id: None,
             server: Server {
                 endpoints: vec![Endpoint {
                     scheme: Scheme::Https,
@@ -1980,6 +1981,7 @@ mod tests {
     /// IP-based upstream — requires an explicit alias.
     fn make_create_upstream_ip(alias: &str) -> CreateUpstreamRequest {
         CreateUpstreamRequest {
+            id: None,
             server: Server {
                 endpoints: vec![Endpoint {
                     scheme: Scheme::Https,
@@ -2030,6 +2032,7 @@ mod tests {
 
     fn make_create_route(upstream_id: Uuid) -> CreateRouteRequest {
         CreateRouteRequest {
+            id: None,
             upstream_id,
             match_rules: MatchRules {
                 http: Some(HttpMatch {
@@ -2100,6 +2103,7 @@ mod tests {
 
         // Non-standard port — port included.
         let req = CreateUpstreamRequest {
+            id: None,
             server: Server {
                 endpoints: vec![Endpoint {
                     scheme: Scheme::Https,
@@ -3940,6 +3944,7 @@ mod tests {
 
         // Root creates a route on that upstream.
         let route_req = CreateRouteRequest {
+            id: None,
             upstream_id: root_upstream.id,
             match_rules: MatchRules {
                 http: Some(HttpMatch {
@@ -3999,6 +4004,7 @@ mod tests {
 
         // Root creates a route.
         let root_route_req = CreateRouteRequest {
+            id: None,
             upstream_id: root_upstream.id,
             match_rules: MatchRules {
                 http: Some(HttpMatch {
@@ -4027,6 +4033,7 @@ mod tests {
 
         // Child creates its own route on its own upstream.
         let child_route_req = CreateRouteRequest {
+            id: None,
             upstream_id: child_upstream.id,
             match_rules: MatchRules {
                 http: Some(HttpMatch {
@@ -4572,6 +4579,7 @@ mod tests {
         let ctx = test_ctx(tenant);
 
         let req = CreateUpstreamRequest {
+            id: None,
             server: Server {
                 endpoints: vec![Endpoint {
                     scheme: Scheme::Https,
@@ -4722,6 +4730,7 @@ mod tests {
         let ctx = test_ctx(tenant);
 
         let req = CreateUpstreamRequest {
+            id: None,
             server: Server {
                 endpoints: vec![
                     Endpoint {
@@ -4758,6 +4767,7 @@ mod tests {
 
         // Pool A: non-standard port 8443.
         let req_a = CreateUpstreamRequest {
+            id: None,
             server: Server {
                 endpoints: vec![
                     Endpoint {
@@ -4787,6 +4797,7 @@ mod tests {
 
         // Pool B: non-standard port 9443 — same hosts, different port.
         let req_b = CreateUpstreamRequest {
+            id: None,
             server: Server {
                 endpoints: vec![
                     Endpoint {
@@ -4827,6 +4838,7 @@ mod tests {
         // Endpoints share only a public suffix ("co.uk"), not a registrable domain.
         // The system must NOT derive an alias from a bare public suffix.
         let req = CreateUpstreamRequest {
+            id: None,
             server: Server {
                 endpoints: vec![
                     Endpoint {
@@ -4868,6 +4880,7 @@ mod tests {
 
         // Same public-suffix-only endpoints, but an explicit alias is provided.
         let req = CreateUpstreamRequest {
+            id: None,
             server: Server {
                 endpoints: vec![
                     Endpoint {
@@ -4944,6 +4957,7 @@ mod tests {
 
         // GET route on same path and priority — no overlap.
         let get_route_req = CreateRouteRequest {
+            id: None,
             upstream_id: u.id,
             match_rules: MatchRules {
                 http: Some(HttpMatch {
@@ -5087,6 +5101,7 @@ mod tests {
 
         // Route with [Post, Put].
         let req1 = CreateRouteRequest {
+            id: None,
             upstream_id: u.id,
             match_rules: MatchRules {
                 http: Some(HttpMatch {
@@ -5108,6 +5123,7 @@ mod tests {
 
         // Route with [Put, Delete] — overlaps on Put.
         let req2 = CreateRouteRequest {
+            id: None,
             upstream_id: u.id,
             match_rules: MatchRules {
                 http: Some(HttpMatch {

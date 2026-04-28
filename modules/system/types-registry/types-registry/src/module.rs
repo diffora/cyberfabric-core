@@ -7,7 +7,7 @@ use modkit::api::OpenApiRegistry;
 use modkit::contracts::SystemCapability;
 use modkit::{Module, ModuleCtx, RestApiCapability};
 use tracing::{debug, info};
-use types_registry_sdk::TypesRegistryClient;
+use types_registry_sdk::{RegisterResult, RegisterSummary, TypesRegistryClient};
 
 use crate::config::TypesRegistryConfig;
 use crate::domain::local_client::TypesRegistryLocalClient;
@@ -54,8 +54,52 @@ impl Module for TypesRegistryModule {
         );
 
         let gts_config = cfg.to_gts_config();
+        let static_entities = cfg.entities.clone();
+        let default_tenant_id = cfg.default_tenant_id;
+
         let repo = Arc::new(InMemoryGtsRepository::new(gts_config));
         let service = Arc::new(TypesRegistryService::new(repo, cfg));
+
+        // Register static entities from config (before ready-mode validation)
+        if !static_entities.is_empty() {
+            let tenant_id_str = default_tenant_id.to_string();
+            let entities: Vec<serde_json::Value> = static_entities
+                .into_iter()
+                .map(|mut v| {
+                    if let Some(obj) = v.as_object_mut() {
+                        obj.entry("tenant_id")
+                            .or_insert_with(|| serde_json::Value::String(tenant_id_str.clone()));
+                    }
+                    v
+                })
+                .collect();
+
+            let entity_count = entities.len();
+            let results = service.register(entities);
+            let summary = RegisterSummary::from_results(&results);
+
+            if !summary.all_succeeded() {
+                for result in &results {
+                    if let RegisterResult::Err { gts_id, error } = result {
+                        tracing::error!(
+                            gts_id = gts_id.as_deref().unwrap_or("<unknown>"),
+                            error = %error,
+                            "Failed to register static GTS entity"
+                        );
+                    }
+                }
+                anyhow::bail!(
+                    "types-registry: {}/{} static entities failed to register",
+                    summary.failed,
+                    summary.total()
+                );
+            }
+
+            info!(
+                count = entity_count,
+                "Registered static GTS entities from config"
+            );
+        }
 
         self.service
             .set(service.clone())

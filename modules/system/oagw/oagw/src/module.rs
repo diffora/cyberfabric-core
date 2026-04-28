@@ -179,6 +179,7 @@ impl Module for OutboundApiGatewayModule {
         };
 
         self.state.store(Some(Arc::new(app_state)));
+
         Ok(())
     }
 }
@@ -204,13 +205,12 @@ impl SystemCapability for OutboundApiGatewayModule {
             .as_ref()
             .clone();
 
-        // -- Materialise upstreams, building a GTS-instance-UUID -> OAGW-UUID map --
-        // Routes registered via types-registry reference upstreams by the
-        // deterministic GTS instance UUID. OAGW assigns random UUIDs, so we
-        // need to rewrite route upstream_ids before creating them.
+        // -- Materialise upstreams and routes from types-registry --
+        // GTS instance UUIDs are passed through as `CreateUpstreamRequest.id`
+        // and `CreateRouteRequest.id`, so OAGW uses the config-provided IDs
+        // directly. Route `upstream_id` already references the upstream's GTS
+        // instance UUID, so no remapping is needed.
         let upstreams = provisioning.list_upstreams().await?;
-        let mut gts_to_oagw: std::collections::HashMap<uuid::Uuid, uuid::Uuid> =
-            std::collections::HashMap::new();
         for u in &upstreams {
             let ctx = SecurityContext::builder()
                 .subject_tenant_id(u.tenant_id)
@@ -223,9 +223,6 @@ impl SystemCapability for OutboundApiGatewayModule {
                 .map_err(|e| {
                     anyhow::anyhow!("Failed to provision upstream (tenant={}): {e}", u.tenant_id)
                 })?;
-            if let Some(gts_id) = u.gts_instance_id {
-                gts_to_oagw.insert(gts_id, created.id);
-            }
             info!(
                 id = %created.id,
                 tenant_id = %u.tenant_id,
@@ -240,14 +237,13 @@ impl SystemCapability for OutboundApiGatewayModule {
                 .subject_tenant_id(r.tenant_id)
                 .subject_id(modkit_security::constants::DEFAULT_SUBJECT_ID)
                 .build()?;
-            // Rewrite upstream_id if it references a GTS instance UUID.
-            let mut req = r.request.clone();
-            if let Some(&oagw_id) = gts_to_oagw.get(&req.upstream_id) {
-                req.upstream_id = oagw_id;
-            }
-            let created = app_state.cp.create_route(&ctx, req).await.map_err(|e| {
-                anyhow::anyhow!("Failed to provision route (tenant={}): {e}", r.tenant_id)
-            })?;
+            let created = app_state
+                .cp
+                .create_route(&ctx, r.request.clone())
+                .await
+                .map_err(|e| {
+                    anyhow::anyhow!("Failed to provision route (tenant={}): {e}", r.tenant_id)
+                })?;
             info!(
                 id = %created.id,
                 tenant_id = %r.tenant_id,
@@ -276,8 +272,6 @@ impl RestApiCapability for OutboundApiGatewayModule {
         router: axum::Router,
         openapi: &dyn OpenApiRegistry,
     ) -> anyhow::Result<axum::Router> {
-        info!("Registering OAGW REST routes");
-
         let state = self
             .state
             .load()
@@ -285,6 +279,12 @@ impl RestApiCapability for OutboundApiGatewayModule {
             .ok_or_else(|| anyhow::anyhow!("OAGW module not initialized — call init() first"))?
             .as_ref()
             .clone();
+
+        let mgmt_enabled = state.config.management_api_enabled;
+        info!(
+            management_api_enabled = mgmt_enabled,
+            "Registering OAGW REST routes"
+        );
 
         let router = routes::register_routes(router, openapi, state);
         Ok(router)

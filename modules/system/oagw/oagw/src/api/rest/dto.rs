@@ -1019,6 +1019,7 @@ impl From<domain::MatchRules> for MatchRules {
 impl From<CreateUpstreamRequest> for domain::CreateUpstreamRequest {
     fn from(r: CreateUpstreamRequest) -> Self {
         Self {
+            id: None,
             server: r.server.into(),
             protocol: r.protocol,
             alias: r.alias,
@@ -1053,6 +1054,7 @@ impl From<UpdateUpstreamRequest> for domain::UpdateUpstreamRequest {
 impl From<(Uuid, CreateRouteRequest)> for domain::CreateRouteRequest {
     fn from((upstream_id, r): (Uuid, CreateRouteRequest)) -> Self {
         Self {
+            id: None,
             upstream_id,
             match_rules: r.match_rules.into(),
             plugins: r.plugins.map(Into::into),

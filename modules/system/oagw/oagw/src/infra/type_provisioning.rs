@@ -326,7 +326,7 @@ struct UpstreamPayload {
 #[derive(Deserialize)]
 struct RoutePayload {
     tenant_id: Uuid,
-    upstream_id: Uuid,
+    upstream_id: String,
     #[serde(rename = "match")]
     match_rules: MatchRules,
     #[serde(default)]
@@ -634,6 +634,7 @@ impl UpstreamPayload {
         ProvisionedUpstream {
             tenant_id: self.tenant_id,
             request: domain::CreateUpstreamRequest {
+                id: gts_instance_id,
                 server: self.server.into(),
                 protocol: self.protocol,
                 alias: self.alias,
@@ -645,26 +646,39 @@ impl UpstreamPayload {
                 tags: self.tags,
                 enabled: self.enabled,
             },
-            gts_instance_id,
         }
     }
 }
 
-impl From<RoutePayload> for ProvisionedRoute {
-    fn from(p: RoutePayload) -> Self {
-        Self {
-            tenant_id: p.tenant_id,
+impl RoutePayload {
+    fn into_provisioned(
+        self,
+        gts_id: &str,
+        gts_instance_id: Uuid,
+    ) -> Result<ProvisionedRoute, DomainError> {
+        // Accept both full GTS identifier and bare UUID for upstream_id.
+        let upstream_id = extract_gts_instance_uuid(&self.upstream_id)
+            .or_else(|| Uuid::parse_str(&self.upstream_id).ok())
+            .ok_or_else(|| {
+                DomainError::validation(format!(
+                    "Route '{gts_id}': upstream_id '{}' is not a valid UUID or GTS identifier",
+                    self.upstream_id
+                ))
+            })?;
+        Ok(ProvisionedRoute {
+            tenant_id: self.tenant_id,
             request: domain::CreateRouteRequest {
-                upstream_id: p.upstream_id,
-                match_rules: p.match_rules.into(),
-                plugins: p.plugins.map(Into::into),
-                rate_limit: p.rate_limit.map(Into::into),
-                cors: p.cors.map(Into::into),
-                tags: p.tags,
-                priority: p.priority,
-                enabled: p.enabled,
+                id: Some(gts_instance_id),
+                upstream_id,
+                match_rules: self.match_rules.into(),
+                plugins: self.plugins.map(Into::into),
+                rate_limit: self.rate_limit.map(Into::into),
+                cors: self.cors.map(Into::into),
+                tags: self.tags,
+                priority: self.priority,
+                enabled: self.enabled,
             },
-        }
+        })
     }
 }
 
@@ -674,6 +688,18 @@ impl From<RoutePayload> for ProvisionedRoute {
 fn extract_gts_instance_uuid(gts_id: &str) -> Option<Uuid> {
     let instance = gts_id.rsplit('~').next()?;
     Uuid::parse_str(instance).ok()
+}
+
+/// Like `extract_gts_instance_uuid` but returns an error suitable for
+/// failing startup when the instance segment is not a valid UUID.
+fn require_gts_instance_uuid(gts_id: &str) -> Result<Uuid, DomainError> {
+    extract_gts_instance_uuid(gts_id).ok_or_else(|| {
+        DomainError::validation(format!(
+            "GTS entity '{gts_id}' has a non-UUID instance segment; \
+             OAGW requires upstream and route $id values to end with a UUID \
+             (e.g. gts.x.core.oagw.upstream.v1~<uuid>)"
+        ))
+    })
 }
 
 /// `TypeProvisioningService` implementation that delegates to `TypesRegistryClient`.
@@ -702,17 +728,16 @@ impl TypeProvisioningService for TypeProvisioningServiceImpl {
 
         let mut result = Vec::with_capacity(entities.len());
         for entity in entities {
+            let gts_instance_id = require_gts_instance_uuid(&entity.gts_id)?;
             match serde_json::from_value::<UpstreamPayload>(entity.content.clone()) {
                 Ok(payload) => {
-                    let gts_instance_id = extract_gts_instance_uuid(&entity.gts_id);
-                    result.push(payload.into_provisioned(gts_instance_id));
+                    result.push(payload.into_provisioned(Some(gts_instance_id)));
                 }
                 Err(e) => {
-                    tracing::warn!(
-                        gts_id = %entity.gts_id,
-                        error = %e,
-                        "Skipping upstream: failed to deserialize GTS entity content"
-                    );
+                    return Err(DomainError::validation(format!(
+                        "Upstream '{}': failed to deserialize GTS entity content: {e}",
+                        entity.gts_id
+                    )));
                 }
             }
         }
@@ -733,16 +758,16 @@ impl TypeProvisioningService for TypeProvisioningServiceImpl {
 
         let mut result = Vec::with_capacity(entities.len());
         for entity in entities {
+            let gts_instance_id = require_gts_instance_uuid(&entity.gts_id)?;
             match serde_json::from_value::<RoutePayload>(entity.content.clone()) {
                 Ok(payload) => {
-                    result.push(payload.into());
+                    result.push(payload.into_provisioned(&entity.gts_id, gts_instance_id)?);
                 }
                 Err(e) => {
-                    tracing::warn!(
-                        gts_id = %entity.gts_id,
-                        error = %e,
-                        "Skipping route: failed to deserialize GTS entity content"
-                    );
+                    return Err(DomainError::validation(format!(
+                        "Route '{}': failed to deserialize GTS entity content: {e}",
+                        entity.gts_id
+                    )));
                 }
             }
         }
@@ -822,38 +847,62 @@ mod tests {
     #[tokio::test]
     async fn list_upstreams_returns_parsed_entities() {
         let tenant = Uuid::new_v4();
+        let instance_id = Uuid::new_v4();
         let content = upstream_content(tenant);
+        let gts_id = format!("gts.x.core.oagw.upstream.v1~{instance_id}");
 
         let registry = Arc::new(MockRegistry {
-            list_fn: Box::new(move |_| {
-                Ok(vec![make_upstream_entity(
-                    "gts.x.core.oagw.upstream.v1~abc123",
-                    content.clone(),
-                )])
-            }),
+            list_fn: Box::new(move |_| Ok(vec![make_upstream_entity(&gts_id, content.clone())])),
         });
         let svc = TypeProvisioningServiceImpl::new(registry);
 
         let upstreams = svc.list_upstreams().await.unwrap();
         assert_eq!(upstreams.len(), 1);
         assert_eq!(upstreams[0].tenant_id, tenant);
+        assert_eq!(upstreams[0].request.id, Some(instance_id));
         assert!(upstreams[0].request.enabled);
     }
 
     #[tokio::test]
-    async fn list_upstreams_skips_invalid_content() {
+    async fn list_upstreams_rejects_non_uuid_instance_id() {
         let registry = Arc::new(MockRegistry {
             list_fn: Box::new(|_| {
                 Ok(vec![make_upstream_entity(
-                    "gts.x.core.oagw.upstream.v1~bad",
+                    "gts.x.core.oagw.upstream.v1~x.core.oagw.test.v1",
+                    upstream_content(Uuid::new_v4()),
+                )])
+            }),
+        });
+        let svc = TypeProvisioningServiceImpl::new(registry);
+
+        let err = svc.list_upstreams().await.unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("non-UUID instance segment"),
+            "expected non-UUID error, got: {msg}"
+        );
+    }
+
+    #[tokio::test]
+    async fn list_upstreams_rejects_invalid_content() {
+        let instance_id = Uuid::new_v4();
+        let gts_id = format!("gts.x.core.oagw.upstream.v1~{instance_id}");
+        let registry = Arc::new(MockRegistry {
+            list_fn: Box::new(move |_| {
+                Ok(vec![make_upstream_entity(
+                    &gts_id,
                     serde_json::json!({"invalid": true}),
                 )])
             }),
         });
         let svc = TypeProvisioningServiceImpl::new(registry);
 
-        let upstreams = svc.list_upstreams().await.unwrap();
-        assert!(upstreams.is_empty());
+        let err = svc.list_upstreams().await.unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("failed to deserialize"),
+            "expected deserialization error, got: {msg}"
+        );
     }
 
     #[tokio::test]
@@ -882,39 +931,63 @@ mod tests {
     async fn list_routes_returns_parsed_entities() {
         let tenant = Uuid::new_v4();
         let upstream_id = Uuid::new_v4();
+        let route_instance_id = Uuid::new_v4();
         let content = route_content(tenant, upstream_id);
+        let gts_id = format!("gts.x.core.oagw.route.v1~{route_instance_id}");
 
         let registry = Arc::new(MockRegistry {
-            list_fn: Box::new(move |_| {
-                Ok(vec![make_route_entity(
-                    "gts.x.core.oagw.route.v1~abc123",
-                    content.clone(),
-                )])
-            }),
+            list_fn: Box::new(move |_| Ok(vec![make_route_entity(&gts_id, content.clone())])),
         });
         let svc = TypeProvisioningServiceImpl::new(registry);
 
         let routes = svc.list_routes().await.unwrap();
         assert_eq!(routes.len(), 1);
         assert_eq!(routes[0].tenant_id, tenant);
+        assert_eq!(routes[0].request.id, Some(route_instance_id));
         assert_eq!(routes[0].request.upstream_id, upstream_id);
         assert!(routes[0].request.enabled);
     }
 
     #[tokio::test]
-    async fn list_routes_skips_invalid_content() {
+    async fn list_routes_rejects_non_uuid_instance_id() {
         let registry = Arc::new(MockRegistry {
             list_fn: Box::new(|_| {
                 Ok(vec![make_route_entity(
-                    "gts.x.core.oagw.route.v1~bad",
+                    "gts.x.core.oagw.route.v1~x.core.oagw.test.v1",
+                    route_content(Uuid::new_v4(), Uuid::new_v4()),
+                )])
+            }),
+        });
+        let svc = TypeProvisioningServiceImpl::new(registry);
+
+        let err = svc.list_routes().await.unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("non-UUID instance segment"),
+            "expected non-UUID error, got: {msg}"
+        );
+    }
+
+    #[tokio::test]
+    async fn list_routes_rejects_invalid_content() {
+        let instance_id = Uuid::new_v4();
+        let gts_id = format!("gts.x.core.oagw.route.v1~{instance_id}");
+        let registry = Arc::new(MockRegistry {
+            list_fn: Box::new(move |_| {
+                Ok(vec![make_route_entity(
+                    &gts_id,
                     serde_json::json!({"garbage": true}),
                 )])
             }),
         });
         let svc = TypeProvisioningServiceImpl::new(registry);
 
-        let routes = svc.list_routes().await.unwrap();
-        assert!(routes.is_empty());
+        let err = svc.list_routes().await.unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("failed to deserialize"),
+            "expected deserialization error, got: {msg}"
+        );
     }
 
     #[tokio::test]
@@ -1054,7 +1127,10 @@ mod tests {
         });
 
         let payload: RoutePayload = serde_json::from_value(json).unwrap();
-        let provisioned: ProvisionedRoute = payload.into();
+        let route_uuid = Uuid::new_v4();
+        let provisioned = payload
+            .into_provisioned("gts.x.core.oagw.route.v1~x.core.oagw.test.v1", route_uuid)
+            .expect("upstream_id should parse");
 
         assert_eq!(provisioned.tenant_id, tenant);
         let req = &provisioned.request;

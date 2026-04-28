@@ -383,6 +383,10 @@ impl Default for ListQuery {
 #[domain_model]
 #[derive(Debug, Clone, PartialEq)]
 pub struct CreateUpstreamRequest {
+    /// Optional pre-assigned ID. When `Some`, the service uses this UUID
+    /// instead of generating a random one. Used by type-provisioning to
+    /// preserve GTS instance UUIDs.
+    pub id: Option<Uuid>,
     pub server: Server,
     pub protocol: String,
     pub alias: Option<String>,
@@ -413,6 +417,10 @@ pub struct UpdateUpstreamRequest {
 #[domain_model]
 #[derive(Debug, Clone, PartialEq)]
 pub struct CreateRouteRequest {
+    /// Optional pre-assigned ID. When `Some`, the service uses this UUID
+    /// instead of generating a random one. Used by type-provisioning to
+    /// preserve GTS instance UUIDs.
+    pub id: Option<Uuid>,
     pub upstream_id: Uuid,
     pub match_rules: MatchRules,
     pub plugins: Option<PluginsConfig>,

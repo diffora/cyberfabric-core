@@ -41,6 +41,7 @@ parking_lot = { workspace = true }
 # Local dependencies
 modkit = { workspace = true }
 modkit-macros = { workspace = true }
+modkit-security = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
