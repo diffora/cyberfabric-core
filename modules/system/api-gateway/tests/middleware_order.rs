@@ -73,9 +73,8 @@ async fn real_middlewares_observe_documented_order() -> Result<()> {
 
     // Register an endpoint that enables both MIME validation and rate limiting.
     let mut router = Router::new();
-    let mut builder = OperationBuilder::post("/tests/v1/middleware-order");
-    builder.require_rate_limit(1, 1, 64);
-    router = builder
+    router = OperationBuilder::post("/tests/v1/middleware-order")
+        .require_rate_limit(1, 1, 64)
         .operation_id("test:middleware-order")
         .summary("Middleware order test endpoint")
         .public()
@@ -192,9 +191,8 @@ async fn real_middlewares_observe_documented_order_with_prefix() -> Result<()> {
 
     // Register an endpoint that enables both MIME validation and rate limiting.
     let mut router = Router::new();
-    let mut builder = OperationBuilder::post("/tests/v1/middleware-order");
-    builder.require_rate_limit(1, 1, 64);
-    router = builder
+    router = OperationBuilder::post("/tests/v1/middleware-order")
+        .require_rate_limit(1, 1, 64)
         .operation_id("test:middleware-order")
         .summary("Middleware order test endpoint")
         .public()

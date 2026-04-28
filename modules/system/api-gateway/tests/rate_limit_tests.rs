@@ -77,9 +77,8 @@ impl RestApiCapability for RateLimitedModule {
         openapi: &dyn OpenApiRegistry,
     ) -> Result<axum::Router> {
         // Route with strict rate limit: 1 RPS, burst 1
-        let mut builder = OperationBuilder::get("/tests/v1/limited");
-        builder.require_rate_limit(1, 1, 2);
-        let router = builder
+        let router = OperationBuilder::get("/tests/v1/limited")
+            .require_rate_limit(1, 1, 2)
             .operation_id("test:limited")
             .summary("Strictly rate-limited endpoint")
             .public()
@@ -88,9 +87,8 @@ impl RestApiCapability for RateLimitedModule {
             .register(router, openapi);
 
         // Route with low in-flight limit
-        let mut builder = OperationBuilder::get("/tests/v1/slow");
-        builder.require_rate_limit(100, 100, 2);
-        let router = builder
+        let router = OperationBuilder::get("/tests/v1/slow")
+            .require_rate_limit(100, 100, 2)
             .operation_id("test:slow")
             .summary("Slow endpoint with low in-flight limit")
             .public()
@@ -221,8 +219,7 @@ async fn test_rate_limit_metadata_stored() {
     let api_gateway = api_gateway::ApiGateway::default();
     let router = Router::<()>::new();
 
-    let mut builder = OperationBuilder::get("/tests/v1/test");
-    builder.require_rate_limit(10, 20, 5);
+    let builder = OperationBuilder::get("/tests/v1/test").require_rate_limit(10, 20, 5);
 
     let spec = builder.spec();
     assert!(spec.rate_limit.is_some(), "Rate limit should be set");

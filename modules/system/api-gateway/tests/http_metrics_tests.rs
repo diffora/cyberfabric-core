@@ -203,9 +203,8 @@ async fn metrics_capture_mime_rejection() -> Result<()> {
     let api = api_gateway::ApiGateway::default();
     api.init(&ctx).await?;
 
-    let mut builder = OperationBuilder::post("/tests/v1/items");
-    builder.require_rate_limit(1000, 1000, 64);
-    let router = builder
+    let router = OperationBuilder::post("/tests/v1/items")
+        .require_rate_limit(1000, 1000, 64)
         .operation_id("test:create-item")
         .summary("Create item")
         .public()
@@ -267,9 +266,8 @@ async fn metrics_capture_rate_limit() -> Result<()> {
     let api = api_gateway::ApiGateway::default();
     api.init(&ctx).await?;
 
-    let mut builder = OperationBuilder::get("/tests/v1/limited");
-    builder.require_rate_limit(1, 1, 64);
-    let router = builder
+    let router = OperationBuilder::get("/tests/v1/limited")
+        .require_rate_limit(1, 1, 64)
         .operation_id("test:limited")
         .summary("Rate-limited endpoint")
         .public()

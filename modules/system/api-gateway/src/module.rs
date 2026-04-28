@@ -12,6 +12,7 @@ use anyhow::Result;
 use axum::http::Method;
 use axum::middleware::from_fn_with_state;
 use axum::{Router, extract::DefaultBodyLimit, middleware::from_fn, routing::get};
+use modkit::api::operation_builder::AuthMode;
 use modkit::api::{OpenApiRegistry, OpenApiRegistryImpl};
 use modkit::lifecycle::ReadySignal;
 use parking_lot::Mutex;
@@ -148,12 +149,31 @@ impl ApiGateway {
 
             let route_key = (spec.method.clone(), spec.path.clone());
 
-            if spec.authenticated {
-                authenticated_routes.insert(route_key.clone());
-            }
-
-            if spec.is_public {
-                public_routes.insert(route_key);
+            match spec.auth_mode {
+                AuthMode::Authenticated => {
+                    authenticated_routes.insert(route_key);
+                }
+                AuthMode::Public => {
+                    public_routes.insert(route_key);
+                }
+                AuthMode::Unset => {
+                    // Unreachable through `OperationBuilder`: `register()` is
+                    // bounded on `AuthDecided`, so any spec produced by the
+                    // type-state builder is `Public` or `Authenticated`.
+                    // Reaching this arm means a registration path bypassed
+                    // the builder (e.g., direct struct construction calling
+                    // `register_operation` on the registry trait), in which
+                    // case silently dropping the route would let it fall
+                    // through to `require_auth_by_default` — a config-
+                    // dependent default rather than a declared one. Fail
+                    // fast at startup with a clear pointer at the offender.
+                    return Err(anyhow::anyhow!(
+                        "OperationSpec for {} {} reached the gateway with auth_mode = Unset; \
+                         registration bypassed the OperationBuilder type-state machine",
+                        spec.method,
+                        spec.path,
+                    ));
+                }
             }
         }
 
