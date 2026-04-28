@@ -18,8 +18,8 @@ workspace = true
 
 [dependencies]
 # Local dependencies
-authz-resolver-sdk = { package = "cf-authz-resolver-sdk", version = "0.3.0", path = "../../authz-resolver-sdk" }
-tenant-resolver-sdk = { package = "cf-tenant-resolver-sdk", version = "0.3.0", path = "../../../tenant-resolver/tenant-resolver-sdk" }
+authz-resolver-sdk = { package = "cf-authz-resolver-sdk", version = "0.3.1", path = "../../authz-resolver-sdk" }
+tenant-resolver-sdk = { package = "cf-tenant-resolver-sdk", version = "0.3.1", path = "../../../tenant-resolver/tenant-resolver-sdk" }
 types-registry-sdk = { package = "cf-types-registry-sdk", version = "0.1.5", path = "../../../types-registry/types-registry-sdk" }
 
 # ModKit dependencies
