@@ -8275,7 +8275,7 @@
             }
           },
           {
-            "description": "OData v4 filter expression\n- type: eq|ne|contains|startswith|endswith|in\n- hierarchy/parent_id: eq|ne|in\n- id: eq|ne|in\n- name: eq|ne|contains|startswith|endswith|in",
+            "description": "OData v4 filter expression\n- type: eq|ne|contains|startswith|endswith|in\n- hierarchy/parent_id: eq|ne|in\n- tenant_id: eq|ne|in\n- id: eq|ne|in\n- name: eq|ne|contains|startswith|endswith|in",
             "in": "query",
             "name": "$filter",
             "required": false,
@@ -8343,6 +8343,11 @@
               "contains",
               "startswith",
               "endswith",
+              "in"
+            ],
+            "tenant_id": [
+              "eq",
+              "ne",
               "in"
             ],
             "type": [
