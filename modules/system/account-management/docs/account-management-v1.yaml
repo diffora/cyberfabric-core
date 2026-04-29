@@ -39,6 +39,18 @@ tags:
   - name: metadata
     description: Tenant-scoped extensible metadata and effective-value resolution.
 
+# Default security requirement applied to every operation. AM has no
+# public endpoints — the entire surface is tenant-scoped control-plane
+# and requires bearer authentication. No scopes are declared in the
+# spec: the `bearerAuth` scheme is `type=http, scheme=bearer`, which
+# under OpenAPI 3.x cannot carry scope arrays (scopes are valid only
+# for `oauth2` / `openIdConnect` schemes). Authorization mapping —
+# which permissions are required for which operation — is configured
+# downstream by the deploying operator (AuthZ Resolver policy / IdP
+# claim mapping), not pinned in this contract.
+security:
+  - bearerAuth: []
+
 paths:
   /api/account-management/v1/tenants:
     post:
@@ -434,6 +446,12 @@ paths:
           $ref: '#/components/responses/Problem'
 
 components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
   parameters:
     TenantId:
       name: tenant_id
@@ -545,6 +563,7 @@ components:
           type: integer
         total:
           type: integer
+          format: int64
           nullable: true
 
     Tenant:
@@ -924,7 +943,7 @@ components:
     Problem:
       type: object
       additionalProperties: true
-      required: [type, title, status, code, sub_code]
+      required: [type, title, status, code]
       properties:
         type:
           type: string
@@ -949,22 +968,13 @@ components:
             - idp_unsupported_operation
             - service_unavailable
             - internal
-        sub_code:
-          type: string
-          enum:
-            - validation
-            - not_found
-            - conflict
-            - cross_tenant_denied
-            - idp_unavailable
-            - idp_unsupported_operation
-            - service_unavailable
-            - internal
+            - audit_already_running
             - invalid_tenant_type
             - type_not_allowed
             - tenant_depth_exceeded
             - tenant_has_children
             - tenant_has_resources
+            - serialization_conflict
             - root_tenant_cannot_delete
             - pending_exists
             - invalid_actor_for_transition
@@ -973,7 +983,7 @@ components:
             - metadata_schema_not_registered
             - metadata_entry_not_found
           nullable: false
-          description: Stable module-specific discriminator. Broad categories use the category name when no finer discriminator applies.
+          description: Stable module-specific error discriminator. Clients switch on `code` for fine-grained handling; the broad RFC 9457 category is conveyed by `status`.
         details:
           type: object
           additionalProperties: true

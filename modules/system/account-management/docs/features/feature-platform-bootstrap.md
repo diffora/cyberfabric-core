@@ -39,7 +39,7 @@ AM automatically creates the initial root tenant on first platform start, links 
 
 ### 1.2 Purpose
 
-Implements PRD §5.1 Platform Bootstrap — the foundation FR group without which no tenant hierarchy can exist. The feature owns the one-time wiring moment at `AccountManagementModule` lifecycle entry: distributed-lock acquisition, idempotency detection against the existing tenants table, IdP availability wait with exponential backoff, and the three-step saga that creates the root tenant row, invokes `provision_tenant` on the IdP contract, and finalizes status + closure self-row atomically.
+Implements PRD §5.1 Platform Bootstrap — the foundation FR group without which no tenant hierarchy can exist. The feature owns the one-time wiring moment at `AccountManagementModule` lifecycle entry: idempotency detection against the existing `tenants` table, IdP availability wait with exponential backoff, and a three-step saga. The **overall saga is not atomic**: step 1 (insert the `provisioning` tenant row) and step 3 (flip `status → active` and add the closure self-row) are each their own short DB transaction, but step 2 — `IdpProviderPluginClient::provision_tenant` — runs **outside** any DB transaction and is the compensating boundary. A clean step-2 failure deletes the `provisioning` row in a compensating TX (`code=idp_unavailable`); an ambiguous step-2 outcome leaves the row for the Provisioning Reaper. Only step 3's status flip + closure self-row insert commit atomically together.
 
 **Requirements**: `cpt-cf-account-management-fr-root-tenant-creation`, `cpt-cf-account-management-fr-root-tenant-idp-link`, `cpt-cf-account-management-fr-bootstrap-idempotency`, `cpt-cf-account-management-fr-bootstrap-ordering`
 
@@ -74,7 +74,7 @@ Bootstrap is triggered by the `AccountManagementModule` lifecycle rather than an
 **Success Scenarios**:
 
 - First platform start: root tenant is created with configured `root_tenant_type`, IdP binding established, status transitions `provisioning → active`, `tenant_closure` self-row present, module signals ready.
-- Restart after prior success: idempotent detection finds the existing `active` root; saga is skipped; module signals ready immediately after lock release.
+- Restart after prior success: idempotent detection finds the existing `active` root; saga is skipped; module signals ready immediately.
 - IdP briefly unavailable at start: wait-loop backs off and eventually proceeds when IdP reports available within the configured total timeout.
 
 **Error Scenarios**:
@@ -82,52 +82,45 @@ Bootstrap is triggered by the `AccountManagementModule` lifecycle rather than an
 - IdP never becomes available within total timeout: bootstrap fails with `idp_unavailable`; no `provisioning` row is left behind; module does not signal ready.
 - Root tenant type preflight fails: the configured root type is not registered in GTS, GTS is unavailable, or the effective `allowed_parent_types` value is not root-eligible; no `tenants` row is written.
 - Finalization fails after successful `provision_tenant`: `tenants` row remains in `provisioning`; Provisioning Reaper compensates on its next sweep; next bootstrap attempt recreates the root.
-- Concurrent replicas race: only one holder of the bootstrap lock executes the saga; other replicas wait and observe the completed state on lock release.
+- Concurrent replicas race: the `ux_tenants_single_root` unique partial index prevents duplicate roots; the losing replica hits a constraint violation and falls through to the idempotency path on its next classification attempt.
 
 **Steps**:
 
 1. [ ] - `p1` - ModKit invokes `AccountManagementModule.lifecycle(entry = ...)` — `inst-flow-bootstrap-lifecycle-entry`
 2. [ ] - `p1` - Module calls `BootstrapService.run(bootstrap_config)` before signalling module ready - `inst-flow-bootstrap-invoke-service`
-3. [ ] - `p1` - Increment `bootstrap.attempts` counter (per attempt, before any lock or DB work) - `inst-flow-bootstrap-metric-attempt`
-4. [ ] - `p1` - Acquire bootstrap distributed lock (implementation-specific: DB advisory lock or external lock service, see DESIGN §3.6) - `inst-flow-bootstrap-acquire-lock`
-5. [ ] - `p1` - Query for existing root tenant via TenantService.find_root() - `inst-flow-bootstrap-detect-root`
-6. [ ] - `p1` - Run idempotency classification via `algo-platform-bootstrap-idempotency-detection` over the result - `inst-flow-bootstrap-classify-idempotency`
-7. [ ] - `p1` - **IF** classification = `active-root-exists` - `inst-flow-bootstrap-branch-active`
+3. [ ] - `p1` - Increment `bootstrap.attempts` counter (per attempt, before any DB work) - `inst-flow-bootstrap-metric-attempt`
+4. [ ] - `p1` - Query for existing root tenant via TenantService.find_root() - `inst-flow-bootstrap-detect-root`
+5. [ ] - `p1` - Run idempotency classification via `algo-platform-bootstrap-idempotency-detection` over the result - `inst-flow-bootstrap-classify-idempotency`
+6. [ ] - `p1` - **IF** classification = `active-root-exists` - `inst-flow-bootstrap-branch-active`
    1. [ ] - `p1` - Emit audit event `bootstrap.skipped` with `actor=system` - `inst-flow-bootstrap-audit-skipped`
    2. [ ] - `p1` - Emit `bootstrap.outcome` counter labeled `classification=skipped` - `inst-flow-bootstrap-metric-outcome-skipped`
-   3. [ ] - `p1` - Release lock - `inst-flow-bootstrap-release-lock-skip`
-   4. [ ] - `p1` - **RETURN** Bootstrap skipped (idempotent) - `inst-flow-bootstrap-return-skip`
-8. [ ] - `p1` - **IF** classification = `provisioning-root-stuck` - `inst-flow-bootstrap-branch-stuck`
+   3. [ ] - `p1` - **RETURN** Bootstrap skipped (idempotent) - `inst-flow-bootstrap-return-skip`
+7. [ ] - `p1` - **IF** classification = `provisioning-root-stuck` - `inst-flow-bootstrap-branch-stuck`
    1. [ ] - `p1` - Emit audit event `bootstrap.deferred-to-reaper` with `actor=system` - `inst-flow-bootstrap-audit-deferred`
-   2. [ ] - `p1` - Emit `bootstrap.outcome` counter labeled `classification=deferred-to-reaper` - `inst-flow-bootstrap-metric-outcome-deferred`
-   3. [ ] - `p1` - Release lock without creating a second root - `inst-flow-bootstrap-release-lock-stuck`
-   4. [ ] - `p1` - **RETURN** Bootstrap not complete; await reaper compensation - `inst-flow-bootstrap-return-stuck`
-9. [ ] - `p1` - **IF** classification = `invariant-violation` (suspended or deleted status on root row — illegal pre-existing state) - `inst-flow-bootstrap-branch-invariant`
+   2. [ ] - `p1` - Emit `bootstrap.outcome` counter labeled `classification=deferred_to_reaper` - `inst-flow-bootstrap-metric-outcome-deferred`
+   3. [ ] - `p1` - **RETURN** Bootstrap not complete; await reaper compensation - `inst-flow-bootstrap-return-stuck`
+8. [ ] - `p1` - **IF** classification = `invariant-violation` (suspended or deleted status on root row — illegal pre-existing state) - `inst-flow-bootstrap-branch-invariant`
    1. [ ] - `p1` - Emit audit event `bootstrap.invariant-violation` with `actor=system` + observed-status detail - `inst-flow-bootstrap-audit-invariant`
-   2. [ ] - `p1` - Emit `bootstrap.outcome` counter labeled `classification=invariant-violation` - `inst-flow-bootstrap-metric-outcome-invariant`
-   3. [ ] - `p1` - Release lock without creating a second root - `inst-flow-bootstrap-release-lock-invariant`
-   4. [ ] - `p1` - **RETURN** `invariant_violation` error (root in illegal state — manual intervention required) - `inst-flow-bootstrap-return-invariant`
-10. [ ] - `p1` - **ELSE** (classification = `no-root`; proceed to create root) - `inst-flow-bootstrap-branch-create`
-    1. [ ] - `p1` - Wait for IdP availability via `algo-platform-bootstrap-idp-wait-with-backoff` - `inst-flow-bootstrap-wait-idp`
-    2. [ ] - `p1` - **IF** IdP wait exhausted without success - `inst-flow-bootstrap-idp-timeout`
-       1. [ ] - `p1` - Emit audit event `bootstrap.idp-timeout` with `actor=system` - `inst-flow-bootstrap-audit-idp-timeout`
-       2. [ ] - `p1` - Emit `bootstrap.outcome` counter labeled `classification=idp-timeout` - `inst-flow-bootstrap-metric-outcome-idp-timeout`
-       3. [ ] - `p1` - Release lock - `inst-flow-bootstrap-release-lock-idp-timeout`
-       4. [ ] - `p1` - **RETURN** `idp_unavailable` - `inst-flow-bootstrap-return-idp-timeout`
-    3. [ ] - `p1` - Execute `algo-platform-bootstrap-finalization-saga` against `TenantService.create_root_tenant(bootstrap_config)` - `inst-flow-bootstrap-run-finalization`
-    4. [ ] - `p1` - **IF** finalization succeeded - `inst-flow-bootstrap-finalize-success`
-       1. [ ] - `p1` - Emit audit event `bootstrap.completed` with `actor=system` - `inst-flow-bootstrap-audit-completed`
-       2. [ ] - `p1` - Emit `bootstrap.outcome` counter labeled `classification=completed` - `inst-flow-bootstrap-metric-outcome-completed`
-       3. [ ] - `p1` - Release lock - `inst-flow-bootstrap-release-lock-ok`
-       4. [ ] - `p1` - **RETURN** Bootstrap complete - `inst-flow-bootstrap-return-ok`
-    5. [ ] - `p1` - **ELSE** finalization returned `clean_failure` or `ambiguous_failure` - `inst-flow-bootstrap-finalize-fail`
-       1. [ ] - `p1` - Emit audit event `bootstrap.finalization-failed` with `actor=system` + failure reason and failure class - `inst-flow-bootstrap-audit-failed`
-       2. [ ] - `p1` - Emit `bootstrap.outcome` counter labeled `classification=clean-failure` or `classification=ambiguous-failure` - `inst-flow-bootstrap-metric-outcome-failed`
-       3. [ ] - `p1` - Release lock - `inst-flow-bootstrap-release-lock-fail`
-       4. [ ] - `p1` - **IF** finalization returned `clean_failure` - `inst-flow-bootstrap-clean-failure`
-          1. [ ] - `p1` - **RETURN** Bootstrap not complete; no root state remains and a later retry may run the saga again - `inst-flow-bootstrap-return-clean-fail`
-       5. [ ] - `p1` - **ELSE** finalization returned `ambiguous_failure` - `inst-flow-bootstrap-ambiguous-failure`
-          1. [ ] - `p1` - **RETURN** Bootstrap not complete; root remains in `provisioning` for reaper compensation - `inst-flow-bootstrap-return-ambiguous-fail`
+   2. [ ] - `p1` - Emit `bootstrap.outcome` counter labeled `classification=invariant_violation` (metric label values are snake_case per the workspace convention; the kebab-case `bootstrap.invariant-violation` audit event name above follows the audit-event naming convention and is intentionally a different surface) - `inst-flow-bootstrap-metric-outcome-invariant`
+   3. [ ] - `p1` - **RETURN** error with public `code=internal` (per `feature-errors-observability` — unclassified domain failures fall through to `internal`; the `bootstrap.invariant-violation` audit event name and the `classification=invariant_violation` metric label above remain internal-only labels, not Problem-envelope codes). Root is in an illegal state — manual intervention required. - `inst-flow-bootstrap-return-invariant`
+9. [ ] - `p1` - **ELSE** (classification = `no-root`; proceed to create root) - `inst-flow-bootstrap-branch-create`
+   1. [ ] - `p1` - Wait for IdP availability via `algo-platform-bootstrap-idp-wait-with-backoff` - `inst-flow-bootstrap-wait-idp`
+   2. [ ] - `p1` - **IF** IdP wait exhausted without success - `inst-flow-bootstrap-idp-timeout`
+      1. [ ] - `p1` - Emit audit event `bootstrap.idp-timeout` with `actor=system` - `inst-flow-bootstrap-audit-idp-timeout`
+      2. [ ] - `p1` - Emit `bootstrap.outcome` counter labeled `classification=idp_timeout` - `inst-flow-bootstrap-metric-outcome-idp-timeout`
+      3. [ ] - `p1` - **RETURN** `idp_unavailable` - `inst-flow-bootstrap-return-idp-timeout`
+   3. [ ] - `p1` - Execute `algo-platform-bootstrap-finalization-saga` against `TenantService.create_root_tenant(bootstrap_config)` - `inst-flow-bootstrap-run-finalization`
+   4. [ ] - `p1` - **IF** finalization succeeded - `inst-flow-bootstrap-finalize-success`
+      1. [ ] - `p1` - Emit audit event `bootstrap.completed` with `actor=system` - `inst-flow-bootstrap-audit-completed`
+      2. [ ] - `p1` - Emit `bootstrap.outcome` counter labeled `classification=completed` - `inst-flow-bootstrap-metric-outcome-completed`
+      3. [ ] - `p1` - **RETURN** Bootstrap complete - `inst-flow-bootstrap-return-ok`
+   5. [ ] - `p1` - **ELSE** finalization returned `clean_failure` or `ambiguous_failure` - `inst-flow-bootstrap-finalize-fail`
+      1. [ ] - `p1` - Emit audit event `bootstrap.finalization-failed` with `actor=system` + failure reason and failure class - `inst-flow-bootstrap-audit-failed`
+      2. [ ] - `p1` - Emit `bootstrap.outcome` counter labeled `classification=clean_failure` or `classification=ambiguous_failure` - `inst-flow-bootstrap-metric-outcome-failed`
+      3. [ ] - `p1` - **IF** finalization returned `clean_failure` - `inst-flow-bootstrap-clean-failure`
+         1. [ ] - `p1` - **RETURN** Bootstrap not complete; no root state remains and a later retry may run the saga again - `inst-flow-bootstrap-return-clean-fail`
+      4. [ ] - `p1` - **ELSE** finalization returned `ambiguous_failure` - `inst-flow-bootstrap-ambiguous-failure`
+         1. [ ] - `p1` - **RETURN** Bootstrap not complete; root remains in `provisioning` for reaper compensation - `inst-flow-bootstrap-return-ambiguous-fail`
 
 ## 3. Processes / Business Logic (CDSL)
 
@@ -192,9 +185,9 @@ Bootstrap is triggered by the `AccountManagementModule` lifecycle rather than an
 2. [ ] - `p1` - **IF** GTS is unavailable, times out, or cannot resolve effective traits - `inst-algo-saga-type-gts-unavailable`
    1. [ ] - `p1` - **RETURN** `clean_failure` with the delegated `service_unavailable` classification from `errors-observability`; no DB state persisted and no IdP call issued - `inst-algo-saga-return-gts-unavailable`
 3. [ ] - `p1` - **IF** the configured root type is not a registered chained tenant type under `gts.x.core.am.tenant_type.v1~` - `inst-algo-saga-type-invalid-branch`
-   1. [ ] - `p1` - **RETURN** `clean_failure` with `sub_code=invalid_tenant_type` (mapped to `validation` by the `errors-observability` envelope); no DB state persisted - `inst-algo-saga-return-invalid-type`
+   1. [ ] - `p1` - **RETURN** `clean_failure` with `code=invalid_tenant_type` (mapped to `validation` by the `errors-observability` envelope); no DB state persisted - `inst-algo-saga-return-invalid-type`
 4. [ ] - `p1` - **ELSE IF** the effective `allowed_parent_types` trait is not exactly `[]` after default resolution - `inst-algo-saga-type-not-root-branch`
-   1. [ ] - `p1` - **RETURN** `clean_failure` with `sub_code=type_not_allowed` (mapped to `conflict` by the `errors-observability` envelope); no DB state persisted - `inst-algo-saga-return-not-root-type`
+   1. [ ] - `p1` - **RETURN** `clean_failure` with `code=type_not_allowed` (mapped to `conflict` by the `errors-observability` envelope); no DB state persisted - `inst-algo-saga-return-not-root-type`
 5. [ ] - `p1` - **TRY** saga step 1 (short TX, TenantService-owned) - `inst-algo-saga-step-1`
    1. [ ] - `p1` - TenantService: insert root tenant row in `provisioning` status (no parent, depth 0, not self-managed, resolved type uuid) and commit the transaction - `inst-algo-saga-insert-provisioning`
 6. [ ] - `p1` - **CATCH** saga step 1 error - `inst-algo-saga-step-1-catch`
@@ -204,7 +197,7 @@ Bootstrap is triggered by the `AccountManagementModule` lifecycle rather than an
    2. [ ] - `p1` - Receive `ProvisionResult` (may include zero or more provider-supplied metadata entries) - `inst-algo-saga-receive-result`
 8. [ ] - `p1` - **CATCH** saga step 2 error - `inst-algo-saga-step-2-catch`
    1. [ ] - `p1` - **IF** the provider result proves no IdP-side root state was retained - `inst-algo-saga-step-2-clean-branch`
-      1. [ ] - `p1` - TenantService: delete the `provisioning` root row in a short compensating transaction; **RETURN** `clean_failure` with `sub_code=idp_unavailable` and safe retry semantics - `inst-algo-saga-return-step-2-clean`
+      1. [ ] - `p1` - TenantService: delete the `provisioning` root row in a short compensating transaction; **RETURN** `clean_failure` with `code=idp_unavailable` and safe retry semantics - `inst-algo-saga-return-step-2-clean`
    2. [ ] - `p1` - **ELSE** the external outcome is ambiguous or may already be retained by the IdP - `inst-algo-saga-step-2-ambiguous-branch`
       1. [ ] - `p1` - **RETURN** `ambiguous_failure` (provisioning row left for reaper to compensate per seq-bootstrap; caller must reconcile before blind retry) - `inst-algo-saga-return-step-2-ambiguous`
 9. [ ] - `p1` - **TRY** saga step 3 (finalize, short TX, TenantService-owned) - `inst-algo-saga-step-3`
@@ -309,7 +302,7 @@ The system **MUST** block bootstrap at `IdpProviderPluginClient::check_availabil
 
 - [ ] `p1` - **ID**: `cpt-cf-account-management-dod-platform-bootstrap-audit-and-metrics`
 
-The system **MUST** emit `actor=system` platform audit events at every terminal bootstrap outcome (`bootstrap.completed`, `bootstrap.skipped`, `bootstrap.deferred-to-reaper`, `bootstrap.finalization-failed`) and **MUST** export the bootstrap-lifecycle metric family (attempt counter, IdP-wait duration histogram, IdP-wait timeout counter, outcome counter by terminal classification) through the module's observability plumbing owned by the errors-observability feature.
+The system **MUST** emit `actor=system` platform audit events at every terminal bootstrap outcome (`bootstrap.completed`, `bootstrap.skipped`, `bootstrap.deferred-to-reaper`, `bootstrap.idp-timeout`, `bootstrap.invariant-violation`, `bootstrap.finalization-failed`) and **MUST** export the bootstrap-lifecycle metric family (attempt counter, IdP-wait duration histogram, IdP-wait timeout counter, outcome counter by terminal classification) through the module's observability plumbing owned by the errors-observability feature.
 
 **Implements**:
 
@@ -329,10 +322,10 @@ The system **MUST** emit `actor=system` platform audit events at every terminal 
 - [ ] Second platform start (post-success): no new `tenants` row is created; no second `provision_tenant` call is issued; audit sink has a `bootstrap.skipped actor=system` event; module signals ready.
 - [ ] Start observing a `provisioning` root row (prior saga not finalized): no second root created; bootstrap logs defer-to-reaper outcome; audit sink has a `bootstrap.deferred-to-reaper actor=system` event; after successful Provisioning Reaper compensation, a subsequent start recreates the root through the full saga.
 - [ ] IdP unavailable for longer than `idp_retry_timeout` during `check_availability`: bootstrap returns `idp_unavailable`; no `tenants` row is left in `provisioning`; `bootstrap.idp_wait.timeout` metric is incremented; module does not signal ready.
-- [ ] Concurrent replica starts on a fresh database: exactly one replica creates the root; other replicas observe the completed state on lock release and return `bootstrap.skipped`; no duplicate `tenants` or `tenant_closure` rows exist.
-- [ ] Bootstrap configuration with `root_tenant_type` that is not registered in GTS: the bootstrap-owned root-type preflight returns `clean_failure` with `sub_code=invalid_tenant_type` **before** saga step 1 begins; no `tenants` row is written; no IdP call is issued. A configuration whose registered `root_tenant_type` has an effective `allowed_parent_types` value other than `[]` fails the same way with `sub_code=type_not_allowed`; a GTS transport/timeout failure returns the delegated `service_unavailable` classification with no DB side effects.
-- [ ] During `provision_tenant`, a provider failure that proves no IdP-side root state was retained deletes the `provisioning` row in a compensating transaction and returns `clean_failure` with `sub_code=idp_unavailable`; the next bootstrap retry may safely re-run the saga. A transport timeout or ambiguous provider result leaves the `provisioning` row for the reaper, returns `ambiguous_failure`, and does not invite blind automatic retry.
-- [ ] Start observing a suspended or deleted root tenant row (illegal pre-existing state): bootstrap returns `invariant_violation`; no second root is created; module does not signal ready; audit sink has a `bootstrap.invariant-violation actor=system` event.
+- [ ] Concurrent replica starts on a fresh database: exactly one replica wins the insert race and creates the root. Each losing replica's insert attempt hits the `ux_tenants_single_root` unique constraint; the CATCH branch maps the unique-violation to `clean_failure` and returns immediately on the current attempt (no DB side effects, safe to retry). On the *next* bootstrap attempt — once the winning replica has finalized the root through `provisioning → active` — the loser's classification step finds the active root and returns `bootstrap.skipped`. No duplicate `tenants` or `tenant_closure` rows exist at any point.
+- [ ] Bootstrap configuration with `root_tenant_type` that is not registered in GTS: the bootstrap-owned root-type preflight returns `clean_failure` with `code=invalid_tenant_type` **before** saga step 1 begins; no `tenants` row is written; no IdP call is issued. A configuration whose registered `root_tenant_type` has an effective `allowed_parent_types` value other than `[]` fails the same way with `code=type_not_allowed`; a GTS transport/timeout failure returns the delegated `service_unavailable` classification with no DB side effects.
+- [ ] During `provision_tenant`, a provider failure that proves no IdP-side root state was retained deletes the `provisioning` row in a compensating transaction and returns `clean_failure` with `code=idp_unavailable`; the next bootstrap retry may safely re-run the saga. A transport timeout or ambiguous provider result leaves the `provisioning` row for the reaper, returns `ambiguous_failure`, and does not invite blind automatic retry.
+- [ ] Start observing a suspended or deleted root tenant row (illegal pre-existing state): bootstrap returns an error with public `code=internal` and the `classification=invariant_violation` metric label on `bootstrap.outcome`; no second root is created; module does not signal ready; audit sink has a `bootstrap.invariant-violation actor=system` event.
 
 ## 7. Deliberate Omissions
 
@@ -341,6 +334,5 @@ The following concerns are explicitly **not** addressed by this FEATURE. Each is
 - **UX / usability** — *Not applicable.* Bootstrap is a system-internal lifecycle operation triggered by ModKit module startup; it has no user-facing interface, no user input, and no interaction surface. Observability for operators (audit + metrics) is covered by §5.5 and delegated to `errors-observability`.
 - **Regulatory compliance / data-subject rights** — *Not applicable.* Bootstrap creates no user data, collects no consent, and has no retention or data-subject-rights surface. The only data written is AM-internal structural rows (root tenant, closure self-row, optional provider metadata).
 - **Data privacy (PII)** — *Not applicable.* `root_tenant_metadata` is an opaque deployment-configuration blob that AM forwards as-is to the IdP provider plugin without interpretation, and any `ProvisionResult` metadata entries AM persists are provider-returned and validated against GTS-registered schemas — AM neither introspects nor normalizes them, which keeps bootstrap out of any PII-handling boundary.
-- **Distributed-lock implementation choice** — *Not prescribed by this FEATURE.* DESIGN §3.6 explicitly leaves the lock implementation open ("infrastructure-specific — database advisory lock, distributed lock service, or equivalent"). No DoD in §5 mandates a specific lock mechanism; the flow's lock steps are implementation-agnostic.
 - **Concrete metric names and audit-event schemas** — *Owned by `errors-observability`.* This FEATURE references the `bootstrap.*` metric family and `bootstrap.*` audit-event names by stable label but does not define their carrier schema, cardinality limits, or retention; those contracts live in the errors-observability FEATURE's metric catalog and audit-event registry.
 - **Conforming IdP plugin implementations** — *Out of scope.* The pluggable IdP contract is referenced via `provision_tenant` but the individual provider plugins (Keycloak, custom IdPs, etc.) are separate crates owned by the `idp-user-operations-contract` feature; this FEATURE tests only that the contract is invoked correctly and the ProvisionResult is persisted.

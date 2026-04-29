@@ -1,0 +1,41 @@
+[package]
+name = "cf-account-management-sdk"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "Account Management SDK — public contract surface: audit-event shapes and inter-module error type"
+repository.workspace = true
+keywords = ["cyberfabric", "cyberfabric-system"]
+categories = ["web-programming"]
+
+[lib]
+name = "account_management_sdk"
+
+[lints]
+workspace = true
+
+[dependencies]
+# Domain-model derive for stable serde / utoipa shapes. The `domain_model`
+# proc-macro emits `::modkit::domain::DomainModel` impls so the host
+# crate must be in scope as well.
+modkit-macros = { workspace = true }
+modkit = { workspace = true }
+
+# `AuditEvent::from_context` reads subject + tenant from the platform
+# `SecurityContext`. The dep is small (auth-context primitives only)
+# and keeps the constructor on the canonical type.
+modkit-security = { workspace = true }
+
+# Audit-event payload — UUID for tenant/subject ids, `serde` /
+# `serde_json` for the on-the-wire format consumed by audit-bus
+# plugins, dashboards, and integration tests. SDK only carries `Uuid`
+# as a field type and never generates UUIDs itself (callers do); no
+# version-feature needed.
+uuid = { workspace = true, features = ["serde"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# `AccountManagementError` — public inter-module error contract.
+# Mirrors the lossy-flatten pattern used by `resource-group-sdk`.
+thiserror = { workspace = true }
