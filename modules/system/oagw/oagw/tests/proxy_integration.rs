@@ -4160,9 +4160,22 @@ async fn ws_handshake_to(
     uri: &str,
     addr: std::net::SocketAddr,
 ) {
+    ws_handshake_to_with_request(stream, &default_ws_upgrade_request(uri), addr).await
+}
+
+/// Like [`ws_handshake_to`] but accepts a caller-provided HTTP/1.1 upgrade
+/// request — useful for tests that exercise non-standard headers (e.g. a
+/// multi-token `Connection` value). Reuses the same readiness-probe + retry
+/// shell as the default handshake so the test still survives the bridge-not-
+/// ready race that's especially common under coverage instrumentation.
+async fn ws_handshake_to_with_request(
+    stream: &mut tokio::net::TcpStream,
+    req: &str,
+    addr: std::net::SocketAddr,
+) {
     const MAX_HANDSHAKE_RETRIES: usize = 3;
     for attempt in 0..=MAX_HANDSHAKE_RETRIES {
-        ws_send_upgrade(stream, uri).await;
+        ws_send_upgrade_request(stream, req).await;
         match ws_readiness_probe(stream).await {
             Ok(()) => return,
             Err(msg) if attempt < MAX_HANDSHAKE_RETRIES => {
@@ -4185,10 +4198,9 @@ async fn ws_handshake_to(
     }
 }
 
-/// Send the HTTP upgrade request and assert 101 response.
-async fn ws_send_upgrade(stream: &mut tokio::net::TcpStream, uri: &str) {
-    use tokio::io::AsyncWriteExt;
-    let req = format!(
+/// Build the standard WebSocket upgrade request used by [`ws_handshake_to`].
+fn default_ws_upgrade_request(uri: &str) -> String {
+    format!(
         "GET {uri} HTTP/1.1\r\n\
          Host: 127.0.0.1\r\n\
          Upgrade: websocket\r\n\
@@ -4196,7 +4208,12 @@ async fn ws_send_upgrade(stream: &mut tokio::net::TcpStream, uri: &str) {
          Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\
          Sec-WebSocket-Version: 13\r\n\
          \r\n"
-    );
+    )
+}
+
+/// Send a pre-built HTTP/1.1 upgrade request and assert a 101 response.
+async fn ws_send_upgrade_request(stream: &mut tokio::net::TcpStream, req: &str) {
+    use tokio::io::AsyncWriteExt;
     stream.write_all(req.as_bytes()).await.unwrap();
     let resp = read_http_response_headers(stream).await;
     assert!(
@@ -4568,24 +4585,20 @@ async fn proxy_websocket_connection_header_multi_value() {
 
     let mut stream = tokio::net::TcpStream::connect(addr).await.unwrap();
 
-    // Send handshake with multi-value Connection header: "keep-alive, Upgrade".
-    use tokio::io::AsyncWriteExt;
+    // Handshake with a multi-value Connection header ("keep-alive, Upgrade").
+    // Uses the retry-capable handshake helper so the bridge-not-ready race
+    // (visible under coverage instrumentation) doesn't flake the data frame.
     let req = "GET /oagw/v1/proxy/ws-multi-conn/ws/echo HTTP/1.1\r\n\
          Host: 127.0.0.1\r\n\
          Upgrade: websocket\r\n\
          Connection: keep-alive, Upgrade\r\n\
          Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\
          Sec-WebSocket-Version: 13\r\n\
-         \r\n"
-        .to_string();
-    stream.write_all(req.as_bytes()).await.unwrap();
-    let resp = read_http_response_headers(&mut stream).await;
-    assert!(
-        resp.starts_with("HTTP/1.1 101"),
-        "expected 101 with multi-value Connection header, got: {resp}"
-    );
+         \r\n";
+    ws_handshake_to_with_request(&mut stream, req, addr).await;
 
     // Confirm the connection works — send a text frame and receive echo.
+    use tokio::io::AsyncWriteExt;
     let text_frame = build_masked_frame(0x1, b"multi-conn");
     stream.write_all(&text_frame).await.unwrap();
     let echo = read_ws_frame(&mut stream).await.unwrap();
