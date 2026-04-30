@@ -1,3 +1,4 @@
+# Updated: 2026-04-16 by Constructor Tech
 """Mock LLM provider HTTP server — speaks OpenAI Responses API + Files API."""
 
 from __future__ import annotations
@@ -7,7 +8,7 @@ import queue
 import threading
 import time
 import uuid
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from .responses import Scenario, extract_last_user_message, match_scenario
 from .sse_builder import build_sse_stream
@@ -123,7 +124,8 @@ class _Handler(BaseHTTPRequestHandler):
             "purpose": "assistants",
             "status": "processed",
         }
-        server._files[file_id] = file_obj
+        with server._state_lock:
+            server._files[file_id] = file_obj
         self._json_response(200, file_obj)
 
     def _handle_file_get(self):
@@ -132,7 +134,8 @@ class _Handler(BaseHTTPRequestHandler):
         file_id = self.path.rstrip("/").split("/")[-1]
         # Strip query params
         file_id = file_id.split("?")[0]
-        file_obj = server._files.get(file_id)
+        with server._state_lock:
+            file_obj = server._files.get(file_id)
         if file_obj:
             self._json_response(200, file_obj)
         else:
@@ -150,8 +153,8 @@ class _Handler(BaseHTTPRequestHandler):
         server: MockProviderServer = self.server  # type: ignore[assignment]
         file_id = self.path.rstrip("/").split("/")[-1]
         file_id = file_id.split("?")[0]
-        deleted = file_id in server._files
-        server._files.pop(file_id, None)
+        with server._state_lock:
+            deleted = server._files.pop(file_id, None) is not None
         self._json_response(200, {"id": file_id, "object": "file", "deleted": deleted})
 
     # ── Vector Stores API ───────────────────────────────────────────────
@@ -168,7 +171,8 @@ class _Handler(BaseHTTPRequestHandler):
             "file_counts": {"in_progress": 0, "completed": 0, "failed": 0, "cancelled": 0, "total": 0},
             "created_at": int(time.time()),
         }
-        server._vector_stores[vs_id] = vs_obj
+        with server._state_lock:
+            server._vector_stores[vs_id] = vs_obj
         self._json_response(200, vs_obj)
 
     def _handle_vector_store_get(self):
@@ -176,7 +180,8 @@ class _Handler(BaseHTTPRequestHandler):
         server: MockProviderServer = self.server  # type: ignore[assignment]
         vs_id = self.path.rstrip("/").split("/")[-1]
         vs_id = vs_id.split("?")[0]
-        vs_obj = server._vector_stores.get(vs_id)
+        with server._state_lock:
+            vs_obj = server._vector_stores.get(vs_id)
         if vs_obj:
             self._json_response(200, vs_obj)
         else:
@@ -187,8 +192,8 @@ class _Handler(BaseHTTPRequestHandler):
         server: MockProviderServer = self.server  # type: ignore[assignment]
         vs_id = self.path.rstrip("/").split("/")[-1]
         vs_id = vs_id.split("?")[0]
-        deleted = vs_id in server._vector_stores
-        server._vector_stores.pop(vs_id, None)
+        with server._state_lock:
+            deleted = server._vector_stores.pop(vs_id, None) is not None
         self._json_response(200, {"id": vs_id, "object": "vector_store", "deleted": deleted})
 
     # ── Helpers ─────────────────────────────────────────────────────────
@@ -202,10 +207,11 @@ class _Handler(BaseHTTPRequestHandler):
         self.wfile.write(payload)
 
 
-class MockProviderServer(HTTPServer):
+class MockProviderServer(ThreadingHTTPServer):
     """Threaded mock LLM provider with per-test scenario override support."""
 
     name = "mock-provider"
+    daemon_threads = True
 
     def __init__(self):
         super().__init__(("127.0.0.1", 0), _Handler)
@@ -215,6 +221,9 @@ class MockProviderServer(HTTPServer):
         self._vector_stores: dict[str, dict] = {}
         self._captured_requests: list[dict] = []
         self._capture_lock = threading.Lock()
+        # Guards _files and _vector_stores: handler threads outlive per-test
+        # fixtures, and the in-flight delete path is not atomic.
+        self._state_lock = threading.Lock()
 
     @property
     def port(self) -> int:
@@ -234,6 +243,20 @@ class MockProviderServer(HTTPServer):
         """Clear all captured request bodies."""
         with self._capture_lock:
             self._captured_requests.clear()
+
+    def clear_override_scenarios(self) -> None:
+        """Drop any queued per-request overrides left by previous tests."""
+        while True:
+            try:
+                self._override_queue.get_nowait()
+            except queue.Empty:
+                return
+
+    def clear_state(self) -> None:
+        """Drop file/vector_store state left by previous tests (thread-safe)."""
+        with self._state_lock:
+            self._files.clear()
+            self._vector_stores.clear()
 
     def set_next_scenario(self, scenario: Scenario) -> None:
         """Override the scenario for the next request (consumed once, thread-safe)."""
@@ -263,6 +286,12 @@ class _DummyMockProvider:
         return None
 
     def clear_captured_requests(self) -> None:
+        pass
+
+    def clear_override_scenarios(self) -> None:
+        pass
+
+    def clear_state(self) -> None:
         pass
 
     def start(self) -> None:

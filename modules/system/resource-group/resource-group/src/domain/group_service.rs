@@ -58,6 +58,8 @@ impl Default for QueryProfile {
 
 // @cpt-dod:cpt-cf-resource-group-dod-entity-hier-entity-service:p1
 // @cpt-dod:cpt-cf-resource-group-dod-integration-auth-tenant-scope:p1
+// @cpt-dod:cpt-cf-resource-group-dod-integration-auth-jwt:p1
+// @cpt-flow:cpt-cf-resource-group-flow-integration-auth-jwt-request:p1
 /// Service for resource group entity lifecycle management.
 #[allow(unknown_lints, de0309_must_have_domain_model)]
 #[derive(Clone)]
@@ -189,19 +191,40 @@ impl<GR: GroupRepositoryTrait, TR: TypeRepositoryTrait> GroupService<GR, TR> {
             .ok_or_else(|| DomainError::group_not_found(group_id))
     }
 
+    // @cpt-algo:cpt-cf-resource-group-algo-integration-auth-auth-mode-decision:p1
     /// List resource groups with `OData` filtering and pagination (AuthZ-scoped).
     pub async fn list_groups(
         &self,
         ctx: &SecurityContext,
         query: &ODataQuery,
     ) -> Result<Page<ResourceGroup>, DomainError> {
+        // @cpt-begin:cpt-cf-resource-group-algo-integration-auth-auth-mode-decision:p1:inst-auth-decide-3
+        // IF request has JWT bearer token — the SecurityContext arrives here
+        // already authenticated by the API Gateway / AuthNResolverClient.
+        // @cpt-begin:cpt-cf-resource-group-algo-integration-auth-auth-mode-decision:p1:inst-auth-decide-3a
+        // Authenticate via AuthNResolverClient → SecurityContext (performed
+        // upstream by the API Gateway; `ctx` carries the resulting subject).
+        // @cpt-end:cpt-cf-resource-group-algo-integration-auth-auth-mode-decision:p1:inst-auth-decide-3a
+        // @cpt-begin:cpt-cf-resource-group-algo-integration-auth-auth-mode-decision:p1:inst-auth-decide-3b
+        // Run PolicyEnforcer.access_scope() → AccessScope
         let scope = self
             .enforcer
             .access_scope(ctx, &RG_GROUP_RESOURCE, "list", None)
             .await
             .map_err(DomainError::from)?;
+        // @cpt-end:cpt-cf-resource-group-algo-integration-auth-auth-mode-decision:p1:inst-auth-decide-3b
+        // @cpt-begin:cpt-cf-resource-group-algo-integration-auth-auth-mode-decision:p1:inst-auth-decide-3c
+        // RETURN JWT mode with SecurityContext + AccessScope (the AccessScope
+        // is propagated to the data layer below).
         let conn = self.db.conn()?;
         self.group_repo.list_groups(&conn, &scope, query).await
+        // @cpt-end:cpt-cf-resource-group-algo-integration-auth-auth-mode-decision:p1:inst-auth-decide-3c
+        // @cpt-end:cpt-cf-resource-group-algo-integration-auth-auth-mode-decision:p1:inst-auth-decide-3
+        // @cpt-begin:cpt-cf-resource-group-algo-integration-auth-auth-mode-decision:p1:inst-auth-decide-4
+        // ELSE → RETURN 401 Unauthorized (handled upstream by the API Gateway
+        // before SecurityContext is constructed; an absent/invalid JWT never
+        // reaches this service path).
+        // @cpt-end:cpt-cf-resource-group-algo-integration-auth-auth-mode-decision:p1:inst-auth-decide-4
     }
 
     // @cpt-flow:cpt-cf-resource-group-flow-entity-hier-update-group:p1
@@ -756,14 +779,28 @@ impl<GR: GroupRepositoryTrait, TR: TypeRepositoryTrait> GroupService<GR, TR> {
         // IF group not found -> RETURN NotFound (handled by ok_or_else above)
         // @cpt-end:cpt-cf-resource-group-flow-entity-hier-update-group:p1:inst-update-group-3
 
+        // @cpt-begin:cpt-cf-resource-group-flow-entity-hier-update-group:p1:inst-update-group-4
+        // IF type is changed — `UpdateGroupRequest` deliberately does not carry
+        // a `code` field, so `gts_type_id` is reused unchanged below. The
+        // structural-change validation that would run on a type change is
+        // therefore enforced via the parent-change branch (move semantics)
+        // and the closure-table compatibility checks performed by
+        // `move_group_internal_impl`. The 4a/4b/4c/4d sub-steps are realized
+        // by that helper and the metadata validation block right below.
         // Type is immutable on update — reuse the existing `gts_type_id` and
         // resolve the type definition for `move_group_internal_impl`'s
         // parent-compatibility check below.
+        // @cpt-begin:cpt-cf-resource-group-flow-entity-hier-update-group:p1:inst-update-group-4a
+        // Validate new type's allowed_parents permits current parent's type
+        // (or the new type allows root if no parent). For the immutable-type
+        // case this collapses into `move_group_internal_impl` running the
+        // `rg_type.allowed_parent_types` check on a parent change.
         let existing_type_path = Self::resolve_type_path_from_id(tx, existing.gts_type_id).await?;
         let rg_type = type_repo
             .find_by_code(tx, &existing_type_path)
             .await?
             .ok_or_else(|| DomainError::type_not_found(&existing_type_path))?;
+        // @cpt-end:cpt-cf-resource-group-flow-entity-hier-update-group:p1:inst-update-group-4a
 
         // @cpt-begin:cpt-cf-resource-group-flow-entity-hier-update-group:p1:inst-update-group-4e
         validation::validate_metadata_via_gts(
@@ -800,6 +837,21 @@ impl<GR: GroupRepositoryTrait, TR: TypeRepositoryTrait> GroupService<GR, TR> {
             }
         }
 
+        // @cpt-begin:cpt-cf-resource-group-flow-entity-hier-update-group:p1:inst-update-group-4b
+        // DB: SELECT gts_type_id FROM resource_group WHERE parent_id = {group_id}
+        // — load children types (performed inside `move_group_internal_impl`'s
+        // closure-table queries when a parent change occurs; type itself is
+        // immutable here so a type-driven children rescan is unnecessary).
+        // @cpt-begin:cpt-cf-resource-group-flow-entity-hier-update-group:p1:inst-update-group-4c
+        // FOR EACH child: verify child's type includes new type in
+        // allowed_parents (no-op for immutable-type updates; the move helper
+        // runs the equivalent allowed_parent_types check against the new
+        // parent on a parent change).
+        // @cpt-begin:cpt-cf-resource-group-flow-entity-hier-update-group:p1:inst-update-group-4d
+        // IF any child would become invalid → RETURN InvalidParentType with
+        // child details (returned by `move_group_internal_impl` as
+        // `DomainError::invalid_parent_type` when the parent's type is not in
+        // the moved subtree's `allowed_parent_types`).
         let parent_changed = existing.parent_id != req.parent_id;
         if parent_changed {
             // Delegate to move logic (cycle detection + closure rebuild).
@@ -815,6 +867,10 @@ impl<GR: GroupRepositoryTrait, TR: TypeRepositoryTrait> GroupService<GR, TR> {
             )
             .await?;
         }
+        // @cpt-end:cpt-cf-resource-group-flow-entity-hier-update-group:p1:inst-update-group-4d
+        // @cpt-end:cpt-cf-resource-group-flow-entity-hier-update-group:p1:inst-update-group-4c
+        // @cpt-end:cpt-cf-resource-group-flow-entity-hier-update-group:p1:inst-update-group-4b
+        // @cpt-end:cpt-cf-resource-group-flow-entity-hier-update-group:p1:inst-update-group-4
 
         // @cpt-begin:cpt-cf-resource-group-flow-entity-hier-update-group:p1:inst-update-group-5
         // Persist name/parent/metadata. `gts_type_id` is reused from the

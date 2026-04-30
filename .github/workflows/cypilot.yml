@@ -3,7 +3,7 @@ name: Cypilot
 
 on:
   pull_request:
-    branches: [ main, "pr/rg-**" ]
+    branches: [ main ]
     paths:
       - '**/*.md'
       - 'docs/**'

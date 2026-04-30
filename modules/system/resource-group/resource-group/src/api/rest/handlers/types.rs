@@ -47,12 +47,15 @@ pub async fn create_type(
     Extension(svc): Extension<Arc<ConcreteTypeService>>,
     Json(req_body): Json<CreateTypeDto>,
 ) -> ApiResult<impl IntoResponse> {
+    // @cpt-begin:cpt-cf-resource-group-flow-type-mgmt-create-type:p1:inst-create-type-1
+    // Actor sends POST /api/types-registry/v1/types with type definition payload
     info!(
         code = %req_body.code,
         "Creating new GTS type"
     );
 
     let code = req_body.code.clone();
+    // @cpt-end:cpt-cf-resource-group-flow-type-mgmt-create-type:p1:inst-create-type-1
     let rg_type = svc.create_type(req_body.into()).await?;
     let dto = TypeDto::from(rg_type);
 
@@ -95,12 +98,15 @@ pub async fn update_type(
     Path(code): Path<String>,
     Json(req_body): Json<UpdateTypeDto>,
 ) -> ApiResult<Json<TypeDto>> {
+    // @cpt-begin:cpt-cf-resource-group-flow-type-mgmt-update-type:p1:inst-update-type-1
+    // Actor sends PUT /api/types-registry/v1/types/{code} with updated definition
     info!(
         code = %code,
         "Updating GTS type"
     );
 
     let rg_type = svc.update_type(&code, req_body.into()).await?;
+    // @cpt-end:cpt-cf-resource-group-flow-type-mgmt-update-type:p1:inst-update-type-1
     Ok(Json(TypeDto::from(rg_type)))
 }
 

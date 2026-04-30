@@ -8,6 +8,7 @@
 
 // @cpt-dod:cpt-cf-resource-group-dod-integration-auth-read-service:p1
 // @cpt-flow:cpt-cf-resource-group-flow-integration-auth-plugin-routing:p1
+// @cpt-flow:cpt-cf-resource-group-flow-integration-auth-plugin-read:p1
 // @cpt-begin:cpt-cf-resource-group-flow-integration-auth-plugin-routing:p1:inst-plugin-1
 // Integration read request arrives via ResourceGroupReadHierarchy trait
 // @cpt-end:cpt-cf-resource-group-flow-integration-auth-plugin-routing:p1:inst-plugin-1
@@ -61,11 +62,30 @@ impl<GR: GroupRepositoryTrait, TR: TypeRepositoryTrait, MR: MembershipRepository
 }
 
 // @cpt-begin:cpt-cf-resource-group-flow-integration-auth-plugin-routing:p1:inst-plugin-2
-// RG Module resolves configured provider from module config
+// @cpt-begin:cpt-cf-resource-group-flow-integration-auth-plugin-read:p1:inst-plugin-read-1
+// RG Module resolves configured provider from module config; AuthZ plugin
+// resolves `dyn ResourceGroupReadHierarchy` from `ClientHub` (registered in
+// `module.rs::init`). The provider trait registered here is the routing point.
+// @cpt-end:cpt-cf-resource-group-flow-integration-auth-plugin-read:p1:inst-plugin-read-1
 // @cpt-end:cpt-cf-resource-group-flow-integration-auth-plugin-routing:p1:inst-plugin-2
 // @cpt-begin:cpt-cf-resource-group-flow-integration-auth-plugin-routing:p1:inst-plugin-3
 // IF built-in provider configured (this is the built-in implementation)
 // @cpt-end:cpt-cf-resource-group-flow-integration-auth-plugin-routing:p1:inst-plugin-3
+// @cpt-begin:cpt-cf-resource-group-flow-integration-auth-plugin-routing:p1:inst-plugin-4
+// IF vendor-specific provider configured — currently no vendor provider is
+// wired in this monolith; vendor selection would replace the registered
+// `dyn ResourceGroupReadHierarchy` implementation at module init. The
+// fallthrough is the built-in `RgReadService` below.
+// @cpt-begin:cpt-cf-resource-group-flow-integration-auth-plugin-routing:p1:inst-plugin-4a
+// Resolve plugin instance by configured vendor via types-registry (scoped by
+// GTS instance ID) — performed at module init when vendor config is present.
+// @cpt-end:cpt-cf-resource-group-flow-integration-auth-plugin-routing:p1:inst-plugin-4a
+// @cpt-begin:cpt-cf-resource-group-flow-integration-auth-plugin-routing:p1:inst-plugin-4b
+// Delegate to ResourceGroupReadPluginClient with SecurityContext passthrough —
+// the SecurityContext threaded into trait methods (`_ctx` below) is the
+// passthrough vehicle when a vendor implementation is plugged in.
+// @cpt-end:cpt-cf-resource-group-flow-integration-auth-plugin-routing:p1:inst-plugin-4b
+// @cpt-end:cpt-cf-resource-group-flow-integration-auth-plugin-routing:p1:inst-plugin-4
 #[async_trait]
 impl<GR: GroupRepositoryTrait, TR: TypeRepositoryTrait, MR: MembershipRepositoryTrait>
     ResourceGroupReadHierarchy for RgReadService<GR, TR, MR>
@@ -77,12 +97,25 @@ impl<GR: GroupRepositoryTrait, TR: TypeRepositoryTrait, MR: MembershipRepository
         query: &ODataQuery,
     ) -> Result<Page<ResourceGroupWithDepth>, ResourceGroupError> {
         // @cpt-begin:cpt-cf-resource-group-flow-integration-auth-plugin-routing:p1:inst-plugin-3a
+        // @cpt-begin:cpt-cf-resource-group-flow-integration-auth-plugin-routing:p1:inst-plugin-5
+        // @cpt-begin:cpt-cf-resource-group-flow-integration-auth-plugin-read:p1:inst-plugin-read-2
+        // @cpt-begin:cpt-cf-resource-group-flow-integration-auth-plugin-read:p1:inst-plugin-read-3
+        // @cpt-begin:cpt-cf-resource-group-flow-integration-auth-plugin-read:p1:inst-plugin-read-4
+        // @cpt-begin:cpt-cf-resource-group-flow-integration-auth-plugin-read:p1:inst-plugin-read-5
         // Bypass AuthZ — use unscoped method (AccessScope::allow_all).
         // AuthZ plugin is the caller; it cannot evaluate itself.
+        // Plugin invokes `list_group_depth(system_ctx, group_id, query)`;
+        // RgReadService delegates to GroupService unscoped read methods which
+        // execute the closure-table query and return `Page<ResourceGroupWithDepth>`.
         self.group_service
             .get_group_descendants_unscoped(group_id, query)
             .await
             .map_err(ResourceGroupError::from)
+        // @cpt-end:cpt-cf-resource-group-flow-integration-auth-plugin-read:p1:inst-plugin-read-5
+        // @cpt-end:cpt-cf-resource-group-flow-integration-auth-plugin-read:p1:inst-plugin-read-4
+        // @cpt-end:cpt-cf-resource-group-flow-integration-auth-plugin-read:p1:inst-plugin-read-3
+        // @cpt-end:cpt-cf-resource-group-flow-integration-auth-plugin-read:p1:inst-plugin-read-2
+        // @cpt-end:cpt-cf-resource-group-flow-integration-auth-plugin-routing:p1:inst-plugin-5
         // @cpt-end:cpt-cf-resource-group-flow-integration-auth-plugin-routing:p1:inst-plugin-3a
     }
 

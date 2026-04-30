@@ -11,7 +11,7 @@ name: API Contracts
 
 on:
   pull_request:
-    branches: [ main, "pr/rg-**" ]
+    branches: [ main ]
     paths:
       - '**/*.rs'
       - '**/Cargo.toml'

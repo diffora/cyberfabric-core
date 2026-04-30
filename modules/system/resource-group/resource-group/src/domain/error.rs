@@ -92,6 +92,22 @@ impl DomainError {
         }
     }
 
+    /// Returns `true` when this error wraps a `PostgreSQL` serialization
+    /// failure — SQLSTATE `40001` or the canonical "could not serialize access"
+    /// message — caused by concurrent writers under SERIALIZABLE isolation.
+    ///
+    /// Detection is text-based on the wrapped `DbErr`, so it picks up both the
+    /// SQLSTATE code and the human-readable form regardless of which backend
+    /// driver formatted the error.
+    #[must_use]
+    pub fn is_serialization_failure(&self) -> bool {
+        let Some(err) = self.db_err() else {
+            return false;
+        };
+        let s = err.to_string();
+        s.contains("40001") || s.contains("could not serialize access")
+    }
+
     pub fn type_not_found(code: impl Into<String>) -> Self {
         Self::TypeNotFound { code: code.into() }
     }
