@@ -5197,5 +5197,5 @@ Open-source systems that overlap with parts of this design:
 ## 5. Traceability
 
 - **PRD**: [PRD.md](./PRD.md)
-- **ADRs**: [Callable Type Hierarchy](./ADR/0001-cpt-cf-serverless-runtime-adr-callable-type-hierarchy.md), [Thin Host Module / Fat Runtime Plugins](./ADR/0004-cpt-cf-serverless-runtime-adr-thin-host.md)
+- **ADRs**: [Callable Type Hierarchy](./ADR/0001-cpt-cf-serverless-runtime-adr-callable-type-hierarchy.md), [JSON-RPC / MCP Protocol Surfaces](./ADR/0002-cpt-cf-serverless-runtime-adr-jsonrpc-mcp-protocol-surfaces-v1.md), [Workflow DSL](./ADR/0003-cpt-cf-serverless-runtime-adr-workflow-dsl.md), [Temporal Workflow Engine](./ADR/0004-cpt-cf-serverless-runtime-adr-temporal-workflow-engine.md), [Thin Host Module / Fat Runtime Plugins](./ADR/0005-cpt-cf-serverless-runtime-adr-thin-host.md)
 - **Features**: TBD
