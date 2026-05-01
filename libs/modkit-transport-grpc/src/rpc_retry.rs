@@ -44,7 +44,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use rand::Rng as _;
+use rand::RngExt as _;
 use tokio::time::sleep;
 use tonic::{Code, Status};
 use tracing::Instrument;

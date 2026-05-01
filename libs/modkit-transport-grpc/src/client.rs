@@ -10,7 +10,7 @@
 
 use std::time::Duration;
 
-use rand::Rng as _;
+use rand::RngExt as _;
 use tonic::transport::{Channel, Endpoint};
 use tracing::Instrument;
 

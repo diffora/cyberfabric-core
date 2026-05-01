@@ -2215,7 +2215,7 @@ tokio-test = "0.4"
 httpmock = "0.8"
 
 # For compatibility tests
-ureq = "2.12"  # Test sync client compatibility
+ureq = "3.3"  # Test sync client compatibility
 ```
 
 **Notes on dependencies**:

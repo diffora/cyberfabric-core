@@ -64,9 +64,9 @@ fn main() {
 fn download_to(url: &str, dest: &Path) -> Result<(), Box<dyn std::error::Error>> {
     println!("cargo:rerun-if-changed={}", dest.display());
     // ureq::call() returns Err(ureq::Error::Status(...)) for 4xx/5xx responses
-    let resp = ureq::get(url).call()?;
+    let mut resp = ureq::get(url).call()?;
     let mut bytes = Vec::new();
-    resp.into_reader().read_to_end(&mut bytes)?;
+    resp.body_mut().as_reader().read_to_end(&mut bytes)?;
     let mut f = fs::File::create(dest)?;
     f.write_all(&bytes)?;
     Ok(())

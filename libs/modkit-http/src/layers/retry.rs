@@ -4,7 +4,7 @@ use crate::response::{ResponseBody, parse_retry_after};
 use bytes::Bytes;
 use http::{HeaderValue, Request, Response};
 use http_body_util::{BodyExt, Full};
-use rand::Rng;
+use rand::RngExt;
 use std::future::Future;
 use std::pin::Pin;
 use std::task::{Context, Poll};
