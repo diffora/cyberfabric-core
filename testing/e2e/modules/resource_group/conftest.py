@@ -6,6 +6,7 @@ import pathlib
 import sqlite3
 import uuid
 import time
+from typing import Optional
 
 import httpx
 import pytest
@@ -149,8 +150,8 @@ def create_type(rg_base_url, rg_headers):
     async def _create(
         name: str,
         can_be_root: bool = True,
-        allowed_parent_types: list[str] | None = None,
-        allowed_membership_types: list[str] | None = None,
+        allowed_parent_types: Optional[list[str]] = None,
+        allowed_membership_types: Optional[list[str]] = None,
     ):
         code = unique_type_code(name)
         payload = {
@@ -182,8 +183,8 @@ def create_group(rg_base_url, rg_headers):
     async def _create(
         type_code: str,
         name: str,
-        parent_id: str | None = None,
-        metadata: dict | None = None,
+        parent_id: Optional[str] = None,
+        metadata: Optional[dict] = None,
     ):
         payload = {
             "type": type_code,

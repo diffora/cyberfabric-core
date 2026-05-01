@@ -1640,7 +1640,7 @@ dependencies = [
  "http",
  "httpmock",
  "inventory",
- "nix 0.29.0",
+ "nix 0.31.2",
  "opentelemetry",
  "opentelemetry-otlp",
  "opentelemetry_sdk",
