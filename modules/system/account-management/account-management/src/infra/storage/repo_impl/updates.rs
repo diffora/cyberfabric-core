@@ -14,8 +14,10 @@ use sea_orm::{ColumnTrait, Condition, EntityTrait, Order, QueryFilter};
 use time::OffsetDateTime;
 use uuid::Uuid;
 
+use account_management_sdk::TenantUpdate;
+
 use crate::domain::error::DomainError;
-use crate::domain::tenant::model::{TenantModel, TenantStatus, TenantUpdate};
+use crate::domain::tenant::model::{TenantModel, TenantStatus};
 use crate::infra::storage::entity::{tenant_closure, tenants};
 
 use super::TenantRepoImpl;
@@ -83,7 +85,7 @@ pub(super) async fn update_tenant_mutable(
                 // back to invisible while its `tenant_closure` rows
                 // remain present — corrupt state per the
                 // provisioning-exclusion invariant.
-                if let Some(new_status) = patch_owned.status {
+                if let Some(new_status) = patch_owned.status.map(TenantStatus::from) {
                     match new_status {
                         TenantStatus::Active | TenantStatus::Suspended => {}
                         TenantStatus::Deleted => {
@@ -128,7 +130,7 @@ pub(super) async fn update_tenant_mutable(
                 if let Some(ref new_name) = patch_owned.name {
                     upd = upd.col_expr(tenants::Column::Name, Expr::value(new_name.clone()));
                 }
-                if let Some(new_status) = patch_owned.status {
+                if let Some(new_status) = patch_owned.status.map(TenantStatus::from) {
                     upd = upd.col_expr(
                         tenants::Column::Status,
                         Expr::value(new_status.as_smallint()),
@@ -156,7 +158,7 @@ pub(super) async fn update_tenant_mutable(
                 // caller's scope verbatim — that path relies on the
                 // same trait contract. Authorization is enforced
                 // upstream at the PDP gate in the service layer.
-                if let Some(new_status) = patch_owned.status {
+                if let Some(new_status) = patch_owned.status.map(TenantStatus::from) {
                     // @cpt-begin:cpt-cf-account-management-algo-tenant-hierarchy-management-closure-maintenance:p1:inst-algo-closmnt-repo-status-update
                     let closure_rows_affected = tenant_closure::Entity::update_many()
                         .col_expr(
@@ -275,10 +277,9 @@ pub(super) async fn load_ancestor_chain_through_parent(
             // beyond the caller's scope (a tenant admin authorized to
             // their own subtree still needs the chain up to the root
             // for closure-row construction). Authorization for the
-            // operation as a whole is enforced upstream in the
-            // service layer; this read is the structural truth that
-            // gate consults. `allow_all` matches the pattern used by
-            // `is_descendant`.
+            // operation as a whole is enforced upstream by the PDP at
+            // the service layer; this read is the structural truth
+            // that gate consults, hence `allow_all`.
             let parent = tenants::Entity::find()
                 .secure()
                 .scope_with(&AccessScope::allow_all())
@@ -439,6 +440,26 @@ pub(super) async fn schedule_deletion(
                         ),
                     }
                     .into());
+                }
+
+                // Re-check inside the SERIALIZABLE write transaction.
+                // The service performs the same guard before entering
+                // the repo, but that pre-check can race a concurrent
+                // create-child insert; this predicate read creates the
+                // necessary serialization edge against that insert.
+                let child_count = tenants::Entity::find()
+                    .secure()
+                    .scope_with(&AccessScope::allow_all())
+                    .filter(
+                        Condition::all()
+                            .add(tenants::Column::ParentId.eq(id))
+                            .add(tenants::Column::Status.ne(TenantStatus::Deleted.as_smallint())),
+                    )
+                    .count(tx)
+                    .await
+                    .map_err(map_scope_to_tx)?;
+                if child_count > 0 {
+                    return Err(DomainError::TenantHasChildren.into());
                 }
 
                 let mut upd = tenants::Entity::update_many()

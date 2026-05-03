@@ -8,9 +8,10 @@
 //!   when an AM domain failure converts to
 //!   [`modkit_canonical_errors::CanonicalError`] at the module
 //!   boundary.
-//! * Cross-module `AuditEvent` consumers and sibling modules that
-//!   pattern-match on AM-emitted events — depending on this SDK
-//!   instead of the impl crate keeps consumer build graphs slim.
+//! * Future cross-module event consumers and sibling modules that
+//!   pattern-match on AM-emitted events (event-bus contract TBD) —
+//!   depending on this SDK instead of the impl crate keeps consumer
+//!   build graphs slim.
 //!
 //! Strings follow the AM-specific GTS namespace convention from
 //! `modules/system/account-management/docs/DESIGN.md` (PEP table):

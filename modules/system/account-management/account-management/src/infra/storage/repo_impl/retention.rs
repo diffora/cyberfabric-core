@@ -1,8 +1,11 @@
 //! Retention scanner + reaper scanner repo methods:
 //! `scan_retention_due`, `clear_retention_claim`,
-//! `scan_stuck_provisioning`. Read-mostly; the retention scan does
-//! atomic claim-and-go inside a `READ COMMITTED` tx, the reaper scan
-//! is a plain SELECT.
+//! `scan_stuck_provisioning`. Both scans do atomic claim-and-go
+//! inside a `READ COMMITTED` tx so two replicas cannot pick up the
+//! same row inside one `RETENTION_CLAIM_TTL` window. The same
+//! `tenants.claimed_by` / `claimed_at` columns back both pipelines —
+//! `clear_retention_claim` (despite the name) is the shared release
+//! primitive.
 
 use std::time::Duration;
 
@@ -236,12 +239,29 @@ pub(super) async fn scan_retention_due(
                     // whose `claimed_by` is now `worker_id`
                     // restricted to the candidate window.
                     let candidate_ids_for_select = candidate_ids.clone();
+                    // Re-assert the row-eligibility predicate inside
+                    // the claim UPDATE: the SELECT above ran under
+                    // READ COMMITTED, so a peer transaction could
+                    // have flipped `status` away from `Deleted` (or
+                    // cleared `deletion_scheduled_at`) between SELECT
+                    // and UPDATE. The `claimable` predicate alone
+                    // fences worker-vs-worker but not row-vs-state-
+                    // change; without these the claim can land on a
+                    // row that no longer satisfies the retention
+                    // predicate, leaving the SELECT-by-marker below
+                    // to surface a non-`Deleted` row to the
+                    // hard-delete pipeline.
                     tenants::Entity::update_many()
                         .col_expr(tenants::Column::ClaimedBy, Expr::value(worker_id))
                         .col_expr(tenants::Column::ClaimedAt, Expr::value(now))
                         .filter(
                             Condition::all()
                                 .add(tenants::Column::Id.is_in(candidate_ids))
+                                .add(
+                                    tenants::Column::Status
+                                        .eq(TenantStatus::Deleted.as_smallint()),
+                                )
+                                .add(tenants::Column::DeletionScheduledAt.is_not_null())
                                 .add(claimable),
                         )
                         .secure()
@@ -344,56 +364,139 @@ pub(super) async fn clear_retention_claim(
 pub(super) async fn scan_stuck_provisioning(
     repo: &TenantRepoImpl,
     scope: &AccessScope,
+    now: OffsetDateTime,
     older_than: OffsetDateTime,
     limit: usize,
 ) -> Result<Vec<TenantProvisioningRow>, DomainError> {
-    let conn = repo.db.conn()?;
-    // Bound the query at the SQL layer so a large stuck-provisioning
-    // backlog cannot load every row into memory in one round-trip.
-    // Mirrors `scan_retention_due`'s capped fetch pattern.
+    // Atomic claim-and-go pattern symmetric to `scan_retention_due`:
+    // two replicas cannot stamp `IdpTenantProvisionerClient::deprovision_tenant`
+    // calls onto the same row inside one `RETENTION_CLAIM_TTL` window.
+    // Defense-in-depth on top of the
+    // `DeprovisionFailure::NotFound`-as-success-equivalent error
+    // mapping — that mapping handles edge-case races (lost claim
+    // after crash recovery, TTL-expired peer takeover); the claim
+    // here prevents the routine concurrent-replica double-call.
     //
-    // Unlike `scan_retention_due` this method does NOT take a row
-    // lock or atomic claim. Two reaper instances scanning the same
-    // window may both pick up the same `Provisioning` row and both
-    // call `IdpTenantProvisioner::deprovision_tenant` for it. That
-    // is acceptable because:
-    // 1. `deprovision_tenant` is idempotent per the
-    //    `idp-tenant-deprovision` DoD — a second invocation on an
-    //    already-removed tenant returns Ok or `UnsupportedOperation`,
-    //    not a hard error.
-    // 2. The follow-up DB teardown for stale `Provisioning` rows
-    //    flows through `compensate_provisioning`, which guards on
-    //    `status = Provisioning` and is itself idempotent: the
-    //    second worker's `delete_many` simply matches zero rows
-    //    once the first worker's compensation TX has committed.
-    //    `schedule_deletion` is the soft-delete entry point for
-    //    SDK-visible (`Active` / `Suspended`) tenants and is NOT the
-    //    correct teardown path for stuck-provisioning rows — those
-    //    have no closure entries by construction (DESIGN §3.1
-    //    provisioning-exclusion invariant).
-    // The cost is a wasted IdP call window equal to one
-    // `reaper_tick_secs`, traded against the schema cost of adding a
-    // claim column purely for liveness.
+    // Two-statement portable pattern (UPDATE then SELECT-by-marker)
+    // instead of `UPDATE … RETURNING`: the latter is Postgres- and
+    // SQLite-only, but `modkit-db` is meant to stay backend-agnostic
+    // so MySQL deployments remain viable.
     let cap = u64::try_from(limit).unwrap_or(u64::MAX);
-    let rows = tenants::Entity::find()
-        .secure()
-        .scope_with(scope)
-        .filter(
-            Condition::all()
-                .add(tenants::Column::Status.eq(TenantStatus::Provisioning.as_smallint()))
-                .add(tenants::Column::CreatedAt.lte(older_than)),
+    let worker_id = Uuid::new_v4();
+    let stale_cutoff = match time::Duration::try_from(RETENTION_CLAIM_TTL) {
+        Ok(d) => now - d,
+        Err(_) => now,
+    };
+    let scope = scope.clone();
+    let rows = repo
+        .db
+        .transaction_with_config(
+            TxConfig {
+                isolation: Some(TxIsolationLevel::ReadCommitted),
+                access_mode: Some(TxAccessMode::ReadWrite),
+            },
+            move |tx| {
+                Box::pin(async move {
+                    let claimable = Condition::any()
+                        .add(tenants::Column::ClaimedBy.is_null())
+                        .add(tenants::Column::ClaimedAt.lte(stale_cutoff));
+                    // Filter out rows the reaper previously stamped
+                    // as terminal-failure (`mark_provisioning_terminal_failure`).
+                    // The SDK contract says
+                    // `DeprovisionFailure::Terminal` is non-recoverable
+                    // and operator-action-required, so re-issuing the
+                    // deprovision call on every tick would loop
+                    // forever without surfacing any new signal. The
+                    // marker is cleared by an operator (manual SQL
+                    // UPDATE or hard-delete of the row) once they
+                    // resolve the vendor-side issue.
+                    let scan_filter = Condition::all()
+                        .add(tenants::Column::Status.eq(TenantStatus::Provisioning.as_smallint()))
+                        .add(tenants::Column::CreatedAt.lte(older_than))
+                        .add(tenants::Column::TerminalFailureAt.is_null())
+                        .add(claimable.clone());
+
+                    let candidates = tenants::Entity::find()
+                        .secure()
+                        .scope_with(&scope)
+                        .filter(scan_filter)
+                        .order_by(tenants::Column::CreatedAt, Order::Asc)
+                        .order_by(tenants::Column::Id, Order::Asc)
+                        .limit(cap)
+                        .all(tx)
+                        .await
+                        .map_err(map_scope_err)?;
+
+                    let candidate_ids: Vec<Uuid> = candidates.iter().map(|r| r.id).collect();
+                    if candidate_ids.is_empty() {
+                        return Ok(Vec::new());
+                    }
+
+                    // Two-statement portable claim (UPDATE then
+                    // SELECT-by-marker) — same rationale as
+                    // `scan_retention_due`: `UPDATE … RETURNING` is
+                    // Postgres/SQLite-only, MySQL needs the split.
+                    //
+                    // Re-assert `Status = Provisioning` inside the
+                    // claim UPDATE: under READ COMMITTED a peer
+                    // finalizer can flip `Provisioning → Active`
+                    // between the SELECT above and this UPDATE, and
+                    // `claimable` alone (which fences worker-vs-
+                    // worker) does not exclude the now-active row.
+                    // Without this re-check the reaper would claim
+                    // and then call `deprovision_tenant` on a live
+                    // tenant.
+                    let candidate_ids_for_select = candidate_ids.clone();
+                    tenants::Entity::update_many()
+                        .col_expr(tenants::Column::ClaimedBy, Expr::value(worker_id))
+                        .col_expr(tenants::Column::ClaimedAt, Expr::value(now))
+                        .filter(
+                            Condition::all()
+                                .add(tenants::Column::Id.is_in(candidate_ids))
+                                .add(
+                                    tenants::Column::Status
+                                        .eq(TenantStatus::Provisioning.as_smallint()),
+                                )
+                                // Defense-in-depth: re-assert the
+                                // terminal-failure exclusion in the
+                                // claim UPDATE too. Under READ
+                                // COMMITTED a peer reaper that just
+                                // finished a different failure mode
+                                // could mark the row terminal between
+                                // our SELECT and UPDATE; the marker
+                                // wins, this UPDATE affects 0 rows,
+                                // SELECT-by-marker returns nothing.
+                                .add(tenants::Column::TerminalFailureAt.is_null())
+                                .add(claimable),
+                        )
+                        .secure()
+                        .scope_with(&scope)
+                        .exec(tx)
+                        .await
+                        .map_err(map_scope_err)?;
+
+                    tenants::Entity::find()
+                        .filter(
+                            Condition::all()
+                                .add(tenants::Column::Id.is_in(candidate_ids_for_select))
+                                .add(tenants::Column::ClaimedBy.eq(worker_id)),
+                        )
+                        .secure()
+                        .scope_with(&scope)
+                        .all(tx)
+                        .await
+                        .map_err(map_scope_err)
+                })
+            },
         )
-        .order_by(tenants::Column::CreatedAt, Order::Asc)
-        .order_by(tenants::Column::Id, Order::Asc)
-        .limit(cap)
-        .all(&conn)
-        .await
-        .map_err(map_scope_err)?;
+        .await?;
+
     Ok(rows
         .into_iter()
         .map(|r| TenantProvisioningRow {
             id: r.id,
             created_at: r.created_at,
+            claimed_by: worker_id,
         })
         .collect())
 }

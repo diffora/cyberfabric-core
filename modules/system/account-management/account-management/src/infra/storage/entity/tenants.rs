@@ -74,6 +74,16 @@ pub struct Model {
     /// the row.
     #[sea_orm(nullable)]
     pub claimed_at: Option<OffsetDateTime>,
+    /// Phase 5 — operator-action-required marker for provisioning rows
+    /// the `IdP` plugin classified as
+    /// [`account_management_sdk::DeprovisionFailure::Terminal`]. Once
+    /// stamped, [`scan_stuck_provisioning`](super::super::repo_impl::retention::scan_stuck_provisioning)
+    /// filters the row out of the reaper retry loop until an operator
+    /// clears the column or hard-deletes the row. Always `None` for
+    /// rows in any status other than `Provisioning` (terminal-failure
+    /// is a state of the provisioning lifecycle, not a generic flag).
+    #[sea_orm(nullable)]
+    pub terminal_failure_at: Option<OffsetDateTime>,
 }
 // @cpt-end:cpt-cf-account-management-dbtable-tenants:p1:inst-dbtable-tenants-entity
 
@@ -105,6 +115,7 @@ mod tests {
             retention_window_secs: None,
             claimed_by: None,
             claimed_at: None,
+            terminal_failure_at: None,
         };
         assert!(m.parent_id.is_none());
         assert_eq!(m.depth, 0);

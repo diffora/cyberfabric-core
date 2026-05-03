@@ -249,3 +249,86 @@ fn service_unavailable_without_hint_omits_retry_after() {
     };
     assert!(ctx.retry_after_seconds.is_none());
 }
+
+// ---------------------------------------------------------------------------
+// Test-only accessors
+// ---------------------------------------------------------------------------
+//
+// `code()` / `http_status()` are `#[cfg(test)]`-only convenience methods used
+// by service-layer tests to pin the variant→code/status contract without
+// going through `CanonicalError::from(...)` on every assertion. Production
+// callers MUST go through [`crate::infra::canonical_mapping`]; this impl
+// block lives in the companion test file (per dylint `DE1101`) so the
+// production [`DomainError`] surface stays free of test-only items.
+
+impl DomainError {
+    /// AM-specific `snake_case` error tag. Mirrors the variant name in
+    /// `snake_case`; the canonical wire code comes from
+    /// [`crate::infra::canonical_mapping`] and may differ (e.g. several
+    /// variants collapse to `failed_precondition` on the wire).
+    #[must_use]
+    pub(crate) fn code(&self) -> &'static str {
+        match self {
+            Self::InvalidTenantType { .. } => "invalid_tenant_type",
+            Self::Validation { .. } => "validation",
+            Self::RootTenantCannotDelete => "root_tenant_cannot_delete",
+            Self::RootTenantCannotConvert => "root_tenant_cannot_convert",
+            Self::NotFound { .. } => "not_found",
+            Self::MetadataSchemaNotRegistered { .. } => "metadata_schema_not_registered",
+            Self::MetadataEntryNotFound { .. } => "metadata_entry_not_found",
+            Self::AlreadyExists { .. } => "already_exists",
+            Self::Aborted { .. } => "aborted",
+            Self::TypeNotAllowed { .. } => "type_not_allowed",
+            Self::TenantDepthExceeded { .. } => "tenant_depth_exceeded",
+            Self::TenantHasChildren => "tenant_has_children",
+            Self::TenantHasResources => "tenant_has_resources",
+            Self::PendingExists { .. } => "pending_exists",
+            Self::InvalidActorForTransition { .. } => "invalid_actor_for_transition",
+            Self::AlreadyResolved => "already_resolved",
+            Self::Conflict { .. } => "conflict",
+            Self::CrossTenantDenied { .. } => "cross_tenant_denied",
+            Self::ServiceUnavailable { .. } => "service_unavailable",
+            Self::UnsupportedOperation { .. } => "unsupported_operation",
+            Self::AuditAlreadyRunning { .. } => "audit_already_running",
+            Self::Internal { .. } => "internal",
+        }
+    }
+
+    /// HTTP status produced for this error by the canonical-mapping
+    /// boundary. Computed locally so tests do not pay the per-call
+    /// `CanonicalError::from(...)` allocation; pinned to the same
+    /// status table the canonical mapping returns.
+    ///
+    /// `failed_precondition` variants land on **400** (per AIP-193 +
+    /// the canonical mapping in [`crate::infra::canonical_mapping`]),
+    /// not 409 — only `AlreadyExists` and `Aborted` carry 409 here.
+    /// The `precondition_variants_map_to_400` /
+    /// `already_exists_maps_to_409` tests in this file pin the
+    /// authoritative mapping; this helper must agree with them.
+    #[must_use]
+    pub(crate) fn http_status(&self) -> u16 {
+        match self {
+            Self::InvalidTenantType { .. }
+            | Self::Validation { .. }
+            | Self::RootTenantCannotDelete
+            | Self::RootTenantCannotConvert
+            | Self::InvalidActorForTransition { .. }
+            | Self::TypeNotAllowed { .. }
+            | Self::TenantDepthExceeded { .. }
+            | Self::TenantHasChildren
+            | Self::TenantHasResources
+            | Self::PendingExists { .. }
+            | Self::AlreadyResolved
+            | Self::Conflict { .. } => 400,
+            Self::NotFound { .. }
+            | Self::MetadataSchemaNotRegistered { .. }
+            | Self::MetadataEntryNotFound { .. } => 404,
+            Self::AlreadyExists { .. } | Self::Aborted { .. } => 409,
+            Self::CrossTenantDenied { .. } => 403,
+            Self::ServiceUnavailable { .. } => 503,
+            Self::UnsupportedOperation { .. } => 501,
+            Self::AuditAlreadyRunning { .. } => 429,
+            Self::Internal { .. } => 500,
+        }
+    }
+}

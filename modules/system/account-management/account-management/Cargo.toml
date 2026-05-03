@@ -24,6 +24,11 @@ modkit-security = { workspace = true }
 modkit-db = { workspace = true, features = ["sqlite", "pg"] }
 modkit-db-macros = { workspace = true }
 modkit-canonical-errors = { workspace = true, features = ["sea-orm"] }
+modkit-odata = { workspace = true }
+resource-group-sdk = { workspace = true }
+tenant-resolver-sdk = { workspace = true }
+types-registry-sdk = { workspace = true }
+gts = { workspace = true }
 
 uuid = { workspace = true, features = ["v4", "serde"] }
 time = { workspace = true }
@@ -34,6 +39,8 @@ serde_json = { workspace = true }
 
 async-trait = { workspace = true }
 fnv = { workspace = true }
+futures = { workspace = true }
+parking_lot = { workspace = true }
 
 sea-orm = { workspace = true }
 sea-orm-migration = { workspace = true }
@@ -41,10 +48,12 @@ sea-orm-migration = { workspace = true }
 tracing = { workspace = true }
 
 tokio = { workspace = true, features = ["macros", "rt", "time"] }
+tokio-util = { workspace = true }
+
+anyhow = { workspace = true }
 
 authz-resolver-sdk = { workspace = true }
 
 [dev-dependencies]
-tokio = { workspace = true, features = ["macros", "rt"] }
-futures = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt", "test-util"] }
 proptest = "1.5"

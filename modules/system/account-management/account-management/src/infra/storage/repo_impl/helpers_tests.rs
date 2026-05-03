@@ -22,6 +22,7 @@ fn entity_to_model_rejects_unknown_status() {
         retention_window_secs: None,
         claimed_by: None,
         claimed_at: None,
+        terminal_failure_at: None,
     };
     let err = entity_to_model(row).expect_err("unknown status");
     assert!(matches!(err, DomainError::Internal { .. }));
@@ -44,6 +45,7 @@ fn entity_to_model_rejects_negative_depth() {
         retention_window_secs: None,
         claimed_by: None,
         claimed_at: None,
+        terminal_failure_at: None,
     };
     let err = entity_to_model(row).expect_err("negative depth");
     assert!(matches!(err, DomainError::Internal { .. }));

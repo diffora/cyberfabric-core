@@ -40,9 +40,6 @@ pub const AM_CROSS_TENANT_DENIAL: &str = "am.cross_tenant_denial";
 /// Hierarchy-integrity violation telemetry (one per integrity category).
 pub const AM_HIERARCHY_INTEGRITY_VIOLATIONS: &str = "am.hierarchy_integrity_violations";
 
-/// Audit-emission drop counter.
-pub const AM_AUDIT_DROP: &str = "am.audit_drop";
-
 /// SERIALIZABLE-isolation retry telemetry for the AM repo's
 /// `with_serializable_retry` helper.
 pub const AM_SERIALIZABLE_RETRY: &str = "am.serializable_retry";

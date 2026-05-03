@@ -16,8 +16,9 @@ use sea_orm::{ColumnTrait, Condition, EntityTrait, QueryFilter};
 use time::OffsetDateTime;
 use uuid::Uuid;
 
+use account_management_sdk::ProvisionMetadataEntry;
+
 use crate::domain::error::DomainError;
-use crate::domain::idp::ProvisionMetadataEntry;
 use crate::domain::tenant::closure::ClosureRow;
 use crate::domain::tenant::model::{NewTenant, TenantModel, TenantStatus};
 use crate::domain::tenant::retention::HardDeleteOutcome;
@@ -34,63 +35,96 @@ pub(super) async fn insert_provisioning(
     scope: &AccessScope,
     tenant: &NewTenant,
 ) -> Result<TenantModel, DomainError> {
-    use sea_orm::ActiveValue;
-    let conn = repo.db.conn()?;
-    let now = OffsetDateTime::now_utc();
-    let am = tenants::ActiveModel {
-        id: ActiveValue::Set(tenant.id),
-        parent_id: ActiveValue::Set(tenant.parent_id),
-        name: ActiveValue::Set(tenant.name.clone()),
-        status: ActiveValue::Set(TenantStatus::Provisioning.as_smallint()),
-        self_managed: ActiveValue::Set(tenant.self_managed),
-        tenant_type_uuid: ActiveValue::Set(tenant.tenant_type_uuid),
-        depth: ActiveValue::Set(i32::try_from(tenant.depth).map_err(|_| {
-            DomainError::Internal {
-                diagnostic: format!("depth overflow: {}", tenant.depth),
-                cause: None,
-            }
-        })?),
-        created_at: ActiveValue::Set(now),
-        updated_at: ActiveValue::Set(now),
-        deleted_at: ActiveValue::Set(None),
-        deletion_scheduled_at: ActiveValue::Set(None),
-        retention_window_secs: ActiveValue::Set(None),
-        claimed_by: ActiveValue::Set(None),
-        claimed_at: ActiveValue::Set(None),
-    };
-    // scope_unchecked: `tenants` is declared `no_tenant, no_resource`
-    // (see entity doc), so `scope_with` here would compile to a
-    // no-op for the contract-required `allow_all` scope and to
-    // `ScopeError::Denied` for any narrowed scope (since `Scopable`
-    // resolves no properties on a no-* entity). `scope_unchecked`
-    // makes the bypass explicit at the call site and keeps the
-    // INSERT path safe regardless of what the caller passes —
-    // authorization for the operation as a whole is enforced
-    // upstream at the PDP gate in the service layer. The future
-    // `InTenantSubtree` predicate will plumb subtree clamp into AM
-    // reads, not into INSERTs.
-    // Unique-violation handling: do NOT fold the duplicate-id case
-    // into `DomainError::Conflict` here — `map_scope_err` runs the
-    // SQLSTATE through the infra-side classifier which routes
-    // unique-violation `DbErr` to `DomainError::AlreadyExists` (and
-    // ultimately `CanonicalError::AlreadyExists`, HTTP 409).
-    // Pre-classifying as `Conflict` would reroute duplicate-id to
-    // `FailedPrecondition` (HTTP 400) and desynchronize this path
-    // from the AlreadyExists/409 contract documented elsewhere.
-    let model: tenants::Model = tenants::Entity::insert(am)
-        .secure()
-        // TODO(InTenantSubtree): once the predicate lands and AM
-        // declares the `tenant_hierarchy` capability, INSERTs may
-        // start carrying meaningful scope (e.g. "caller may insert
-        // only under their own subtree"). Until then this bypass is
-        // explicit at the call site for greppability —
-        // `rg "TODO(InTenantSubtree)"` lists every bypass in one pass.
-        .scope_unchecked(scope)
-        .map_err(map_scope_err)?
-        .exec_with_returning(&conn)
-        .await
-        .map_err(map_scope_err)?;
-    entity_to_model(model)
+    let depth = i32::try_from(tenant.depth).map_err(|_| DomainError::Internal {
+        diagnostic: format!("depth overflow: {}", tenant.depth),
+        cause: None,
+    })?;
+    let tenant_id = tenant.id;
+    let parent_id = tenant.parent_id;
+    let name = tenant.name.clone();
+    let self_managed = tenant.self_managed;
+    let tenant_type_uuid = tenant.tenant_type_uuid;
+    let scope = scope.clone();
+
+    with_serializable_retry(&repo.db, move || {
+        let scope = scope.clone();
+        let name = name.clone();
+        Box::new(move |tx: &DbTx<'_>| {
+            Box::pin(async move {
+                use sea_orm::ActiveValue;
+
+                let parent_id = parent_id.ok_or_else(|| DomainError::Validation {
+                    detail: format!("child tenant {tenant_id} provisioning requires parent_id"),
+                })?;
+                let parent = tenants::Entity::find()
+                    .secure()
+                    .scope_with(&AccessScope::allow_all())
+                    .filter(id_eq(parent_id))
+                    .one(tx)
+                    .await
+                    .map_err(map_scope_to_tx)?
+                    .ok_or_else(|| DomainError::Validation {
+                        detail: format!("parent tenant {parent_id} not found"),
+                    })?;
+                if parent.status != TenantStatus::Active.as_smallint() {
+                    return Err(DomainError::Validation {
+                        detail: format!("parent tenant {parent_id} is not active"),
+                    }
+                    .into());
+                }
+
+                let now = OffsetDateTime::now_utc();
+                let am = tenants::ActiveModel {
+                    id: ActiveValue::Set(tenant_id),
+                    parent_id: ActiveValue::Set(Some(parent_id)),
+                    name: ActiveValue::Set(name),
+                    status: ActiveValue::Set(TenantStatus::Provisioning.as_smallint()),
+                    self_managed: ActiveValue::Set(self_managed),
+                    tenant_type_uuid: ActiveValue::Set(tenant_type_uuid),
+                    depth: ActiveValue::Set(depth),
+                    created_at: ActiveValue::Set(now),
+                    updated_at: ActiveValue::Set(now),
+                    deleted_at: ActiveValue::Set(None),
+                    deletion_scheduled_at: ActiveValue::Set(None),
+                    retention_window_secs: ActiveValue::Set(None),
+                    claimed_by: ActiveValue::Set(None),
+                    claimed_at: ActiveValue::Set(None),
+                    terminal_failure_at: ActiveValue::Set(None),
+                };
+                // scope_unchecked: `tenants` is declared `no_tenant, no_resource`
+                // (see entity doc), so `scope_with` here would compile to a
+                // no-op for the contract-required `allow_all` scope and to
+                // `ScopeError::Denied` for any narrowed scope (since `Scopable`
+                // resolves no properties on a no-* entity). `scope_unchecked`
+                // makes the bypass explicit at the call site and keeps the
+                // INSERT path safe regardless of what the caller passes —
+                // authorization for the operation as a whole is enforced
+                // upstream at the PDP gate in the service layer. The future
+                // `InTenantSubtree` predicate will plumb subtree clamp into AM
+                // reads, not into INSERTs.
+                // Unique-violation handling: do NOT fold the duplicate-id case
+                // into `DomainError::Conflict` here — `map_scope_to_tx` carries
+                // the raw DB error through the retry helper and then through the
+                // infra-side classifier, which routes unique violations to
+                // `DomainError::AlreadyExists`.
+                let model: tenants::Model = tenants::Entity::insert(am)
+                    .secure()
+                    // TODO(InTenantSubtree): once the predicate lands and AM
+                    // declares the `tenant_hierarchy` capability, INSERTs may
+                    // start carrying meaningful scope (e.g. "caller may insert
+                    // only under their own subtree"). Until then this bypass is
+                    // explicit at the call site for greppability —
+                    // `rg "TODO(InTenantSubtree)"` lists every bypass in one pass.
+                    .scope_unchecked(&scope)
+                    .map_err(map_scope_to_tx)?
+                    .exec_with_returning(tx)
+                    .await
+                    .map_err(map_scope_to_tx)?;
+                entity_to_model(model).map_err(TxError::Domain)
+            })
+        })
+    })
+    .await
 }
 
 #[allow(
@@ -456,7 +490,7 @@ pub(super) async fn activate_tenant(
                             // a deterministic UUIDv5 of `entry.schema_id`. The only
                             // way 23505 fires here is duplicate `schema_id` strings
                             // in the *same* `metadata_entries` slice — which the
-                            // server-side `IdpTenantProvisioner` impl produced via
+                            // server-side `IdpTenantProvisionerClient` impl produced via
                             // `ProvisionResult.metadata_entries`. The API client
                             // does not supply this slice; activation always runs
                             // against a fresh `(tenant_id, *)` keyspace (first
@@ -497,6 +531,49 @@ pub(super) async fn activate_tenant(
     })
     .await?;
     Ok(result)
+}
+
+pub(super) async fn mark_provisioning_terminal_failure(
+    repo: &TenantRepoImpl,
+    scope: &AccessScope,
+    tenant_id: Uuid,
+    claimed_by: Uuid,
+    now: OffsetDateTime,
+) -> Result<bool, DomainError> {
+    // System-actor path; same `allow_all` posture as
+    // `compensate_provisioning` and `hard_delete_one`. The reaper
+    // already ran a PEP-equivalent gate at scan time (the row was
+    // claimed by this worker), and the marker write itself is a
+    // structural state transition not a tenant-scoped operation.
+    let _ = scope;
+    let conn = repo.db.conn()?;
+    let res = tenants::Entity::update_many()
+        .col_expr(tenants::Column::TerminalFailureAt, Expr::value(Some(now)))
+        .filter(
+            Condition::all()
+                .add(tenants::Column::Id.eq(tenant_id))
+                // Claim fence: only the worker that scan-claimed
+                // the row can mark it. A peer that took over after
+                // a TTL-expired stale claim would already see the
+                // marker in its own scan filter and skip; the fence
+                // here just refuses a stale write from this worker
+                // if it lost the claim.
+                .add(tenants::Column::ClaimedBy.eq(claimed_by))
+                // Status fence: a parallel finalizer that flipped
+                // `Provisioning -> Active` between the reaper's IdP
+                // round-trip and this UPDATE must NOT be relabeled
+                // as "terminal failure" — the row is alive.
+                .add(tenants::Column::Status.eq(TenantStatus::Provisioning.as_smallint())),
+        )
+        .secure()
+        // TODO(InTenantSubtree): system-actor terminal-failure write;
+        // same posture as the reaper's `compensate_provisioning`
+        // sibling above. Greppable for the predicate-rollout pass.
+        .scope_with(&AccessScope::allow_all())
+        .exec(&conn)
+        .await
+        .map_err(map_scope_err)?;
+    Ok(res.rows_affected > 0)
 }
 
 pub(super) async fn compensate_provisioning(

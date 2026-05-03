@@ -40,12 +40,23 @@ pub struct TenantRetentionRow {
     pub claimed_by: Uuid,
 }
 
-/// A single tenant row selected by the provisioning-reaper scan.
+/// A single tenant row claimed by the provisioning-reaper scan.
+///
+/// `claimed_by` is the worker UUID stamped on the row during the
+/// claim UPDATE inside `scan_stuck_provisioning`. The reaper passes
+/// this token back into [`crate::domain::tenant::repo::TenantRepo::clear_retention_claim`]
+/// after the per-row work completes (success or failure) so a peer
+/// worker can re-claim the row only after the explicit release or
+/// after the same `RETENTION_CLAIM_TTL` window the retention pipeline
+/// uses. The same `claimed_by` / `claimed_at` columns back both
+/// pipelines — `tenants` does not need separate provisioning-claim
+/// columns.
 #[domain_model]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TenantProvisioningRow {
     pub id: Uuid,
     pub created_at: OffsetDateTime,
+    pub claimed_by: Uuid,
 }
 
 /// True iff `scheduled_at + retention <= now`. Comparison is inclusive —
@@ -217,11 +228,30 @@ impl HardDeleteResult {
 }
 
 /// Aggregate summary for a single reaper tick.
+///
+/// `compensated` counts rows where the reaper actively drove the
+/// `IdP`-side teardown (clean `Ok` or `UnsupportedOperation`-mapped to
+/// success). `already_absent` counts rows where the `IdP` reported the
+/// tenant was already gone (`DeprovisionFailure::NotFound`) — the DB
+/// teardown still ran, but the operator-visible signal differs:
+/// `already_absent` typically points at a lost claim or a
+/// cross-system inconsistency that warrants investigation, whereas
+/// `compensated` is the steady-state success path. `terminal` counts
+/// rows the `IdP` plugin classified as
+/// [`account_management_sdk::DeprovisionFailure::Terminal`] — the
+/// reaper stamps `terminal_failure_at` on the row and stops cycling
+/// it through the retry loop; the operator-action-required signal is
+/// emitted via this counter and the
+/// `am.tenant_retention{outcome=terminal}` metric. `deferred` counts
+/// the transient-defer paths (retryable `IdP` failures, infra blips,
+/// and unknown variants).
 #[domain_model]
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct ReaperResult {
     pub scanned: u64,
     pub compensated: u64,
+    pub already_absent: u64,
+    pub terminal: u64,
     pub deferred: u64,
 }
 

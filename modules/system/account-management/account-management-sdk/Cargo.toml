@@ -4,7 +4,7 @@ version = "0.1.0"
 edition.workspace = true
 license.workspace = true
 authors.workspace = true
-description = "Account Management SDK — public inter-module error contract (canonical-errors re-export)"
+description = "Account Management SDK — public inter-module contracts (canonical-errors re-export, IdP provisioner client trait, tenant CRUD input/output shapes)"
 repository.workspace = true
 keywords = ["cyberfabric", "cyberfabric-system"]
 categories = ["web-programming"]
@@ -21,3 +21,20 @@ workspace = true
 # `AccountManagementError` for naming continuity with the
 # `resource-group-sdk` / `tenant-resolver-sdk` pattern.
 modkit-canonical-errors = { workspace = true }
+
+# IdP provisioner contract (trait + DTO) consumed by AM and implemented
+# by deployment-specific IdP plugins. Lives in the SDK so plugin authors
+# depend on the thin contract crate, not on the full impl crate.
+async-trait = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+uuid = { workspace = true, features = ["serde"] }
+
+# Tenant-resolver SDK is the canonical home for the public-facing
+# `TenantInfo` / `TenantStatus` shapes (slim, no internal storage
+# fields). AM's tenant CRUD output reuses these directly so the
+# resolver and AM speak the same vocabulary on the public boundary.
+tenant-resolver-sdk = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt"] }

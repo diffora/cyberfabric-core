@@ -21,12 +21,13 @@ use modkit_security::AccessScope;
 use time::OffsetDateTime;
 use uuid::Uuid;
 
+use account_management_sdk::ProvisionMetadataEntry;
+
+use account_management_sdk::{ListChildrenQuery, TenantPage, TenantUpdate};
+
 use crate::domain::error::DomainError;
-use crate::domain::idp::ProvisionMetadataEntry;
 use crate::domain::tenant::closure::ClosureRow;
-use crate::domain::tenant::model::{
-    ChildCountFilter, ListChildrenQuery, NewTenant, TenantModel, TenantPage, TenantUpdate,
-};
+use crate::domain::tenant::model::{ChildCountFilter, NewTenant, TenantModel};
 use crate::domain::tenant::repo::TenantRepo;
 use crate::domain::tenant::retention::{
     HardDeleteOutcome, TenantProvisioningRow, TenantRetentionRow,
@@ -61,7 +62,7 @@ impl TenantRepo for TenantRepoImpl {
         &self,
         scope: &AccessScope,
         query: &ListChildrenQuery,
-    ) -> Result<TenantPage, DomainError> {
+    ) -> Result<TenantPage<TenantModel>, DomainError> {
         reads::list_children(self, scope, query).await
     }
 
@@ -130,10 +131,11 @@ impl TenantRepo for TenantRepoImpl {
     async fn scan_stuck_provisioning(
         &self,
         scope: &AccessScope,
+        now: OffsetDateTime,
         older_than: OffsetDateTime,
         limit: usize,
     ) -> Result<Vec<TenantProvisioningRow>, DomainError> {
-        retention::scan_stuck_provisioning(self, scope, older_than, limit).await
+        retention::scan_stuck_provisioning(self, scope, now, older_than, limit).await
     }
 
     async fn count_children(
@@ -161,6 +163,16 @@ impl TenantRepo for TenantRepoImpl {
         id: Uuid,
     ) -> Result<HardDeleteOutcome, DomainError> {
         lifecycle::hard_delete_one(self, scope, id).await
+    }
+
+    async fn mark_provisioning_terminal_failure(
+        &self,
+        scope: &AccessScope,
+        id: Uuid,
+        claimed_by: Uuid,
+        now: OffsetDateTime,
+    ) -> Result<bool, DomainError> {
+        lifecycle::mark_provisioning_terminal_failure(self, scope, id, claimed_by, now).await
     }
 
     async fn is_descendant(

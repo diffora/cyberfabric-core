@@ -1,10 +1,23 @@
-//! Tenant domain model types.
+//! Tenant domain model types — internal storage / saga shapes.
 //!
 //! Pure Rust value types that express tenant lifecycle concepts
 //! independently of storage and transport. The `SeaORM` entities live in
-//! `crate::infra::storage::entity::{tenants, tenant_closure}`; `OpenAPI`
-//! DTOs are added in the REST-wiring phase. These domain types are the
-//! shape that flows through `TenantService`.
+//! `crate::infra::storage::entity::{tenants, tenant_closure}`. Public
+//! input / output DTOs (request bodies, query parameters, response
+//! envelopes) live on [`account_management_sdk`] and reuse
+//! [`account_management_sdk::TenantInfo`] / [`account_management_sdk::TenantStatus`]
+//! (re-exported from `tenant-resolver-sdk`) on the public boundary —
+//! no duplicated tenant DTOs across CF SDKs.
+//!
+//! What stays here:
+//! * [`TenantStatus`] — internal 4-variant lifecycle (includes
+//!   `Provisioning`, which is never surfaced through the public SDK).
+//! * [`TenantModel`] — full storage row (with `tenant_type_uuid`,
+//!   `depth`, lifecycle timestamps).
+//! * [`NewTenant`] — repo-level insert input.
+//! * [`ChildCountFilter`] — repo-level filter for `count_children`.
+//! * `validate_*` free functions — domain validation reused by the
+//!   service before mutating the DB through the SDK input shapes.
 
 use modkit_macros::domain_model;
 use serde::{Deserialize, Serialize};
@@ -49,6 +62,19 @@ impl TenantStatus {
     #[must_use]
     pub const fn is_sdk_visible(self) -> bool {
         !matches!(self, Self::Provisioning)
+    }
+
+    /// Stable lowercase label used in audit payloads and structured
+    /// logs. Pinned here (rather than as `Display` or via `serde`) so
+    /// the wire shape is independent of any future derive changes.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Provisioning => "provisioning",
+            Self::Active => "active",
+            Self::Suspended => "suspended",
+            Self::Deleted => "deleted",
+        }
     }
 
     /// Parse from SMALLINT. Returns `None` for any value outside the
@@ -112,185 +138,120 @@ pub struct NewTenant {
     pub depth: u32,
 }
 
-/// Patch passed to `TenantRepo::update_tenant_mutable`.
+/// Reject status transitions that are not supported by the PATCH flow
+/// (DESIGN §3.3 update flow + FEATURE §2 `Update Tenant Mutable Fields`).
 ///
-/// Only the two mutable fields from the `OpenAPI` contract
-/// (`TenantUpdateRequest`) are representable. Immutable fields (`id`,
-/// `parent_id`, `tenant_type`, `self_managed`, `depth`) are intentionally absent.
-// @cpt-begin:cpt-cf-account-management-dod-tenant-hierarchy-management-update-mutable-only:p1:inst-dod-update-mutable-domain-patch
-#[domain_model]
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct TenantUpdate {
-    pub name: Option<String>,
-    pub status: Option<TenantStatus>,
-}
-// @cpt-end:cpt-cf-account-management-dod-tenant-hierarchy-management-update-mutable-only:p1:inst-dod-update-mutable-domain-patch
-
-impl TenantUpdate {
-    /// Whether this patch is effectively empty. An empty patch is rejected
-    /// per the `minProperties: 1` rule on `TenantUpdateRequest`.
-    #[must_use]
-    pub const fn is_empty(&self) -> bool {
-        self.name.is_none() && self.status.is_none()
-    }
-
-    /// Reject status transitions that are not supported by the PATCH flow
-    /// (DESIGN §3.3 update flow + FEATURE §2 `Update Tenant Mutable Fields`).
-    ///
-    /// Allowed transitions via PATCH (strict — only the cross-flip):
-    /// - `Active → Suspended`
-    /// - `Suspended → Active`
-    ///
-    /// Disallowed:
-    /// - No-op transitions (`Active → Active`, `Suspended → Suspended`)
-    ///   — the patch would still trigger a `tenant_closure.descendant_status`
-    ///   rewrite per the closure-status invariant, costing a write for no
-    ///   user-visible change. Surface them as `Conflict` so callers learn
-    ///   the patch was a no-op rather than silently bumping `updated_at`.
-    /// - Any target of `Deleted` (owned by the DELETE flow / `schedule_deletion`).
-    /// - Any target of `Provisioning` (internal lifecycle state).
-    /// - Any transition from `Deleted` or `Provisioning` (terminal /
-    ///   internal — those tenants are not mutable through PATCH).
-    ///
-    /// Returns `Ok(())` only for the two cross-flip pairs above.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`DomainError::Conflict`] when the transition is rejected
-    /// by one of the rules above. Matches the
-    /// [`crate::domain::tenant::repo::TenantRepo::update_tenant_mutable`]
-    /// contract — every failed transition is a state-precondition
-    /// conflict (HTTP 409), not an input-schema validation error
-    /// (HTTP 422).
-    pub fn validate_status_transition(
-        current: TenantStatus,
-        target: TenantStatus,
-    ) -> Result<(), DomainError> {
-        // @cpt-begin:cpt-cf-account-management-dod-tenant-hierarchy-management-status-change-non-cascading:p1:inst-dod-status-transition-guard
-        if matches!(target, TenantStatus::Deleted) {
-            return Err(DomainError::Conflict {
-                detail: "status=deleted must go through DELETE flow".into(),
-            });
-        }
-        if matches!(target, TenantStatus::Provisioning) {
-            return Err(DomainError::Conflict {
-                detail: "status=provisioning is internal; not patchable".into(),
-            });
-        }
-        match (current, target) {
-            (TenantStatus::Active, TenantStatus::Suspended)
-            | (TenantStatus::Suspended, TenantStatus::Active) => Ok(()),
-            _ => Err(DomainError::Conflict {
-                detail: format!(
-                    "invalid status transition from {current:?} to {target:?}; \
-                     PATCH only accepts the cross-flip Active↔Suspended"
-                ),
-            }),
-        }
-        // @cpt-end:cpt-cf-account-management-dod-tenant-hierarchy-management-status-change-non-cascading:p1:inst-dod-status-transition-guard
-    }
-
-    /// Validate that `name`, if present, falls within the `OpenAPI`
-    /// `minLength: 1, maxLength: 255` bounds.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`DomainError::Validation`] when the name is shorter than 1
-    /// or longer than 255 characters (by `char` count, not byte length).
-    pub fn validate_name(name: &str) -> Result<(), DomainError> {
-        let len = name.chars().count();
-        if !(1..=255).contains(&len) {
-            return Err(DomainError::Validation {
-                detail: format!("name length {len} out of range [1,255]"),
-            });
-        }
-        Ok(())
-    }
-}
-
-/// Pagination and filter parameters for `TenantRepo::list_children`.
+/// Allowed transitions via PATCH (strict — only the cross-flip):
+/// - `Active → Suspended`
+/// - `Suspended → Active`
 ///
-/// Matches the `top` / `skip` pagination used by the `OpenAPI`
-/// `listChildren` endpoint. `status_filter`, when present, restricts the
-/// result set to the listed SDK-visible statuses. `provisioning` is never
-/// a legal filter value per FEATURE §2 `List Children`; the field is
-/// private and the only way to set it is via [`ListChildrenQuery::new`],
-/// which rejects [`TenantStatus::Provisioning`] at construction time.
-#[domain_model]
-#[derive(Debug, Clone)]
-pub struct ListChildrenQuery {
-    pub parent_id: Uuid,
-    status_filter: Option<Vec<TenantStatus>>,
-    /// Requested page size. Callers are expected to clamp to the platform
-    /// cap before calling the repo; the repo does not enforce a cap.
-    pub top: u32,
-    pub skip: u32,
-}
-
-impl ListChildrenQuery {
-    /// Construct a validated query. Rejects `status_filter` values
-    /// containing [`TenantStatus::Provisioning`]: provisioning rows are
-    /// SDK-invisible by FEATURE §2 `List Children`, and letting one
-    /// reach the repo would surface rows the public contract promises
-    /// will never appear.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`DomainError::Validation`] when `status_filter` contains
-    /// `TenantStatus::Provisioning`, or when `top == 0` (the public
-    /// contract sets `$top` minimum to `1`).
-    pub fn new(
-        parent_id: Uuid,
-        status_filter: Option<Vec<TenantStatus>>,
-        top: u32,
-        skip: u32,
-    ) -> Result<Self, DomainError> {
-        if top == 0 {
-            return Err(DomainError::Validation {
-                detail: "top must be at least 1".into(),
-            });
-        }
-        if let Some(ref filters) = status_filter
-            && filters
-                .iter()
-                .any(|s| matches!(s, TenantStatus::Provisioning))
-        {
-            return Err(DomainError::Validation {
-                detail: "status_filter cannot contain `provisioning` (SDK-invisible)".into(),
-            });
-        }
-        Ok(Self {
-            parent_id,
-            status_filter,
-            top,
-            skip,
-        })
+/// Disallowed:
+/// - No-op transitions (`Active → Active`, `Suspended → Suspended`)
+///   — the patch would still trigger a `tenant_closure.descendant_status`
+///   rewrite per the closure-status invariant, costing a write for no
+///   user-visible change. Surface them as `Conflict` so callers learn
+///   the patch was a no-op rather than silently bumping `updated_at`.
+/// - Any target of `Deleted` (owned by the DELETE flow / `schedule_deletion`).
+/// - Any target of `Provisioning` (internal lifecycle state).
+/// - Any transition from `Deleted` or `Provisioning` (terminal /
+///   internal — those tenants are not mutable through PATCH).
+///
+/// Returns `Ok(())` only for the two cross-flip pairs above.
+///
+/// # Errors
+///
+/// Returns [`DomainError::Conflict`] when the transition is rejected
+/// by one of the rules above. Matches the
+/// [`crate::domain::tenant::repo::TenantRepo::update_tenant_mutable`]
+/// contract — every failed transition is a state-precondition
+/// conflict, not an input-schema validation error. Both
+/// [`DomainError::Conflict`] and [`DomainError::Validation`] surface
+/// as HTTP 400 through the canonical error mapping in
+/// [`crate::infra::canonical_mapping`] (`failed_precondition` and
+/// `invalid_argument` AIP-193 statuses respectively); the public
+/// SDK contract intentionally keeps both under 400 so clients
+/// distinguish via the canonical reason rather than the HTTP code.
+// @cpt-begin:cpt-cf-account-management-dod-tenant-hierarchy-management-status-change-non-cascading:p1:inst-dod-status-transition-guard
+pub fn validate_status_transition(
+    current: TenantStatus,
+    target: TenantStatus,
+) -> Result<(), DomainError> {
+    if matches!(target, TenantStatus::Deleted) {
+        return Err(DomainError::Conflict {
+            detail: "status=deleted must go through DELETE flow".into(),
+        });
     }
-
-    /// Read-only access to the validated `status_filter`. `None` means
-    /// "default visibility set" — the repo applies its own SDK-visible
-    /// default (`Active + Suspended`).
-    ///
-    /// An empty filter (`Some(vec![])` constructed via
-    /// [`Self::new`]) is permitted and is treated identically to
-    /// `None` by the repo: both fall through to the default
-    /// SDK-visible set rather than producing an empty result. The
-    /// only filter content [`Self::new`] rejects is a non-empty
-    /// vector containing [`TenantStatus::Provisioning`].
-    #[must_use]
-    pub fn status_filter(&self) -> Option<&[TenantStatus]> {
-        self.status_filter.as_deref()
+    if matches!(target, TenantStatus::Provisioning) {
+        return Err(DomainError::Conflict {
+            detail: "status=provisioning is internal; not patchable".into(),
+        });
+    }
+    match (current, target) {
+        (TenantStatus::Active, TenantStatus::Suspended)
+        | (TenantStatus::Suspended, TenantStatus::Active) => Ok(()),
+        _ => Err(DomainError::Conflict {
+            detail: format!(
+                "invalid status transition from {current:?} to {target:?}; \
+                 PATCH only accepts the cross-flip Active<->Suspended"
+            ),
+        }),
     }
 }
+// @cpt-end:cpt-cf-account-management-dod-tenant-hierarchy-management-status-change-non-cascading:p1:inst-dod-status-transition-guard
 
-/// Page returned by `TenantRepo::list_children`.
-#[domain_model]
-#[derive(Debug, Clone)]
-pub struct TenantPage {
-    pub items: Vec<TenantModel>,
-    pub top: u32,
-    pub skip: u32,
-    pub total: Option<u64>,
+/// Validate that `name`, if present, falls within the `OpenAPI`
+/// `minLength: 1, maxLength: 255` bounds.
+///
+/// # Errors
+///
+/// Returns [`DomainError::Validation`] when the name is shorter than 1
+/// or longer than 255 characters (by `char` count, not byte length).
+pub fn validate_tenant_name(name: &str) -> Result<(), DomainError> {
+    let len = name.chars().count();
+    if !(1..=255).contains(&len) {
+        return Err(DomainError::Validation {
+            detail: format!("name length {len} out of range [1,255]"),
+        });
+    }
+    Ok(())
+}
+
+/// Lift a SDK [`account_management_sdk::TenantStatus`] (3-variant,
+/// public surface) into the AM-internal 4-variant
+/// [`TenantStatus`]. Infallible because the SDK type cannot represent
+/// `Provisioning`.
+impl From<account_management_sdk::TenantStatus> for TenantStatus {
+    fn from(s: account_management_sdk::TenantStatus) -> Self {
+        match s {
+            account_management_sdk::TenantStatus::Active => Self::Active,
+            account_management_sdk::TenantStatus::Suspended => Self::Suspended,
+            account_management_sdk::TenantStatus::Deleted => Self::Deleted,
+        }
+    }
+}
+
+/// Lower the AM-internal 4-variant [`TenantStatus`] into the SDK
+/// 3-variant [`account_management_sdk::TenantStatus`].
+///
+/// # Panics
+///
+/// Panics on [`TenantStatus::Provisioning`]. Service-layer public
+/// methods filter Provisioning rows out via
+/// [`TenantStatus::is_sdk_visible`] **before** mapping a row to
+/// [`account_management_sdk::TenantInfo`], so this arm is unreachable
+/// in correct code; reaching it is a programmer error and
+/// [`unreachable!`] surfaces the invariant violation loudly.
+impl From<TenantStatus> for account_management_sdk::TenantStatus {
+    fn from(s: TenantStatus) -> Self {
+        match s {
+            TenantStatus::Active => Self::Active,
+            TenantStatus::Suspended => Self::Suspended,
+            TenantStatus::Deleted => Self::Deleted,
+            TenantStatus::Provisioning => unreachable!(
+                "Provisioning rows must be filtered (is_sdk_visible) before lowering to SDK TenantStatus"
+            ),
+        }
+    }
 }
 
 /// Filter consumed by `TenantRepo::count_children`.

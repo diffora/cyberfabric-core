@@ -44,9 +44,19 @@
 #![deny(rust_2018_idioms)]
 
 pub mod gts;
+pub mod idp;
+pub mod tenant;
 
 pub use gts::{
     CONVERSION_REQUEST_RESOURCE_TYPE, TENANT_METADATA_RESOURCE_TYPE, TENANT_RESOURCE_TYPE,
 };
+pub use idp::{
+    CheckAvailabilityFailure, DeprovisionFailure, DeprovisionRequest, IdpTenantProvisionerClient,
+    ProvisionFailure, ProvisionMetadataEntry, ProvisionRequest, ProvisionResult,
+};
 pub use modkit_canonical_errors::CanonicalError as AccountManagementError;
 pub use modkit_canonical_errors::{self, CanonicalError, Problem};
+pub use tenant::{
+    CreateChildInput, ListChildrenQuery, ListChildrenQueryError, TenantId, TenantInfo, TenantPage,
+    TenantStatus, TenantUpdate,
+};

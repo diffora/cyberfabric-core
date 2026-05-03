@@ -26,13 +26,11 @@ use modkit_security::AccessScope;
 use time::OffsetDateTime;
 use uuid::Uuid;
 
+use account_management_sdk::{ListChildrenQuery, ProvisionMetadataEntry, TenantPage, TenantUpdate};
+
 use crate::domain::error::DomainError;
-use crate::domain::idp::ProvisionMetadataEntry;
 use crate::domain::tenant::closure::ClosureRow;
-use crate::domain::tenant::model::{
-    ChildCountFilter, ListChildrenQuery, NewTenant, TenantModel, TenantPage, TenantStatus,
-    TenantUpdate,
-};
+use crate::domain::tenant::model::{ChildCountFilter, NewTenant, TenantModel, TenantStatus};
 use crate::domain::tenant::retention::{
     HardDeleteOutcome, TenantProvisioningRow, TenantRetentionRow,
 };
@@ -55,12 +53,13 @@ use crate::domain::tenant::retention::{
 /// * `scope_with(<narrowed>)` → `deny_all()` (`WHERE false`) for reads
 ///   / mutations, and `ScopeError::Denied` for INSERTs.
 ///
-/// **Until `InTenantSubtree` lands**, callers MUST pass
-/// [`AccessScope::allow_all`]. A narrowed scope silently zero-rows
-/// every read and turns every mutation into a no-op or hard deny —
-/// no useful authorization happens at this boundary today.
+/// **Until `InTenantSubtree` lands** (cyberfabric-core#1813), callers
+/// MUST pass [`AccessScope::allow_all`]. A narrowed scope silently
+/// zero-rows every read and turns every mutation into a no-op or hard
+/// deny — no useful authorization happens at this boundary today.
 /// Cross-tenant authorization is enforced one layer up by the PDP
-/// gate in the service layer.
+/// gate in the service layer; this is **single-layer enforcement**
+/// and is a pre-production gate (see crate-level `lib.rs` note).
 ///
 /// # Future: subtree clamp via `InTenantSubtree`
 ///
@@ -97,13 +96,17 @@ pub trait TenantRepo: Send + Sync {
         &self,
         scope: &AccessScope,
         query: &ListChildrenQuery,
-    ) -> Result<TenantPage, DomainError>;
+    ) -> Result<TenantPage<TenantModel>, DomainError>;
 
     // ---- Write operations ----------------------------------------------
 
     /// Saga step 1: insert a new tenant row with `status = Provisioning`.
     ///
-    /// Runs in its own short TX. No closure rows are written — the
+    /// Runs in its own short TX. The implementation MUST re-read the
+    /// parent row in the same TX and reject the insert unless the
+    /// parent is still `Active`; otherwise a concurrent soft-delete
+    /// could commit a deleted parent while a new child is being
+    /// provisioned. No closure rows are written — the
     /// provisioning-exclusion invariant (DESIGN §3.1) forbids any
     /// closure entry while the tenant is in `provisioning`.
     async fn insert_provisioning(
@@ -213,10 +216,23 @@ pub trait TenantRepo: Send + Sync {
     ) -> Result<(), DomainError>;
 
     /// Scan rows in `status = Provisioning` with `created_at <=
-    /// older_than`. Used by the provisioning reaper.
+    /// older_than` AND atomically claim them for the calling worker.
+    /// Used by the provisioning reaper; mirrors the
+    /// `scan_retention_due` claim pattern so two replicas cannot
+    /// invoke `IdpTenantProvisionerClient::deprovision_tenant` for the
+    /// same row inside one `RETENTION_CLAIM_TTL` window.
+    ///
+    /// `now` is used to compute the stale-claim cutoff so a worker
+    /// that crashed mid-process eventually releases its rows for
+    /// peer takeover.
+    ///
+    /// Returned rows carry the worker UUID stamped during the claim
+    /// UPDATE; callers MUST pass it back into
+    /// [`Self::clear_retention_claim`] after per-row processing.
     async fn scan_stuck_provisioning(
         &self,
         scope: &AccessScope,
+        now: OffsetDateTime,
         older_than: OffsetDateTime,
         limit: usize,
     ) -> Result<Vec<TenantProvisioningRow>, DomainError>;
@@ -250,6 +266,31 @@ pub trait TenantRepo: Send + Sync {
         scope: &AccessScope,
         id: Uuid,
     ) -> Result<HardDeleteOutcome, DomainError>;
+
+    /// Stamp `terminal_failure_at = now` on a `Provisioning` row that
+    /// the `IdP` plugin has classified as
+    /// [`account_management_sdk::DeprovisionFailure::Terminal`]. The
+    /// SDK contract treats this as non-recoverable and operator-
+    /// action-required; the marker keeps the row out of the
+    /// `scan_stuck_provisioning` retry loop until an operator
+    /// intervenes (manual hard-delete or column clear).
+    ///
+    /// The implementation **MUST** fence the UPDATE on both the
+    /// `claimed_by` worker token and `status = Provisioning` so a
+    /// peer's claim or a parallel finalizer that flipped the row
+    /// to `Active` cannot have its work overridden by the marker.
+    /// Returns `true` iff the row was actually marked; `false`
+    /// indicates the claim was lost or the row no longer matches the
+    /// fence (caller treats as no-op for idempotency — the row will
+    /// either be marked by whoever still holds the claim, or has
+    /// already moved past Provisioning).
+    async fn mark_provisioning_terminal_failure(
+        &self,
+        scope: &AccessScope,
+        id: Uuid,
+        claimed_by: Uuid,
+        now: OffsetDateTime,
+    ) -> Result<bool, DomainError>;
 
     /// Return `true` iff a `tenant_closure` row exists with
     /// `ancestor_id = ancestor` and `descendant_id = descendant`.
