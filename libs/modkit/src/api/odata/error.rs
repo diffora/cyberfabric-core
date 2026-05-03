@@ -106,7 +106,7 @@ mod tests {
         let problem = odata_error_to_problem(&error, "/user-management/v1/test", None);
 
         // Verify the code follows GTS format
-        assert!(problem.code.starts_with("gts.hx.core.errors.err.v1~"));
+        assert!(problem.code.starts_with("gts.cf.core.errors.err.v1~"));
         assert!(problem.code.contains("odata"));
     }
 }

@@ -100,7 +100,7 @@ paths:
                             x-gts-traits:
                               can_be_root: true
                               allowed_parents: ["gts.cf.core.rg.type.v1~y.core.tn.tenant.v1~"]
-                              allowed_memberships: ["gts.z.core.idp.user.v1~"]
+                              allowed_memberships: ["gts.cf.core.idp.user.v1~"]
                       - $id: "gts://gts.cf.core.rg.type.v1~w.core.org.department.v1~"
                         $schema: "http://json-schema.org/draft-07/schema#"
                         allOf:
@@ -115,7 +115,7 @@ paths:
                             x-gts-traits:
                               can_be_root: false
                               allowed_parents: ["gts.cf.core.rg.type.v1~y.core.tn.tenant.v1~"]
-                              allowed_memberships: ["gts.z.core.idp.user.v1~"]
+                              allowed_memberships: ["gts.cf.core.idp.user.v1~"]
                       - $id: "gts://gts.cf.core.rg.type.v1~cf.core.rg.branch.v1~"
                         $schema: "http://json-schema.org/draft-07/schema#"
                         allOf:
@@ -129,7 +129,7 @@ paths:
                             x-gts-traits:
                               can_be_root: false
                               allowed_parents: ["gts.cf.core.rg.type.v1~w.core.org.department.v1~"]
-                              allowed_memberships: ["gts.z.core.idp.user.v1~", "gts.z.core.lms.course.v1~"]
+                              allowed_memberships: ["gts.cf.core.idp.user.v1~", "gts.cf.core.lms.course.v1~"]
                     page_info:
                       next_cursor: "eyJpZCI6Ijc3NzcuLi4ifQ"
                       limit: 25
@@ -197,7 +197,7 @@ paths:
               tenant-entity:
                 summary: "Step 2a: Tenant entity type"
                 value:
-                  $id: "gts://gts.y.core.tn.tenant.v1~"
+                  $id: "gts://gts.cf.core.tn.tenant.v1~"
                   $schema: "http://json-schema.org/draft-07/schema#"
                   title: Tenant
                   type: object
@@ -211,7 +211,7 @@ paths:
               department-entity:
                 summary: "Step 2b: Department entity type"
                 value:
-                  $id: "gts://gts.w.core.org.department.v1~"
+                  $id: "gts://gts.cf.core.org.department.v1~"
                   $schema: "http://json-schema.org/draft-07/schema#"
                   title: Department
                   type: object
@@ -237,7 +237,7 @@ paths:
               user-resource:
                 summary: "Step 2d: User resource type"
                 value:
-                  $id: "gts://gts.z.core.idp.user.v1~"
+                  $id: "gts://gts.cf.core.idp.user.v1~"
                   $schema: "http://json-schema.org/draft-07/schema#"
                   title: User
                   type: object
@@ -251,7 +251,7 @@ paths:
               course-resource:
                 summary: "Step 2e: Course resource type"
                 value:
-                  $id: "gts://gts.z.core.lms.course.v1~"
+                  $id: "gts://gts.cf.core.lms.course.v1~"
                   $schema: "http://json-schema.org/draft-07/schema#"
                   title: Course
                   type: object
@@ -279,7 +279,7 @@ paths:
                       x-gts-traits:
                         can_be_root: true
                         allowed_parents: ["gts.cf.core.rg.type.v1~y.core.tn.tenant.v1~"]
-                        allowed_memberships: ["gts.z.core.idp.user.v1~"]
+                        allowed_memberships: ["gts.cf.core.idp.user.v1~"]
 
               department-rg-type:
                 summary: "Step 3b: Department as RG type (chained, x-gts-traits)"
@@ -298,7 +298,7 @@ paths:
                       x-gts-traits:
                         can_be_root: false
                         allowed_parents: ["gts.cf.core.rg.type.v1~y.core.tn.tenant.v1~"]
-                        allowed_memberships: ["gts.z.core.idp.user.v1~"]
+                        allowed_memberships: ["gts.cf.core.idp.user.v1~"]
 
               branch-rg-type:
                 summary: "Step 3c: Branch as RG type (chained, x-gts-traits)"
@@ -316,7 +316,7 @@ paths:
                       x-gts-traits:
                         can_be_root: false
                         allowed_parents: ["gts.cf.core.rg.type.v1~w.core.org.department.v1~"]
-                        allowed_memberships: ["gts.z.core.idp.user.v1~", "gts.z.core.lms.course.v1~"]
+                        allowed_memberships: ["gts.cf.core.idp.user.v1~", "gts.cf.core.lms.course.v1~"]
 
       responses:
         '201':
@@ -382,11 +382,11 @@ paths:
                         x-gts-traits:
                           can_be_root: true
                           allowed_parents: ["gts.cf.core.rg.type.v1~y.core.tn.tenant.v1~"]
-                          allowed_memberships: ["gts.z.core.idp.user.v1~"]
+                          allowed_memberships: ["gts.cf.core.idp.user.v1~"]
                 tenant-entity:
                   summary: "Entity type registered"
                   value:
-                    $id: "gts://gts.y.core.tn.tenant.v1~"
+                    $id: "gts://gts.cf.core.tn.tenant.v1~"
                     $schema: "http://json-schema.org/draft-07/schema#"
                     title: Tenant
                     type: object
@@ -430,11 +430,11 @@ paths:
                         x-gts-traits:
                           can_be_root: true
                           allowed_parents: ["gts.cf.core.rg.type.v1~y.core.tn.tenant.v1~"]
-                          allowed_memberships: ["gts.z.core.idp.user.v1~"]
+                          allowed_memberships: ["gts.cf.core.idp.user.v1~"]
                 tenant-entity:
                   summary: "Entity: Tenant"
                   value:
-                    $id: "gts://gts.y.core.tn.tenant.v1~"
+                    $id: "gts://gts.cf.core.tn.tenant.v1~"
                     $schema: "http://json-schema.org/draft-07/schema#"
                     title: Tenant
                     type: object
@@ -999,10 +999,10 @@ paths:
                 items:
                   - group_id: 33333333-3333-3333-3333-333333333333
                     resource_id: R4
-                    resource_type: "gts.z.core.lms.course.v1~"
+                    resource_type: "gts.cf.core.lms.course.v1~"
                   - group_id: 22222222-2222-2222-2222-222222222222
                     resource_id: R5
-                    resource_type: "gts.z.core.idp.user.v1~"
+                    resource_type: "gts.cf.core.idp.user.v1~"
                 page_info:
                   next_cursor: "eyJpZCI6Ijc3NzcuLi4ifQ"
                   limit: 25
@@ -1026,7 +1026,7 @@ paths:
               example:
                 group_id: 33333333-3333-3333-3333-333333333333
                 resource_id: R4
-                resource_type: "gts.z.core.lms.course.v1~"
+                resource_type: "gts.cf.core.lms.course.v1~"
     delete:
       operationId: deleteMembership
       tags: [memberships]
@@ -1074,7 +1074,7 @@ components:
       description: "GTS type identifier of the resource (ends with `~`)."
       schema:
         type: string
-      example: "gts.z.core.idp.user.v1~"
+      example: "gts.cf.core.idp.user.v1~"
 
     MembershipResourceId:
       name: resource_id
@@ -1288,7 +1288,7 @@ components:
           example: R4
         resource_type:
           type: string
-          example: "gts.z.core.idp.user.v1~"
+          example: "gts.cf.core.idp.user.v1~"
 
     MembershipPage:
       type: object

@@ -365,7 +365,7 @@ Test setup: SQLite in-memory + TypeService + GroupService (for hierarchy safety 
 
 #### TC-TYP-03: Create type with non-existent allowed_membership_types [P1]
 - **Covers**: G5
-- **Setup**: Create type with `allowed_membership_types: ["gts.z.core.idp.missing.v1~"]`
+- **Setup**: Create type with `allowed_membership_types: ["gts.cf.core.idp.missing.v1~"]`
 - **Assert**: Error (type not found)
 
 #### TC-TYP-04: Placement invariant violation (can_be_root=false, no parents) [P1]

@@ -67,10 +67,10 @@ fn rg_base_contract() -> serde_json::Value {
     })
 }
 
-/// Tenant entity schema — gts.y.core.tn.tenant.v1~ (registered for reference, not $ref'd)
+/// Tenant entity schema — gts.cf.core.tn.tenant.v1~ (registered for reference, not $ref'd)
 fn tenant_entity_schema() -> serde_json::Value {
     json!({
-        "$id": "gts://gts.y.core.tn.tenant.v1~",
+        "$id": "gts://gts.cf.core.tn.tenant.v1~",
         "$schema": "http://json-schema.org/draft-07/schema#",
         "title": "Tenant",
         "type": "object",
@@ -84,10 +84,10 @@ fn tenant_entity_schema() -> serde_json::Value {
     })
 }
 
-/// Department entity schema — gts.w.core.org.department.v1~ (registered for reference)
+/// Department entity schema — gts.cf.core.org.department.v1~ (registered for reference)
 fn department_entity_schema() -> serde_json::Value {
     json!({
-        "$id": "gts://gts.w.core.org.department.v1~",
+        "$id": "gts://gts.cf.core.org.department.v1~",
         "$schema": "http://json-schema.org/draft-07/schema#",
         "title": "Department",
         "type": "object",
@@ -116,10 +116,10 @@ fn branch_entity_schema() -> serde_json::Value {
     })
 }
 
-/// User resource schema — gts.z.core.idp.user.v1~
+/// User resource schema — gts.cf.core.idp.user.v1~
 fn user_resource_schema() -> serde_json::Value {
     json!({
-        "$id": "gts://gts.z.core.idp.user.v1~",
+        "$id": "gts://gts.cf.core.idp.user.v1~",
         "$schema": "http://json-schema.org/draft-07/schema#",
         "title": "User",
         "type": "object",
@@ -133,10 +133,10 @@ fn user_resource_schema() -> serde_json::Value {
     })
 }
 
-/// Course resource schema — gts.z.core.lms.course.v1~
+/// Course resource schema — gts.cf.core.lms.course.v1~
 fn course_resource_schema() -> serde_json::Value {
     json!({
-        "$id": "gts://gts.z.core.lms.course.v1~",
+        "$id": "gts://gts.cf.core.lms.course.v1~",
         "$schema": "http://json-schema.org/draft-07/schema#",
         "title": "Course",
         "type": "object",
@@ -169,7 +169,7 @@ fn tenant_rg_type() -> serde_json::Value {
                 "x-gts-traits": {
                     "can_be_root": true,
                     "allowed_parent_types": ["gts.cf.core.rg.type.v1~y.core.tn.tenant.v1~"],
-                    "allowed_membership_types": ["gts.z.core.idp.user.v1~"]
+                    "allowed_membership_types": ["gts.cf.core.idp.user.v1~"]
                 }
             }
         ]
@@ -197,7 +197,7 @@ fn department_rg_type() -> serde_json::Value {
                 "x-gts-traits": {
                     "can_be_root": false,
                     "allowed_parent_types": ["gts.cf.core.rg.type.v1~y.core.tn.tenant.v1~"],
-                    "allowed_membership_types": ["gts.z.core.idp.user.v1~"]
+                    "allowed_membership_types": ["gts.cf.core.idp.user.v1~"]
                 }
             }
         ]
@@ -225,8 +225,8 @@ fn branch_rg_type() -> serde_json::Value {
                     "can_be_root": false,
                     "allowed_parent_types": ["gts.cf.core.rg.type.v1~w.core.org.department.v1~"],
                     "allowed_membership_types": [
-                        "gts.z.core.idp.user.v1~",
-                        "gts.z.core.lms.course.v1~"
+                        "gts.cf.core.idp.user.v1~",
+                        "gts.cf.core.lms.course.v1~"
                     ]
                 }
             }
@@ -353,8 +353,8 @@ async fn test_branch_allows_users_and_courses_as_members() {
         .as_array()
         .unwrap();
     assert_eq!(memberships.len(), 2);
-    assert!(memberships.contains(&json!("gts.z.core.idp.user.v1~")));
-    assert!(memberships.contains(&json!("gts.z.core.lms.course.v1~")));
+    assert!(memberships.contains(&json!("gts.cf.core.idp.user.v1~")));
+    assert!(memberships.contains(&json!("gts.cf.core.lms.course.v1~")));
 }
 
 // =============================================================================
@@ -373,7 +373,7 @@ async fn test_vendor_isolation_across_rg_types() {
     );
     assert!(
         !service
-            .list(&ListQuery::default().with_pattern("gts.y.*"))
+            .list(&ListQuery::default().with_pattern("gts.cf.*"))
             .unwrap()
             .is_empty()
     );
@@ -385,7 +385,7 @@ async fn test_vendor_isolation_across_rg_types() {
     );
     assert!(
         service
-            .list(&ListQuery::default().with_pattern("gts.z.*"))
+            .list(&ListQuery::default().with_pattern("gts.cf.*"))
             .unwrap()
             .len()
             >= 2
@@ -494,7 +494,7 @@ async fn test_valid_branch_with_metadata() {
 async fn test_valid_user_instance() {
     let service = setup_rg_type_system();
     let user = json!({
-        "id": "gts.z.core.idp.user.v1~z.core._.idp_user1.v1",
+        "id": "gts.cf.core.idp.user.v1~z.core._.idp_user1.v1",
         "email": "alice@example.com",
         "display_name": "Alice"
     });
@@ -506,7 +506,7 @@ async fn test_valid_user_instance() {
 async fn test_valid_course_instance() {
     let service = setup_rg_type_system();
     let course = json!({
-        "id": "gts.z.core.lms.course.v1~z.core._.lms_course1.v1",
+        "id": "gts.cf.core.lms.course.v1~z.core._.lms_course1.v1",
         "title": "Introduction to GTS"
     });
     let results = service.register(vec![course]);
@@ -559,7 +559,7 @@ async fn test_tenant_empty_name() {
 async fn test_user_missing_required_email() {
     let service = setup_rg_type_system();
     let bad = json!({
-        "id": "gts.z.core.idp.user.v1~z.core._.bad_user1.v1",
+        "id": "gts.cf.core.idp.user.v1~z.core._.bad_user1.v1",
         "display_name": "Bob"
     });
     assert!(service.register(vec![bad])[0].is_err(), "Missing email");
@@ -569,7 +569,7 @@ async fn test_user_missing_required_email() {
 async fn test_course_missing_required_title() {
     let service = setup_rg_type_system();
     let bad = json!({
-        "id": "gts.z.core.lms.course.v1~z.core._.bad_course.v1"
+        "id": "gts.cf.core.lms.course.v1~z.core._.bad_course.v1"
     });
     assert!(service.register(vec![bad])[0].is_err(), "Missing title");
 }
@@ -857,7 +857,7 @@ async fn test_idempotent_schema_registration() {
 async fn test_modified_schema_reregistration_fails() {
     let service = setup_rg_type_system();
     let modified = json!({
-        "$id": "gts://gts.y.core.tn.tenant.v1~",
+        "$id": "gts://gts.cf.core.tn.tenant.v1~",
         "$schema": "http://json-schema.org/draft-07/schema#",
         "title": "Tenant MODIFIED", "type": "object",
         "required": ["id", "name"],

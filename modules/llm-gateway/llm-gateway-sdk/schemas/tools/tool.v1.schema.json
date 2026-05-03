@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "gts://gts.x.llmgw.tools.tool.v1~",
+  "$id": "gts://gts.cf.llmgw.tools.tool.v1~",
   "title": "Tool",
   "description": "Base type for all tool definitions. Concrete tool types (function, reference, inline_gts) inherit from this via GTS type inheritance. Discriminated by the 'type' field.",
   "type": "object",

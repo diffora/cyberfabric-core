@@ -61,11 +61,11 @@ name **must** end with `_WILDCARD`:
 
 ```rust
 // ✅ Allowed — name ends with _WILDCARD
-const SRR_WILDCARD: &str = "gts.x.core.srr.resource.v1~*";
+const SRR_WILDCARD: &str = "gts.cf.core.srr.resource.v1~*";
 GtsWildcard::new(SRR_WILDCARD).unwrap();
 
 // ❌ DE0901: name does not end with _WILDCARD
-const SRR_PATTERN: &str = "gts.x.core.srr.resource.v1~*";
+const SRR_PATTERN: &str = "gts.cf.core.srr.resource.v1~*";
 //  → rename to `SRR_PATTERN_WILDCARD` or use a non-wildcard value
 ```
 
@@ -79,7 +79,7 @@ let schema = "gts.acme.core.events.*";
 let _id = Product::gts_make_instance_id("vendor.package.sku.some.v1~");
 
 // ❌ Triggers DE0901: const named without _WILDCARD suffix holds a wildcard
-const BAD_PATTERN: &str = "gts.x.core.srr.resource.v1~*";
+const BAD_PATTERN: &str = "gts.cf.core.srr.resource.v1~*";
 ```
 
 Use instead:
@@ -99,9 +99,9 @@ let pattern = Permission::builder()
     .unwrap();
 
 // ✅ Wildcard constant with _WILDCARD suffix
-const ALL_SRR_WILDCARD: &str = "gts.x.core.srr.resource.v1~*";
+const ALL_SRR_WILDCARD: &str = "gts.cf.core.srr.resource.v1~*";
 let wc = GtsWildcard::new(ALL_SRR_WILDCARD).unwrap();
 
 // ✅ Inline wildcard passed directly to GtsWildcard::new()
-let wc = GtsWildcard::new("gts.x.core.srr.resource.v1~*").unwrap();
+let wc = GtsWildcard::new("gts.cf.core.srr.resource.v1~*").unwrap();
 ```

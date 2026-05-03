@@ -56,8 +56,8 @@ impl EarlyLintPass for De0901GtsStringPattern {
     ///
     /// | Item name         | Value                             | Result  |
     /// |-------------------|-----------------------------------|---------|
-    /// | `SRR_WILDCARD`    | `"gts.x.core.srr.resource.v1~*"` | ✅ allowed — name ends with `_WILDCARD` |
-    /// | `SRR_PATTERN`     | `"gts.x.core.srr.resource.v1~*"` | ❌ flagged — name must end with `_WILDCARD` |
+    /// | `SRR_WILDCARD`    | `"gts.cf.core.srr.resource.v1~*"` | ✅ allowed — name ends with `_WILDCARD` |
+    /// | `SRR_PATTERN`     | `"gts.cf.core.srr.resource.v1~*"` | ❌ flagged — name must end with `_WILDCARD` |
     ///
     /// Items with a compliant name are added to the skip set so their value span
     /// is not re-checked by `check_expr`.
@@ -91,7 +91,7 @@ impl EarlyLintPass for De0901GtsStringPattern {
                     "invalid GTS wildcard pattern in `{item_name}`: '{s}' (DE0901)"
                 ));
                 diag.note(result.error);
-                diag.help("Example: gts.x.core.srr.resource.v1~*");
+                diag.help("Example: gts.cf.core.srr.resource.v1~*");
             });
             // Still skip-list so check_expr doesn't double-report the literal.
             SKIP_SPANS.with(|spans| {
@@ -507,7 +507,7 @@ impl De0901GtsStringPattern {
             cx.span_lint(DE0901_GTS_STRING_PATTERN, span, |diag| {
                 diag.primary_message(format!("invalid GTS schema_id: '{}' (DE0901)", s));
                 diag.note(result.error);
-                diag.help("Example: gts.x.core.events.type.v1~");
+                diag.help("Example: gts.cf.core.events.type.v1~");
             });
             return;
         }
@@ -520,7 +520,7 @@ impl De0901GtsStringPattern {
                     s
                 ));
                 diag.note("schema_id must end with '~' to indicate it's a type schema");
-                diag.help("Example: gts.x.core.events.type.v1~");
+                diag.help("Example: gts.cf.core.events.type.v1~");
             });
         } else {
             self.check_vendors_in_parse_result(cx, span, s, &result);

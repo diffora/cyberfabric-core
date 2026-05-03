@@ -2,13 +2,13 @@ use modkit::api::canonical_prelude::*;
 
 use crate::domain::error::DomainError;
 
-#[resource_error("gts.hx.example1.users.user.v1~")]
+#[resource_error("gts.cf.example1.users.user.v1~")]
 struct UserResourceError;
 
-#[resource_error("gts.hx.example1.users.city.v1~")]
+#[resource_error("gts.cf.example1.users.city.v1~")]
 struct CityResourceError;
 
-#[resource_error("gts.hx.example1.users.address.v1~")]
+#[resource_error("gts.cf.example1.users.address.v1~")]
 struct AddressResourceError;
 
 /// Convert a [`DomainError`] into a [`CanonicalError`].

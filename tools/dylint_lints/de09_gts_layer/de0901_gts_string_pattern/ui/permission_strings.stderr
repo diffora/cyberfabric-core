@@ -1,16 +1,16 @@
-error: invalid GTS string: 'gts.x.*.events.*.v1~' (DE0901)
+error: invalid GTS string: 'gts.cf.*.events.*.v1~' (DE0901)
   --> $DIR/permission_strings.rs:16:18
    |
-LL |     let _perm3 = "resource-id:gts.x.*.events.*.v1~:action:scope";
+LL |     let _perm3 = "resource-id:gts.cf.*.events.*.v1~:action:scope";
    |                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
    |
-   = note: Invalid GTS wildcard pattern: gts.x.*.events.*.v1~: The wildcard '*' token is allowed only once
+   = note: Invalid GTS wildcard pattern: gts.cf.*.events.*.v1~: The wildcard '*' token is allowed only once
    = note: `#[deny(de0901_gts_string_pattern)]` on by default
 
-error: invalid GTS string: 'gts.x.core.events.event.v1~a.b.c~' (DE0901)
+error: invalid GTS string: 'gts.cf.core.events.event.v1~a.b.c~' (DE0901)
   --> $DIR/permission_strings.rs:20:18
    |
-LL |     let _perm3 = "resource-id:gts.x.core.events.event.v1~a.b.c~:action:scope";
+LL |     let _perm3 = "resource-id:gts.cf.core.events.event.v1~a.b.c~:action:scope";
    |                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
    |
    = note: Invalid GTS segment #2 @ offset 27: 'a.b.c~': Too few tokens (got 3, min 5). Expected format: vendor.package.namespace.type.vMAJOR[.MINOR]

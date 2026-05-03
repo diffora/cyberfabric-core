@@ -39,5 +39,8 @@ jobs:
           cache-targets: false
           shared-key: pr-Linux-stable-1.95
 
+      - name: Install gts-validator
+        run: cargo install gts-validator
+
       - name: Validate GTS identifiers
         run: make gts-docs

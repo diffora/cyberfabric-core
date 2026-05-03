@@ -1,10 +1,10 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "gts://gts.x.llmgw.tools.tool.v1~x.llmgw.tools.function_tool.v1~",
+  "$id": "gts://gts.cf.llmgw.tools.tool.v1~x.llmgw.tools.function_tool.v1~",
   "title": "FunctionTool",
   "description": "Function tool definition following Open Responses protocol.",
   "allOf": [
-    { "$ref": "gts://gts.x.llmgw.tools.tool.v1~" },
+    { "$ref": "gts://gts.cf.llmgw.tools.tool.v1~" },
     {
       "properties": {
         "type": {

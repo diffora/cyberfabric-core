@@ -383,8 +383,8 @@ Other modules (`nodes-registry`, `types-registry`) place pure-logic tests direct
 - Boundary → Err("exceeds maximum length")
 
 #### TC-SDK-24: validate_type_code vs GtsTypePath normalization mismatch [P1]
-- `validate_type_code("  GTS.X.SYSTEM.RG.TYPE.V1~  ")` → fails (no trim/lowercase)
-- `GtsTypePath::new("  GTS.X.SYSTEM.RG.TYPE.V1~  ")` → succeeds (trims + lowercases)
+- `validate_type_code("  gts.cf.SYSTEM.RG.TYPE.V1~  ")` → fails (no trim/lowercase)
+- `GtsTypePath::new("  gts.cf.SYSTEM.RG.TYPE.V1~  ")` → succeeds (trims + lowercases)
 - Document this inconsistency and verify behavior
 
 #### TC-SDK-14: SDK model camelCase serialization [P1]

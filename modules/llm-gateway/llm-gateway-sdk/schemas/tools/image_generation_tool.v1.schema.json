@@ -1,10 +1,10 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "gts://gts.x.llmgw.tools.tool.v1~x.llmgw.tools.image_generation_tool.v1~",
+  "$id": "gts://gts.cf.llmgw.tools.tool.v1~x.llmgw.tools.image_generation_tool.v1~",
   "title": "ImageGenerationTool",
   "description": "CyberFabric extension: built-in image generation tool. Covers common generation parameters supported by the majority of providers.",
   "allOf": [
-    { "$ref": "gts://gts.x.llmgw.tools.tool.v1~" },
+    { "$ref": "gts://gts.cf.llmgw.tools.tool.v1~" },
     {
       "properties": {
         "type": {

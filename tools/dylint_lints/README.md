@@ -235,7 +235,7 @@ A Dylint lint that validates GTS identifiers in Rust source files during compila
 - `schema_id = "..."` in `#[struct_to_gts_schema(...)]` attributes
 - Arguments to `gts_make_instance_id("...")`
 - Any string literal starting with `gts.`
-- GTS parts in permission strings (e.g., `"read:gts.x.core.type.v1~"`)
+- GTS parts in permission strings (e.g., `"read:gts.cf.core.type.v1~"`)
 
 **How to run:**
 ```bash
@@ -302,24 +302,24 @@ Where each segment = vendor.org.package.type.version
 ```text
 gts.cf.core.modkit.plugin.v1~                              # Schema (type definition)
 gts.cf.core.modkit.plugin.v1~vendor.pkg.module.plugin.v1~  # Instance (chained)
-gts.hx.core.errors.err.v1~hx.odata.errors.invalid.v1      # Error code
+gts.cf.core.errors.err.v1~hx.odata.errors.invalid.v1      # Error code
 ```
 
 **Validation Rules:**
 
 | Rule | Valid ✓ | Invalid ✗ |
 |------|---------|-----------|
-| Must start with `gts.` | `gts.x.core.type.v1~` | `x.core.type.v1~` |
-| Schema IDs end with `~` | `gts.x.core.type.v1~` | `gts.x.core.type.v1` |
+| Must start with `gts.` | `gts.cf.core.type.v1~` | `x.core.type.v1~` |
+| Schema IDs end with `~` | `gts.cf.core.type.v1~` | `gts.cf.core.type.v1` |
 | 5 components per segment | `x.core.pkg.type.v1` | `x.core.type.v1` (4) |
 | No hyphens | `my_type` | `my-type` |
 | Version format | `v1`, `v1.0`, `v2.1` | `1.0`, `version1` |
-| No wildcards (except patterns) | `gts.x.core.type.v1~` | `gts.x.*.type.v1~` |
+| No wildcards (except patterns) | `gts.cf.core.type.v1~` | `gts.cf.*.type.v1~` |
 
 **When wildcards ARE allowed:**
-- In `$filter` queries: `$filter=type_id eq 'gts.x.*'`
-- In pattern methods: `.with_pattern("gts.x.core.*")`
-- In permission patterns: `.resource_pattern("gts.x.core.type.v1~*")`
+- In `$filter` queries: `$filter=type_id eq 'gts.cf.*'`
+- In pattern methods: `.with_pattern("gts.cf.core.*")`
+- In permission patterns: `.resource_pattern("gts.cf.core.type.v1~*")`
 
 ## Troubleshooting
 

@@ -137,6 +137,7 @@ setup: .setup-stamp
 	cargo install dylint-link
 	cargo install cargo-fuzz
 	cargo install cargo-hack
+	cargo install gts-validator
 	@if echo "$$OS" | grep -iq windows || [ -n "$$COMSPEC" ]; then \
 		echo "WARNING: kani-verifier and cargo-llvm-cov installation skipped on Windows."; \
 		echo "These tools are not supported on Windows. Use WSL2 or Docker to install instead."; \
@@ -208,7 +209,7 @@ validate-module-names:
 # |             | - Use 'make dylint-list' to see all available custom lints           |
 # +-------------+----------------------------------------------------------------------+
 
-.PHONY: clippy lychee kani geiger safety lint dylint dylint-list dylint-test gts-docs gts-docs-vendor gts-docs-release gts-docs-vendor-release gts-docs-test cypilot-validate cypilot-spec-coverage
+.PHONY: clippy lychee kani geiger safety lint dylint dylint-list dylint-test gts-docs cypilot-validate cypilot-spec-coverage
 
 # Run clippy via cargo-hack with `--each-feature`: one pass per individual
 # feature, plus a `--no-default-features` pass and an `--all-features` pass.
@@ -247,53 +248,20 @@ lint:
 	RUSTFLAGS="-D warnings" cargo check --workspace --all-targets --all-features
 
 ## Validate GTS identifiers in .md and .json files (DE0903)
-# Uses gts-docs-validator from apps/gts-docs-validator
-# Vendor enforcement is available via the gts-docs-vendor target (--vendor x)
+# Uses gts-validator binary (install via: cargo install gts-validator)
 
-# REDUCING THE SCOPE OF THE VALIDATION UNTIL IT IS STABLE
 gts-docs:
-	cargo run -p gts-docs-validator -- \
-		--exclude "target/*" \
-		--exclude "docs/api/*" \
-		--exclude "modules/chat-engine/*" \
-		--exclude "**/helm/*/templates/*" \
-		docs modules libs examples
-
-## Validate GTS docs with vendor check (ensures all IDs use vendor "cf", "vendor" or "example")
-gts-docs-vendor:
-	cargo run -p gts-docs-validator -- \
+	$(call check_tool,gts-validator)
+	gts-validator \
 		--vendor cf,vendor,example,fabrikam \
 		--exclude "target/*" \
 		--exclude "docs/api/*" \
 		--exclude "modules/chat-engine/*" \
 		--exclude "**/helm/*/templates/*" \
-		docs modules libs examples
-
-## Validate GTS identifiers (release build)
-gts-docs-release:
-	cargo run --release -p gts-docs-validator -- \
-		--exclude "target/*" \
-		--exclude "docs/api/*" \
-		--exclude "modules/chat-engine/*" \
-		--exclude "**/helm/*/templates/*" \
-		docs modules libs examples
-
-## Validate GTS docs with vendor check (release build)
-gts-docs-vendor-release:
-	cargo run --release -p gts-docs-validator -- \
-		--vendor cf,vendor,example,fabrikam \
-		--exclude "target/*" \
-		--exclude "docs/api/*" \
-		--exclude "modules/chat-engine/*" \
-		--exclude "*/helm/*/templates/*" \
 		docs modules libs examples
 
 install-tools:
 	@command -v cargo-nextest >/dev/null 2>&1 || cargo install cargo-nextest
-
-## Run tests for GTS documentation validator
-gts-docs-test: install-tools
-	cargo nextest run -p gts-docs-validator
 
 ## List all custom project compliance lints (see tools/dylint_lints/README.md)
 dylint-list:
@@ -702,14 +670,14 @@ oop-example:
 	cargo run --bin cf-server --features oop-example,users-info-example,static-authn,static-authz,static-tenants,static-credstore -- --config config/quickstart.yaml run
 
 # Run all quality checks
-check: .setup-stamp fmt cypilot-validate clippy lychee security dylint-test dylint gts-docs-vendor test
+check: .setup-stamp fmt cypilot-validate clippy lychee security dylint-test dylint gts-docs test
 
 ci_test: fmt clippy
 
-ci_docs: lychee gts-docs-vendor
+ci_docs: lychee gts-docs
 
 # Run CI pipeline locally, requires docker
-ci: fmt clippy test-no-macros test-macros test-db deny test-users-info-pg lychee gts-docs-vendor dylint dylint-test
+ci: fmt clippy test-no-macros test-macros test-db deny test-users-info-pg lychee gts-docs dylint dylint-test
 
 # Build the cf-server release binary using a toolchain from the rust-toolchain.toml
 cargo-build:

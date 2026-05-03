@@ -14,21 +14,21 @@
 const _VALID_BASIC: &str = r#"[{
     "status": 422,
     "title": "Test Error",
-    "code": "gts.hx.core.errors.err.v1~hx.test.basic.v1"
+    "code": "gts.cf.core.errors.err.v1~hx.test.basic.v1"
 }]"#;
 
 /// Valid: GTS with multiple chains
 const _VALID_CHAINED: &str = r#"[{
     "status": 422,
     "title": "Test Error",
-    "code": "gts.hx.core.errors.err.v1~hx.test.chain1.v1~hx.test.chain2.v1"
+    "code": "gts.cf.core.errors.err.v1~hx.test.chain1.v1~hx.test.chain2.v1"
 }]"#;
 
 /// Valid: GTS with underscores
 const _VALID_UNDERSCORES: &str = r#"[{
     "status": 422,
     "title": "Test Error",
-    "code": "gts.hx.core_module.errors.test_error.v1~hx.test.underscore_test.v1"
+    "code": "gts.cf.core_module.errors.test_error.v1~hx.test.underscore_test.v1"
 }]"#;
 
 // Note: Actual compile tests would use trybuild in a separate test harness

@@ -263,7 +263,7 @@ If a referenced type does not exist, the operation **MUST** return a validation 
 **RG type prefix requirement (`gts.cf.core.rg.type.v1~`)**:
 - **`type` in group operations**: `POST /groups`, `PUT /groups/{id}` — **MUST** have `gts.cf.core.rg.type.v1~` prefix. Rejected without it.
 - **`allowed_parents`**: **MUST** have `gts.cf.core.rg.type.v1~` prefix — parent groups are always RG types.
-- **`allowed_memberships`**: **NO prefix requirement** — membership resource types are external domain types (e.g., `gts.z.system.idp.user.v1~`, `gts.z.system.lms.course.v1~`) that do not need to be RG types.
+- **`allowed_memberships`**: **NO prefix requirement** — membership resource types are external domain types (e.g., `gts.vendor.system.idp.user.v1~`, `gts.vendor.system.lms.course.v1~`) that do not need to be RG types.
 
 This ensures the hierarchy is always governed by the RG type contract (`can_be_root`, `allowed_parents`, `allowed_memberships`), while membership resources can be any registered GTS type.
 
