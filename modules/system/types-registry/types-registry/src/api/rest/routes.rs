@@ -19,7 +19,7 @@ struct License;
 
 impl AsRef<str> for License {
     fn as_ref(&self) -> &'static str {
-        "gts.x.core.lic.feat.v1~x.core.global.base.v1"
+        "gts.cf.core.lic.feat.v1~cf.core.global.base.v1"
     }
 }
 

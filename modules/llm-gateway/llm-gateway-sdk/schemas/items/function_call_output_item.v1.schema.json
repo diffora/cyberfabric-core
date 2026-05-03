@@ -1,10 +1,10 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "gts://gts.x.llmgw.items.item.v1~x.llmgw.items.function_call_output_item.v1~",
+  "$id": "gts://gts.cf.llmgw.items.item.v1~x.llmgw.items.function_call_output_item.v1~",
   "title": "FunctionCallOutputItem",
   "description": "Input item providing the result of a function call executed by the consumer.",
   "allOf": [
-    { "$ref": "gts://gts.x.llmgw.items.item.v1~" },
+    { "$ref": "gts://gts.cf.llmgw.items.item.v1~" },
     {
       "properties": {
         "id": {
@@ -30,7 +30,7 @@
             {
               "type": "array",
               "items": {
-                "$ref": "gts://gts.x.llmgw.content.input_content_part.v1~"
+                "$ref": "gts://gts.cf.llmgw.content.input_content_part.v1~"
               }
             }
           ],

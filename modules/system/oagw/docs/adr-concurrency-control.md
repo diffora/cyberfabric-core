@@ -40,7 +40,7 @@ Both are needed: rate limiting prevents long-term quota violations, concurrency 
 
 ```
 Request → [Tenant Limit] → [Upstream Limit] → [Route Limit] → Execute
-           └─ 503 if exceeded ┘                                 
+           └─ 503 if exceeded ┘
 ```
 
 ## Configuration Schema
@@ -181,7 +181,7 @@ impl Drop for Permit<'_> {
 
 ```json
 {
-  "type": "gts.x.core.errors.err.v1~x.oagw.concurrency_limit.exceeded.v1",
+  "type": "gts.cf.core.errors.err.v1~cf.oagw.concurrency_limit.exceeded.v1",
   "title": "Concurrency Limit Exceeded",
   "status": 503,
   "detail": "Upstream api.openai.com has reached max concurrent requests (100/100)",

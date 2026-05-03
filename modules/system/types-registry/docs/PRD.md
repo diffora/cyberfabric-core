@@ -86,7 +86,7 @@ The system must validate schema ID format before lookup.
 **Acceptance criteria**:
 - Returns schema_not_found if ID does not exist
 - Returns invalid_schema_id if format is wrong
-- Schema ID format: `gts.x.core.faas.func.v1~<vendor>.<app>.<namespace>.<func_name>.v1`
+- Schema ID format: `gts.cf.core.faas.func.v1~<vendor>.<app>.<namespace>.<func_name>.v1`
 
 #### UC-002: Batch Get Schemas
 

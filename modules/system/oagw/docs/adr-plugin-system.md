@@ -18,19 +18,19 @@ OAGW needs extensibility for request/response processing. Different use cases re
 
 ### Plugin Types
 
-**1. AuthPlugin** (`gts.x.core.oagw.auth_plugin.v1~*`)
+**1. AuthPlugin** (`gts.cf.core.oagw.auth_plugin.v1~*`)
 
 - Purpose: Inject authentication credentials
 - Execution: Once per request, before guards
 - Examples: API key, OAuth2, Bearer token, Basic auth
 
-**2. GuardPlugin** (`gts.x.core.oagw.guard_plugin.v1~*`)
+**2. GuardPlugin** (`gts.cf.core.oagw.guard_plugin.v1~*`)
 
 - Purpose: Validate requests and enforce policies (can reject)
 - Execution: After auth, before transform
 - Examples: Timeout enforcement, CORS validation, rate limiting
 
-**3. TransformPlugin** (`gts.x.core.oagw.transform_plugin.v1~*`)
+**3. TransformPlugin** (`gts.cf.core.oagw.transform_plugin.v1~*`)
 
 - Purpose: Modify request/response/error data
 - Execution: Before and after proxy call
@@ -116,7 +116,7 @@ pub struct OAuth2PkceAuthPlugin {
 impl AuthPlugin for OAuth2PkceAuthPlugin {
     fn id(&self) -> &str { "oauth2-pkce" }
     fn plugin_type(&self) -> &str {
-        "gts.x.core.oagw.auth_plugin.v1~custom.oauth2.oagw.pkce.v1"
+        "gts.cf.core.oagw.auth_plugin.v1~custom.oauth2.oagw.pkce.v1"
     }
     async fn authenticate(&self, ctx: &mut RequestContext) -> Result<()> {
         // Custom OAuth2 PKCE flow

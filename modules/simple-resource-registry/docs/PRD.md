@@ -245,7 +245,7 @@ The system **MUST** support OData $filter and $orderby operations, plus cursor-b
 
 - [ ] `p1` - **ID**: `cpt-cf-srr-fr-gts-access-control`
 
-All CRUD operations (GET, POST, PUT, DELETE) **MUST** enforce GTS type-based access control using token `Permission` entries (`resource_pattern` + `action`, where action is `read`/`create`/`update`/`delete`). GTS wildcard matching rules apply: a permission with `resource_pattern` = `gts.x.srr.resource.v1~acme.*` grants access to all derived types under the `acme` vendor namespace. For POST, if the requested resource `type` is not in scope, the system **MUST** return 403 Forbidden with error code `gts-type-not-in-scope`. For LIST, if the requested type filter has no intersection with the caller's permitted GTS types, the system **MUST** return 403 Forbidden with error code `gts-type-not-in-scope`. For individual resource operations (GET/PUT/DELETE), type scope is enforced via backend query filters (together with tenant and user filters), so out-of-scope resources are not returned and the API **MUST** return 404 Not Found.
+All CRUD operations (GET, POST, PUT, DELETE) **MUST** enforce GTS type-based access control using token `Permission` entries (`resource_pattern` + `action`, where action is `read`/`create`/`update`/`delete`). GTS wildcard matching rules apply: a permission with `resource_pattern` = `gts.cf.srr.resource.v1~acme.*` grants access to all derived types under the `acme` vendor namespace. For POST, if the requested resource `type` is not in scope, the system **MUST** return 403 Forbidden with error code `gts-type-not-in-scope`. For LIST, if the requested type filter has no intersection with the caller's permitted GTS types, the system **MUST** return 403 Forbidden with error code `gts-type-not-in-scope`. For individual resource operations (GET/PUT/DELETE), type scope is enforced via backend query filters (together with tenant and user filters), so out-of-scope resources are not returned and the API **MUST** return 404 Not Found.
 
 **Rationale**: Resources in the registry represent diverse data types with different sensitivity levels. GTS type-based access control ensures that API consumers can only operate on resource types explicitly granted in their token, preventing unauthorized access to resource families the consumer was not designed or approved to use.
 **Actors**: `cpt-cf-srr-actor-platform-user`, `cpt-cf-srr-actor-consumer-module`
@@ -254,7 +254,7 @@ All CRUD operations (GET, POST, PUT, DELETE) **MUST** enforce GTS type-based acc
 
 - [ ] `p1` - **ID**: `cpt-cf-srr-fr-gts-wildcard-filtering`
 
-The GET /resources list endpoint **MUST** support filtering by GTS type ID with trailing wildcard (`*`) per GTS spec section 10. The wildcard **MUST** appear only once, at the end of the pattern, and is greedy (matches through `~` chain separator). Example: `type eq 'gts.x.srr.resource.v1~acme.*'` matches all derived types under the `acme` vendor. When a wildcard filter is used, the system **MUST** only return resources whose GTS types fall within the caller's permitted scope (intersection of wildcard query with token permissions).
+The GET /resources list endpoint **MUST** support filtering by GTS type ID with trailing wildcard (`*`) per GTS spec section 10. The wildcard **MUST** appear only once, at the end of the pattern, and is greedy (matches through `~` chain separator). Example: `type eq 'gts.cf.srr.resource.v1~acme.*'` matches all derived types under the `acme` vendor. When a wildcard filter is used, the system **MUST** only return resources whose GTS types fall within the caller's permitted scope (intersection of wildcard query with token permissions).
 
 **Rationale**: Consumers often need to discover resources across a family of related types (e.g., all resources from a vendor namespace) without knowing every specific derived type.
 **Actors**: `cpt-cf-srr-actor-platform-user`, `cpt-cf-srr-actor-consumer-module`
@@ -554,7 +554,7 @@ The system **MUST** support storing up to 100 million total resources across all
 | GTS type definition changes after resources exist | Existing resources may not validate against updated schema | Schema evolution and validation are enforced by the Types Registry module; the registry relies on Types Registry for schema validation at creation time |
 | Over-reliance on JSON payload queries despite explicit exclusion | Consumers may expect full-text or JSON path queries on payload | Clear documentation; search API (`cpt-cf-srr-fr-search-api`) with search-capable backends for search-heavy use cases |
 | Background purge process misses resources under high churn | Soft-deleted or TTL-expired resources accumulate beyond retention window | Purge process runs periodically with batch-size limits; alerting on purge backlog |
-| GTS type-based access control creates permission management overhead | Administrators must manage per-type permissions for each consumer | Support GTS wildcard patterns in permissions (e.g., `gts.x.srr.resource.v1~acme.*`) to grant access to type families |
+| GTS type-based access control creates permission management overhead | Administrators must manage per-type permissions for each consumer | Support GTS wildcard patterns in permissions (e.g., `gts.cf.srr.resource.v1~acme.*`) to grant access to type families |
 
 ## 13. Open Questions
 

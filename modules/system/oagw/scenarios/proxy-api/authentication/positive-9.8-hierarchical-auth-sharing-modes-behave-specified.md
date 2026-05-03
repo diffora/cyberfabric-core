@@ -9,7 +9,7 @@ Parent upstream:
   "alias": "api.openai.com",
   "auth": {
     "sharing": "inherit",
-    "type": "gts.x.core.oagw.auth_plugin.v1~x.core.oagw.apikey.v1",
+    "type": "gts.cf.core.oagw.auth_plugin.v1~cf.core.oagw.apikey.v1",
     "config": { "secret_ref": "cred://partner/openai" }
   }
 }
@@ -20,7 +20,7 @@ Child binding provides its own auth:
 ```json
 {
   "auth": {
-    "type": "gts.x.core.oagw.auth_plugin.v1~x.core.oagw.apikey.v1",
+    "type": "gts.cf.core.oagw.auth_plugin.v1~cf.core.oagw.apikey.v1",
     "config": { "secret_ref": "cred://customer/openai" }
   }
 }

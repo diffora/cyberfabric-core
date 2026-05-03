@@ -104,7 +104,7 @@ Design constraints enforced: `cpt-cf-oagw-constraint-body-limit`, `cpt-cf-oagw-c
 2. [x] - `p1` - API: Extract `SecurityContext` (tenant_id, principal_id, permissions) from Bearer token - `inst-proxy-2`
 3. [x] - `p1` - **IF** token missing or invalid - `inst-proxy-3`
    1. [x] - `p1` - **RETURN** 401 Unauthorized with `X-OAGW-Error-Source: gateway` - `inst-proxy-3a`
-4. [x] - `p1` - **IF** token lacks `gts.x.core.oagw.proxy.v1~:invoke` permission - `inst-proxy-4`
+4. [x] - `p1` - **IF** token lacks `gts.cf.core.oagw.proxy.v1~:invoke` permission - `inst-proxy-4`
    1. [x] - `p1` - **RETURN** 403 Forbidden with `X-OAGW-Error-Source: gateway` - `inst-proxy-4a`
 5. [x] - `p1` - Invoke `DataPlaneService.execute_proxy(alias, path, method, headers, body, security_context)` - `inst-proxy-5`
 6. [x] - `p1` - Resolve upstream by alias via `cpt-cf-oagw-algo-alias-resolution` - `inst-proxy-6`
@@ -423,7 +423,7 @@ Pingora-level errors are handled by the `fail_to_proxy` callback, which **MUST**
 ## 6. Acceptance Criteria
 
 - [x] Proxy requests via `{METHOD} /api/oagw/v1/proxy/{alias}/{path}` are forwarded to the correct upstream and response is returned
-- [x] Requests without valid Bearer token return 401; requests without `gts.x.core.oagw.proxy.v1~:invoke` permission return 403
+- [x] Requests without valid Bearer token return 401; requests without `gts.cf.core.oagw.proxy.v1~:invoke` permission return 403
 - [x] Alias resolution walks tenant hierarchy from descendant to root and returns closest match (shadowing)
 - [x] Disabled upstreams return 503 LinkUnavailable with `X-OAGW-Error-Source: gateway`
 - [x] Private upstreams are not visible to descendant tenants during alias resolution

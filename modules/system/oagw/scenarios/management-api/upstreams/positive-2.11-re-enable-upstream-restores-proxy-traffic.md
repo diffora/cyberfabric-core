@@ -14,12 +14,12 @@ Content-Type: application/json
       { "scheme": "https", "host": "httpbin.org", "port": 443 }
     ]
   },
-  "protocol": "gts.x.core.oagw.protocol.v1~x.core.oagw.http.v1",
+  "protocol": "gts.cf.core.oagw.protocol.v1~cf.core.oagw.http.v1",
   "alias": "httpbin.org"
 }
 ```
 
-Expected: `201 Created` with upstream id `gts.x.core.oagw.upstream.v1~<uuid>`.
+Expected: `201 Created` with upstream id `gts.cf.core.oagw.upstream.v1~<uuid>`.
 
 ```http
 POST /api/oagw/v1/routes HTTP/1.1
@@ -28,7 +28,7 @@ Authorization: Bearer <tenant-token>
 Content-Type: application/json
 
 {
-  "upstream_id": "gts.x.core.oagw.upstream.v1~<uuid>",
+  "upstream_id": "gts.cf.core.oagw.upstream.v1~<uuid>",
   "match": {
     "http": {
       "methods": ["GET"],
@@ -43,7 +43,7 @@ Expected: `201 Created`.
 ## Step 2: Disable upstream
 
 ```http
-PUT /api/oagw/v1/upstreams/gts.x.core.oagw.upstream.v1~<uuid> HTTP/1.1
+PUT /api/oagw/v1/upstreams/gts.cf.core.oagw.upstream.v1~<uuid> HTTP/1.1
 Host: oagw.example.com
 Authorization: Bearer <tenant-token>
 Content-Type: application/json
@@ -54,7 +54,7 @@ Content-Type: application/json
       { "scheme": "https", "host": "httpbin.org", "port": 443 }
     ]
   },
-  "protocol": "gts.x.core.oagw.protocol.v1~x.core.oagw.http.v1",
+  "protocol": "gts.cf.core.oagw.protocol.v1~cf.core.oagw.http.v1",
   "alias": "httpbin.org",
   "enabled": false
 }
@@ -75,7 +75,7 @@ Expected: `503` with `X-OAGW-Error-Source: gateway`.
 ## Step 4: Re-enable upstream
 
 ```http
-PUT /api/oagw/v1/upstreams/gts.x.core.oagw.upstream.v1~<uuid> HTTP/1.1
+PUT /api/oagw/v1/upstreams/gts.cf.core.oagw.upstream.v1~<uuid> HTTP/1.1
 Host: oagw.example.com
 Authorization: Bearer <tenant-token>
 Content-Type: application/json
@@ -86,7 +86,7 @@ Content-Type: application/json
       { "scheme": "https", "host": "httpbin.org", "port": 443 }
     ]
   },
-  "protocol": "gts.x.core.oagw.protocol.v1~x.core.oagw.http.v1",
+  "protocol": "gts.cf.core.oagw.protocol.v1~cf.core.oagw.http.v1",
   "alias": "httpbin.org",
   "enabled": true
 }

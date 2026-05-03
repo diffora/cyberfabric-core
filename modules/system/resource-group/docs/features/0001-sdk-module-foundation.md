@@ -332,8 +332,8 @@ Other modules (`nodes-registry`, `types-registry`) place pure-logic tests direct
 
 #### TC-SDK-07: GtsTypePath::new() trims whitespace and lowercases [P2]
 - **Covers**: G36
-- **Input**: `"  GTS.X.System.RG.Type.V1~  "`
-- **Assert**: `Ok`, `as_str() == "gts.x.system.rg.type.v1~"` (`new` only normalizes case/whitespace; it does not rewrite the GTS namespace)
+- **Input**: `"  gts.cf.System.RG.Type.V1~  "`
+- **Assert**: `Ok`, `as_str() == "gts.cf.system.rg.type.v1~"` (`new` only normalizes case/whitespace; it does not rewrite the GTS namespace)
 
 #### TC-SDK-08: GtsTypePath::new() chained path (multi-segment) [P1]
 - **Covers**: G38

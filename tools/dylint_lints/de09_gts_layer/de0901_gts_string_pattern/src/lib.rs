@@ -5,6 +5,7 @@ extern crate rustc_ast;
 extern crate rustc_span;
 
 use gts::{GtsIdSegment, GtsOps};
+use lint_utils::{filename_str, is_temp_path};
 use rustc_ast::token::LitKind;
 use rustc_ast::{AttrKind, Attribute, Expr, ExprKind, Item, ItemKind};
 use rustc_lint::{EarlyContext, EarlyLintPass, LintContext};
@@ -15,7 +16,11 @@ use std::collections::HashSet;
 // Thread-local storage for spans to skip (inside starts_with calls)
 thread_local! {
     static SKIP_SPANS: RefCell<HashSet<Span>> = RefCell::new(HashSet::new());
+    static IN_TEST_DEPTH: RefCell<u32> = RefCell::new(0);
 }
+
+const CODE_ALLOWED_VENDORS: &[&str] = &["cf"];
+const TEST_ALLOWED_VENDORS: &[&str] = &["cf", "vendor", "example", "fabrikam", "contoso", "acme", "globex"];
 
 dylint_linting::declare_pre_expansion_lint! {
     /// ### What it does
@@ -36,6 +41,7 @@ dylint_linting::declare_pre_expansion_lint! {
 impl EarlyLintPass for De0901GtsStringPattern {
     fn check_crate_post(&mut self, _cx: &EarlyContext<'_>, _krate: &rustc_ast::Crate) {
         SKIP_SPANS.with(|s| s.borrow_mut().clear());
+        IN_TEST_DEPTH.with(|d| *d.borrow_mut() = 0);
     }
 
     fn check_attribute(&mut self, cx: &EarlyContext<'_>, attr: &Attribute) {
@@ -56,6 +62,10 @@ impl EarlyLintPass for De0901GtsStringPattern {
     /// Items with a compliant name are added to the skip set so their value span
     /// is not re-checked by `check_expr`.
     fn check_item(&mut self, cx: &EarlyContext<'_>, item: &Item) {
+        if is_test_item(item) {
+            IN_TEST_DEPTH.with(|d| *d.borrow_mut() += 1);
+        }
+
         // Extract both the item name and the initializer expression from const/static items.
         // Note: `Item` has no top-level `ident`; it lives inside `ConstItem` / `StaticItem`.
         let (item_name, init_expr): (&str, Option<&Expr>) = match &item.kind {
@@ -90,6 +100,8 @@ impl EarlyLintPass for De0901GtsStringPattern {
             return;
         }
 
+        self.check_vendors_in_parse_result(cx, item.span, s, &result);
+
         if !item_name.ends_with("_WILDCARD") {
             cx.span_lint(DE0901_GTS_STRING_PATTERN, item.span, |diag| {
                 diag.primary_message(format!(
@@ -108,6 +120,12 @@ impl EarlyLintPass for De0901GtsStringPattern {
         SKIP_SPANS.with(|spans| {
             collect_nested_spans(init, &mut spans.borrow_mut());
         });
+    }
+
+    fn check_item_post(&mut self, _cx: &EarlyContext<'_>, item: &Item) {
+        if is_test_item(item) {
+            IN_TEST_DEPTH.with(|d| *d.borrow_mut() -= 1);
+        }
     }
 
     fn check_expr(&mut self, cx: &EarlyContext<'_>, expr: &Expr) {
@@ -257,6 +275,53 @@ fn is_gts_wildcard_new_call(func_expr: &Expr) -> bool {
     segments
         .iter()
         .any(|seg| seg.ident.name.as_str() == "GtsWildcard")
+}
+
+fn is_in_test() -> bool {
+    IN_TEST_DEPTH.with(|d| *d.borrow() > 0)
+}
+
+fn is_ui_test(cx: &EarlyContext<'_>, span: Span) -> bool {
+    let Some(file_path) = filename_str(cx.sess().source_map(), span) else {
+        return false;
+    };
+    is_temp_path(&file_path)
+}
+
+fn allowed_vendors(cx: &EarlyContext<'_>, span: Span) -> &'static [&'static str] {
+    if is_in_test() || is_ui_test(cx, span) {
+        TEST_ALLOWED_VENDORS
+    } else {
+        CODE_ALLOWED_VENDORS
+    }
+}
+
+/// Returns `true` if the item is annotated with `#[cfg(test)]` or `#[test]`.
+fn is_test_item(item: &Item) -> bool {
+    item.attrs.iter().any(|attr| {
+        let AttrKind::Normal(normal) = &attr.kind else {
+            return false;
+        };
+        let segments = &normal.item.path.segments;
+        if segments.len() != 1 {
+            return false;
+        }
+        let name = segments[0].ident.name.as_str();
+        if name == "test" {
+            return true;
+        }
+        if name == "cfg" {
+            if let Some(items) = normal.item.meta_item_list() {
+                return items.iter().any(|nested| {
+                    nested.meta_item().map_or(false, |mi| {
+                        mi.path.segments.len() == 1
+                            && mi.path.segments[0].ident.name.as_str() == "test"
+                    })
+                });
+            }
+        }
+        false
+    })
 }
 
 impl De0901GtsStringPattern {
@@ -457,6 +522,8 @@ impl De0901GtsStringPattern {
                 diag.note("schema_id must end with '~' to indicate it's a type schema");
                 diag.help("Example: gts.x.core.events.type.v1~");
             });
+        } else {
+            self.check_vendors_in_parse_result(cx, span, s, &result);
         }
     }
 
@@ -489,12 +556,53 @@ impl De0901GtsStringPattern {
             return;
         }
 
-        if let Err(e) = GtsIdSegment::new(0, 0, s) {
+        match GtsIdSegment::new(0, 0, s) {
+            Err(e) => {
+                cx.span_lint(DE0901_GTS_STRING_PATTERN, span, |diag| {
+                    diag.primary_message(format!("invalid GTS segment: '{}' (DE0901)", s));
+                    diag.note(e.to_string());
+                    diag.help("Example: vendor.package.sku.abc.v1");
+                });
+            }
+            Ok(seg) if !allowed_vendors(cx, span).contains(&seg.vendor.as_str()) => {
+                cx.span_lint(DE0901_GTS_STRING_PATTERN, span, |diag| {
+                    diag.primary_message(format!("invalid GTS vendor in segment: '{}' (DE0901)", s));
+                    diag.note(format!(
+                        "found vendor '{}', allowed vendors are 'cf' and 'example'",
+                        seg.vendor
+                    ));
+                });
+            }
+            Ok(_) => {}
+        }
+    }
+
+    fn check_vendors_in_parse_result(
+        &self,
+        cx: &EarlyContext<'_>,
+        span: rustc_span::Span,
+        s: &str,
+        result: &gts::ops::GtsIdParseResult,
+    ) {
+        let vendors = allowed_vendors(cx, span);
+        for (idx, seg) in result.segments.iter().enumerate() {
+            if seg.vendor.is_empty()
+                || seg.vendor == "*"
+                || vendors.contains(&seg.vendor.as_str())
+            {
+                continue;
+            }
             cx.span_lint(DE0901_GTS_STRING_PATTERN, span, |diag| {
-                diag.primary_message(format!("invalid GTS segment: '{}' (DE0901)", s));
-                diag.note(e.to_string());
-                diag.help("Example: vendor.package.sku.abc.v1");
+                diag.primary_message(format!(
+                    "invalid GTS vendor in segment #{idx}: '{}' (DE0901)",
+                    s
+                ));
+                diag.note(format!(
+                    "found vendor '{}', allowed vendors are 'cf' and 'example'",
+                    seg.vendor
+                ));
             });
+            break;
         }
     }
 
@@ -518,6 +626,8 @@ impl De0901GtsStringPattern {
                 diag.primary_message(format!("invalid GTS string: '{}' (DE0901)", s));
                 diag.note(result.error);
             });
+        } else {
+            self.check_vendors_in_parse_result(cx, span, s, &result);
         }
     }
 
@@ -537,6 +647,8 @@ impl De0901GtsStringPattern {
                 diag.primary_message(format!("invalid GTS string: '{}' (DE0901)", s));
                 diag.note(result.error);
             });
+        } else {
+            self.check_vendors_in_parse_result(cx, span, s, &result);
         }
     }
 }

@@ -33,7 +33,7 @@
 
 ### 1.1 Overview
 
-Delegates every aspect of user-group hierarchy, membership storage, cycle detection, and tenant-scoped isolation to the Resource Group module. Account Management owns only three thin touchpoints: (1) registering the chained user-group RG type schema `gts.x.core.rg.type.v1~x.core.am.user_group.v1~` at module initialization; (2) triggering Resource Group cleanup of a tenant's user-group subtree during tenant hard-deletion; (3) publishing the tenant-scoped user-query surface that consumers combine with `ResourceGroupClient` membership operations to verify user existence.
+Delegates every aspect of user-group hierarchy, membership storage, cycle detection, and tenant-scoped isolation to the Resource Group module. Account Management owns only three thin touchpoints: (1) registering the chained user-group RG type schema `gts.cf.core.rg.type.v1~cf.core.am.user_group.v1~` at module initialization; (2) triggering Resource Group cleanup of a tenant's user-group subtree during tenant hard-deletion; (3) publishing the tenant-scoped user-query surface that consumers combine with `ResourceGroupClient` membership operations to verify user existence.
 
 ### 1.2 Purpose
 
@@ -69,16 +69,16 @@ Delivers the delegation half of PRD §5.6 (User Groups Management) by ensuring A
 
 **Success Scenarios**:
 
-- On `AccountManagementModule` initialization, AM invokes `algo-user-group-rg-type-schema-registration` against the Resource Group types registry via `ResourceGroupClient`. If the chained type schema `gts.x.core.rg.type.v1~x.core.am.user_group.v1~` is already registered with identical traits, the call is a successful no-op. If it is absent, AM registers it with `allowed_memberships = [gts.x.core.am.user.v1~]` and self-referential `allowed_parents = [gts.x.core.rg.type.v1~x.core.am.user_group.v1~]` before the module signals ready.
+- On `AccountManagementModule` initialization, AM invokes `algo-user-group-rg-type-schema-registration` against the Resource Group types registry via `ResourceGroupClient`. If the chained type schema `gts.cf.core.rg.type.v1~cf.core.am.user_group.v1~` is already registered with identical traits, the call is a successful no-op. If it is absent, AM registers it with `allowed_memberships = [gts.cf.core.am.user.v1~]` and self-referential `allowed_parents = [gts.cf.core.rg.type.v1~cf.core.am.user_group.v1~]` before the module signals ready.
 
 **Error Scenarios**:
 
 - Resource Group is unreachable during module initialization — AM module init fails fast with `service_unavailable` category mapping delegated to the `feature-errors-observability` envelope, consistent with `feature-platform-bootstrap`'s hard-dependency posture. AM does NOT proceed to signal ready with an unregistered type.
-- The registered schema exists but its traits diverge from the required shape (e.g., `allowed_memberships` missing `gts.x.core.am.user.v1~`, or `allowed_parents` missing self-nesting) — registration fails with a deterministic `validation` error; AM does NOT auto-repair the diverged schema.
+- The registered schema exists but its traits diverge from the required shape (e.g., `allowed_memberships` missing `gts.cf.core.am.user.v1~`, or `allowed_parents` missing self-nesting) — registration fails with a deterministic `validation` error; AM does NOT auto-repair the diverged schema.
 
 **Steps**:
 
-1. [ ] - `p1` - At `AccountManagementModule` initialization, invoke `algo-user-group-rg-type-schema-registration` with the chained type identifier `gts.x.core.rg.type.v1~x.core.am.user_group.v1~` and the required traits (`allowed_memberships`, `allowed_parents`) - `inst-flow-rgreg-invoke-algo`
+1. [ ] - `p1` - At `AccountManagementModule` initialization, invoke `algo-user-group-rg-type-schema-registration` with the chained type identifier `gts.cf.core.rg.type.v1~cf.core.am.user_group.v1~` and the required traits (`allowed_memberships`, `allowed_parents`) - `inst-flow-rgreg-invoke-algo`
 2. [ ] - `p1` - **IF** algorithm returned already-present-and-equivalent - `inst-flow-rgreg-noop-branch`
    1. [ ] - `p1` - **RETURN** success no-op; module init continues - `inst-flow-rgreg-noop-return`
 3. [ ] - `p1` - **IF** algorithm returned registered-new - `inst-flow-rgreg-registered-branch`
@@ -107,7 +107,7 @@ Delivers the delegation half of PRD §5.6 (User Groups Management) by ensuring A
 **Steps**:
 
 1. [ ] - `p1` - Called by the hard-delete flow in `feature-tenant-hierarchy-management` with `{tenant_id}` just before the `tenants` row delete - `inst-flow-cascade-entry`
-2. [ ] - `p1` - Invoke `ResourceGroupClient` to delete the tenant's user-group subtree (groups of type `gts.x.core.rg.type.v1~x.core.am.user_group.v1~` scoped to `{tenant_id}`) - `inst-flow-cascade-invoke-rg`
+2. [ ] - `p1` - Invoke `ResourceGroupClient` to delete the tenant's user-group subtree (groups of type `gts.cf.core.rg.type.v1~cf.core.am.user_group.v1~` scoped to `{tenant_id}`) - `inst-flow-cascade-invoke-rg`
 3. [ ] - `p1` - **IF** RG call failed transport-level (unreachable or timeout) - `inst-flow-cascade-unavailable-branch`
    1. [ ] - `p1` - **RETURN** `(reject, sub_code=service_unavailable)` via the `feature-errors-observability` envelope; hard-delete flow aborts and `tenants` row is NOT removed - `inst-flow-cascade-unavailable-return`
 4. [ ] - `p1` - **IF** RG call returned a provider-level error - `inst-flow-cascade-provider-error-branch`
@@ -120,7 +120,7 @@ Delivers the delegation half of PRD §5.6 (User Groups Management) by ensuring A
 
 - [ ] `p1` - **ID**: `cpt-cf-account-management-algo-user-groups-rg-type-schema-registration`
 
-**Input**: Chained type identifier `gts.x.core.rg.type.v1~x.core.am.user_group.v1~`, required traits (`allowed_memberships = [gts.x.core.am.user.v1~]`, `allowed_parents = [gts.x.core.rg.type.v1~x.core.am.user_group.v1~]`), schema body reference (`user_group.v1.schema.json`).
+**Input**: Chained type identifier `gts.cf.core.rg.type.v1~cf.core.am.user_group.v1~`, required traits (`allowed_memberships = [gts.cf.core.am.user.v1~]`, `allowed_parents = [gts.cf.core.rg.type.v1~cf.core.am.user_group.v1~]`), schema body reference (`user_group.v1.schema.json`).
 
 **Output**: Idempotent outcome — `already-present-and-equivalent` (no-op), `registered-new` (newly persisted in RG), OR one of the mapped failure categories (`service_unavailable` when RG is unreachable, `validation` when an existing RG-side schema diverges from the required traits).
 
@@ -131,7 +131,7 @@ Delivers the delegation half of PRD §5.6 (User Groups Management) by ensuring A
 1. [ ] - `p1` - Query the Resource Group types registry via `ResourceGroupClient` for the chained type identifier - `inst-algo-rgreg-query-existing`
 2. [ ] - `p1` - **IF** RG query raised transport failure or timed out - `inst-algo-rgreg-transport-failure`
    1. [ ] - `p1` - **RETURN** `(reject, sub_code=service_unavailable)` so the calling flow can fail module init - `inst-algo-rgreg-transport-return`
-3. [ ] - `p1` - **IF** the type is already registered with equivalent traits (`allowed_memberships` includes `gts.x.core.am.user.v1~` AND `allowed_parents` includes itself) - `inst-algo-rgreg-equivalent-branch`
+3. [ ] - `p1` - **IF** the type is already registered with equivalent traits (`allowed_memberships` includes `gts.cf.core.am.user.v1~` AND `allowed_parents` includes itself) - `inst-algo-rgreg-equivalent-branch`
    1. [ ] - `p1` - **RETURN** `already-present-and-equivalent` - `inst-algo-rgreg-equivalent-return`
 4. [ ] - `p1` - **IF** the type is registered but traits diverge - `inst-algo-rgreg-diverged-branch`
    1. [ ] - `p1` - **RETURN** `(reject, sub_code=validation, reason=diverged_schema)` so the calling flow can surface the envelope-mapped error; AM does NOT auto-repair - `inst-algo-rgreg-diverged-return`
@@ -149,7 +149,7 @@ Delivers the delegation half of PRD §5.6 (User Groups Management) by ensuring A
 
 - [ ] `p1` - **ID**: `cpt-cf-account-management-dod-user-groups-rg-type-schema-idempotent-registration`
 
-The system **MUST** invoke `algo-rg-type-schema-registration` during `AccountManagementModule` initialization for the chained type identifier `gts.x.core.rg.type.v1~x.core.am.user_group.v1~` with `allowed_memberships` including `gts.x.core.am.user.v1~` and self-referential `allowed_parents` to support nested user groups, per `fr-user-group-rg-type`. Registration **MUST** be idempotent: an already-present-and-equivalent RG-side schema is a successful no-op; an absent schema is registered with the required traits; a diverged existing schema **MUST** fail module init with `sub_code=validation` rather than silently overwriting operator state. AM **MUST NOT** proceed to module-ready until registration returns success.
+The system **MUST** invoke `algo-rg-type-schema-registration` during `AccountManagementModule` initialization for the chained type identifier `gts.cf.core.rg.type.v1~cf.core.am.user_group.v1~` with `allowed_memberships` including `gts.cf.core.am.user.v1~` and self-referential `allowed_parents` to support nested user groups, per `fr-user-group-rg-type`. Registration **MUST** be idempotent: an already-present-and-equivalent RG-side schema is a successful no-op; an absent schema is registered with the required traits; a diverged existing schema **MUST** fail module init with `sub_code=validation` rather than silently overwriting operator state. AM **MUST NOT** proceed to module-ready until registration returns success.
 
 **Implements**:
 
@@ -158,7 +158,7 @@ The system **MUST** invoke `algo-rg-type-schema-registration` during `AccountMan
 
 **Touches**:
 
-- Data: `gts://gts.x.core.rg.type.v1~x.core.am.user_group.v1~` (chained RG type schema registered by AM; schema body published for RG-side validation)
+- Data: `gts://gts.cf.core.rg.type.v1~cf.core.am.user_group.v1~` (chained RG type schema registered by AM; schema body published for RG-side validation)
 - Sibling integration: `ResourceGroupClient` (external to this feature's surface)
 - Error taxonomy: delegated to `feature-errors-observability` (catalog owner); `service_unavailable` and `validation` sub-codes referenced by name only.
 
@@ -211,12 +211,12 @@ Membership-write callers **MUST** combine AM's `GET /tenants/{tenant_id}/users` 
 
 ## 6. Acceptance Criteria
 
-- [ ] On `AccountManagementModule` initialization against a fresh Resource Group registry (no prior user-group type schema), AM invokes `algo-rg-type-schema-registration` and registers the chained type `gts.x.core.rg.type.v1~x.core.am.user_group.v1~` with `allowed_memberships = [gts.x.core.am.user.v1~]` and self-referential `allowed_parents`; the module signals ready only after registration returns `registered-new`. Fingerprints `dod-user-groups-rg-type-schema-idempotent-registration`.
+- [ ] On `AccountManagementModule` initialization against a fresh Resource Group registry (no prior user-group type schema), AM invokes `algo-rg-type-schema-registration` and registers the chained type `gts.cf.core.rg.type.v1~cf.core.am.user_group.v1~` with `allowed_memberships = [gts.cf.core.am.user.v1~]` and self-referential `allowed_parents`; the module signals ready only after registration returns `registered-new`. Fingerprints `dod-user-groups-rg-type-schema-idempotent-registration`.
 - [ ] On subsequent module restarts with an already-present-and-equivalent RG-side schema, `algo-rg-type-schema-registration` returns `already-present-and-equivalent` as a no-op and module init continues; no duplicate or divergent registration is attempted. Fingerprints `dod-user-groups-rg-type-schema-idempotent-registration`.
-- [ ] If Resource Group is unreachable during module initialization, `algo-rg-type-schema-registration` returns `sub_code=service_unavailable`; the module does NOT signal ready and emits an observable error through the `feature-errors-observability` envelope. If a RG-side schema is present but diverges (missing `gts.x.core.am.user.v1~` in `allowed_memberships` or missing self-nesting in `allowed_parents`), registration returns `sub_code=validation` and the module does NOT auto-repair. Fingerprints `dod-user-groups-rg-type-schema-idempotent-registration`.
+- [ ] If Resource Group is unreachable during module initialization, `algo-rg-type-schema-registration` returns `sub_code=service_unavailable`; the module does NOT signal ready and emits an observable error through the `feature-errors-observability` envelope. If a RG-side schema is present but diverges (missing `gts.cf.core.am.user.v1~` in `allowed_memberships` or missing self-nesting in `allowed_parents`), registration returns `sub_code=validation` and the module does NOT auto-repair. Fingerprints `dod-user-groups-rg-type-schema-idempotent-registration`.
 - [ ] During tenant hard-deletion invoked by the retention job in `feature-tenant-hierarchy-management`, AM calls `ResourceGroupClient` to delete the tenant's user-group subtree before the `tenants` row is removed; if the RG cleanup call fails transport-level, the hard-delete flow aborts with `sub_code=service_unavailable` via the `feature-errors-observability` envelope and the `tenants` row is NOT removed. On the next retry, the hard-delete flow re-attempts cleanup. Fingerprints `dod-user-groups-cascade-cleanup-trigger`.
 - [ ] The AM OpenAPI spec contains NO `/user-groups` family of endpoints and NO `/memberships` family — user-group CRUD, membership add/remove, and nested-group operations are not part of AM's REST surface. The AM module contains no `user_group_*` or `user_group_membership_*` tables, no adapter tables, and no in-memory group-hierarchy cache; RG is the single storage owner. Fingerprints `dod-user-groups-delegation-boundary`.
-- [ ] A membership-write consumer (e.g., `feature-user-groups` caller) combining `GET /tenants/{tenant_id}/users?user_id=<id>` with a `ResourceGroupClient` membership add returns the authoritative user-existence signal before the RG membership write is issued; AM does NOT expose a convenience endpoint that wraps the two-step pattern, and the user-group schema's `allowed_memberships` restricting membership to the platform user resource type `gts.x.core.am.user.v1~` is the RG-side integrity guard. Fingerprints `dod-user-groups-membership-user-existence-pattern`, `dod-user-groups-delegation-boundary`.
+- [ ] A membership-write consumer (e.g., `feature-user-groups` caller) combining `GET /tenants/{tenant_id}/users?user_id=<id>` with a `ResourceGroupClient` membership add returns the authoritative user-existence signal before the RG membership write is issued; AM does NOT expose a convenience endpoint that wraps the two-step pattern, and the user-group schema's `allowed_memberships` restricting membership to the platform user resource type `gts.cf.core.am.user.v1~` is the RG-side integrity guard. Fingerprints `dod-user-groups-membership-user-existence-pattern`, `dod-user-groups-delegation-boundary`.
 - [ ] Nested user-group cycles (e.g., group `A` as a parent of group `B` and `B` as a parent of `A`) are refused by Resource Group forest invariants at the `ResourceGroupClient` boundary; AM's `allowed_parents` trait on the registered schema permits only the same chained user-group type as parent, so the RG-side cycle check is the authoritative enforcement. AM performs NO cycle detection of its own. Fingerprints `dod-user-groups-delegation-boundary`.
 
 ## 7. Deliberate Omissions

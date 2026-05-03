@@ -17,7 +17,7 @@ pub fn parse_gts_id(gts_str: &str, expected_schema: &str, instance: &str) -> Res
             "Validation Error",
             format!("expected GTS schema '{expected_schema}' but got '{schema}~'"),
         )
-        .with_type("gts.x.core.errors.err.v1~x.oagw.validation.error.v1")
+        .with_type("gts.cf.core.errors.err.v1~cf.oagw.validation.error.v1")
         .with_instance(instance));
     }
     Ok(uuid)

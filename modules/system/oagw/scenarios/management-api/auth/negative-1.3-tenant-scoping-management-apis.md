@@ -19,17 +19,17 @@ Content-Type: application/json
       { "scheme": "https", "host": "httpbin.org", "port": 443 }
     ]
   },
-  "protocol": "gts.x.core.oagw.protocol.v1~x.core.oagw.http.v1",
+  "protocol": "gts.cf.core.oagw.protocol.v1~cf.core.oagw.http.v1",
   "alias": "httpbin.org"
 }
 ```
 
-Expected: `201 Created` with `id` like `gts.x.core.oagw.upstream.v1~<uuid>`.
+Expected: `201 Created` with `id` like `gts.cf.core.oagw.upstream.v1~<uuid>`.
 
 ## Step 2: Tenant A reads Tenant B upstream
 
 ```http
-GET /api/oagw/v1/upstreams/gts.x.core.oagw.upstream.v1~<uuid-from-step-1> HTTP/1.1
+GET /api/oagw/v1/upstreams/gts.cf.core.oagw.upstream.v1~<uuid-from-step-1> HTTP/1.1
 Host: oagw.example.com
 Authorization: Bearer <tenant-a-token>
 ```

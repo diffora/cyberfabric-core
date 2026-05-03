@@ -676,7 +676,7 @@ User groups are implemented as [Resource Group](../../resource-group/docs/PRD.md
 
 **Actors**: `cpt-cf-account-management-actor-platform-admin`
 
-AM **MUST** register (or require via seeding) the chained Resource Group type schema `gts.x.core.rg.type.v1~x.core.am.user_group.v1~` for user groups. Its `allowed_memberships` **MUST** include the platform user resource type `gts.x.core.am.user.v1~`, and its `allowed_parents` **MUST** include itself to support nested groups. Tenant-scoped placement is enforced by Resource Group's ownership-graph rules rather than encoded as a schema trait. Registration happens during AM module initialization.
+AM **MUST** register (or require via seeding) the chained Resource Group type schema `gts.cf.core.rg.type.v1~cf.core.am.user_group.v1~` for user groups. Its `allowed_memberships` **MUST** include the platform user resource type `gts.cf.core.am.user.v1~`, and its `allowed_parents` **MUST** include itself to support nested groups. Tenant-scoped placement is enforced by Resource Group's ownership-graph rules rather than encoded as a schema trait. Registration happens during AM module initialization.
 
 - **Rationale**: A dedicated Resource Group type ensures user group operations are governed by the same typed hierarchy, forest invariants, and tenant isolation rules as all other Resource Group entities, without reimplementing group infrastructure in AM.
 
@@ -1555,7 +1555,7 @@ IdP implementations may align with standards such as SCIM 2.0 and OIDC where app
 
 **Preconditions**:
 - Tenant `T1` exists with status `active`
-- User-group Resource Group type `gts.x.core.rg.type.v1~x.core.am.user_group.v1~` is registered with `allowed_memberships` including `gts.x.core.am.user.v1~`
+- User-group Resource Group type `gts.cf.core.rg.type.v1~cf.core.am.user_group.v1~` is registered with `allowed_memberships` including `gts.cf.core.am.user.v1~`
 
 **Main Flow**:
 1. Tenant admin calls the Resource Group API directly to create a Resource Group entity of the user-group type within tenant scope `T1`.
@@ -1853,7 +1853,7 @@ IdP implementations may align with standards such as SCIM 2.0 and OIDC where app
 - [ ] Direct children queries return paginated results with status filtering.
 - [ ] IdP user operations (provision, deprovision, query) work through pluggable IdP integration contract.
 - [ ] User deprovisioning is idempotent: deleting an already-absent IdP user returns success while a missing tenant still returns `not_found`.
-- [ ] AM module initialization registers or verifies the chained Resource Group user-group type schema `gts.x.core.rg.type.v1~x.core.am.user_group.v1~`, including `allowed_memberships = [gts.x.core.am.user.v1~]` and self-referential `allowed_parents`, before user-group operations are relied upon.
+- [ ] AM module initialization registers or verifies the chained Resource Group user-group type schema `gts.cf.core.rg.type.v1~cf.core.am.user_group.v1~`, including `allowed_memberships = [gts.cf.core.am.user.v1~]` and self-referential `allowed_parents`, before user-group operations are relied upon.
 - [ ] User groups (delegated to Resource Group) support creation, membership management, and nested groups with cycle detection via Resource Group forest invariants.
 - [ ] Extensible tenant metadata (e.g., branding, contacts, billing-address) is configurable per tenant via GTS-registered schemas, with per-schema inheritance policy, exposed via tenant metadata resolution API.
 - [ ] Tenant metadata entries written directly on a tenant are discoverable via a dedicated listing endpoint with pagination; listing honors self-managed barriers the same way other tenant-scoped reads do.

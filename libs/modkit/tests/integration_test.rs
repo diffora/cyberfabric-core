@@ -21,7 +21,7 @@ enum TestLicenseFeatures {
 impl AsRef<str> for TestLicenseFeatures {
     fn as_ref(&self) -> &'static str {
         match self {
-            TestLicenseFeatures::Base => "gts.x.core.lic.feat.v1~x.core.global.base.v1",
+            TestLicenseFeatures::Base => "gts.cf.core.lic.feat.v1~cf.core.global.base.v1",
         }
     }
 }

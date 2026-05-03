@@ -1,10 +1,10 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "gts://gts.x.llmgw.items.item.v1~x.llmgw.items.message_item.v1~",
+  "$id": "gts://gts.cf.llmgw.items.item.v1~x.llmgw.items.message_item.v1~",
   "title": "MessageItem",
   "description": "Input message item with role and content parts.",
   "allOf": [
-    { "$ref": "gts://gts.x.llmgw.items.item.v1~" },
+    { "$ref": "gts://gts.cf.llmgw.items.item.v1~" },
     {
       "properties": {
         "id": {
@@ -16,7 +16,7 @@
           "const": "message"
         },
         "role": {
-          "$ref": "gts://gts.x.llmgw.core.role.v1~",
+          "$ref": "gts://gts.cf.llmgw.core.role.v1~",
           "description": "Message author role."
         },
         "content": {
@@ -28,7 +28,7 @@
             {
               "type": "array",
               "items": {
-                "$ref": "gts://gts.x.llmgw.content.input_content_part.v1~"
+                "$ref": "gts://gts.cf.llmgw.content.input_content_part.v1~"
               },
               "minItems": 1
             }

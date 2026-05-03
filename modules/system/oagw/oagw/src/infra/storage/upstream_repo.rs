@@ -185,7 +185,7 @@ mod tests {
                     port: 443,
                 }],
             },
-            protocol: "gts.x.core.oagw.protocol.v1~x.core.oagw.http.v1".into(),
+            protocol: "gts.cf.core.oagw.protocol.v1~cf.core.oagw.http.v1".into(),
             enabled: true,
             auth: None,
             headers: None,

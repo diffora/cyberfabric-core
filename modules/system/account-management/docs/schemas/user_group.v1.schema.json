@@ -1,11 +1,11 @@
 {
-  "$id": "gts://gts.x.core.rg.type.v1~x.core.am.user_group.v1~",
+  "$id": "gts://gts.cf.core.rg.type.v1~cf.core.am.user_group.v1~",
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "Account Management User Group",
   "description": "Dedicated Resource Group type used by Account Management for tenant-scoped user groups. Supports nested groups and direct user memberships. Tenant-scoped placement is enforced by Resource Group ownership-graph validation, not by schema traits.",
   "allOf": [
     {
-      "$ref": "gts://gts.x.core.rg.type.v1~"
+      "$ref": "gts://gts.cf.core.rg.type.v1~"
     },
     {
       "properties": {
@@ -19,10 +19,10 @@
       "x-gts-traits": {
         "can_be_root": true,
         "allowed_parents": [
-          "gts.x.core.rg.type.v1~x.core.am.user_group.v1~"
+          "gts.cf.core.rg.type.v1~cf.core.am.user_group.v1~"
         ],
         "allowed_memberships": [
-          "gts.x.core.am.user.v1~"
+          "gts.cf.core.am.user.v1~"
         ]
       }
     }

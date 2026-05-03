@@ -14,7 +14,7 @@ Content-Type: application/json
       { "scheme": "https", "host": "api.example.com", "port": 8443 }
     ]
   },
-  "protocol": "gts.x.core.oagw.protocol.v1~x.core.oagw.http.v1"
+  "protocol": "gts.cf.core.oagw.protocol.v1~cf.core.oagw.http.v1"
 }
 ```
 
@@ -25,7 +25,7 @@ Content-Type: application/json
 
 ```json
 {
-  "id": "gts.x.core.oagw.upstream.v1~<uuid>",
+  "id": "gts.cf.core.oagw.upstream.v1~<uuid>",
   "alias": "api.example.com:8443",
   "server": {
     "endpoints": [

@@ -1,47 +1,48 @@
 //! OAGW-specific GTS identifier helpers.
 //!
 //! Thin wrappers around the external `gts` crate for formatting and parsing
-//! resource GTS identifiers of the form `gts.x.core.oagw.<type>.v1~<uuid>`.
+//! resource GTS identifiers of the form `gts.cf.core.oagw.<type>.v1~<uuid>`.
 
 use crate::domain::error::DomainError;
 use uuid::Uuid;
 
 // -- Schema GTS identifiers --
-pub const UPSTREAM_SCHEMA: &str = "gts.x.core.oagw.upstream.v1~";
-pub const ROUTE_SCHEMA: &str = "gts.x.core.oagw.route.v1~";
-pub const PROTOCOL_SCHEMA: &str = "gts.x.core.oagw.protocol.v1~";
-pub const AUTH_PLUGIN_SCHEMA: &str = "gts.x.core.oagw.auth_plugin.v1~";
-pub const GUARD_PLUGIN_SCHEMA: &str = "gts.x.core.oagw.guard_plugin.v1~";
-pub const TRANSFORM_PLUGIN_SCHEMA: &str = "gts.x.core.oagw.transform_plugin.v1~";
-pub const PROXY_SCHEMA: &str = "gts.x.core.oagw.proxy.v1~";
+pub const UPSTREAM_SCHEMA: &str = "gts.cf.core.oagw.upstream.v1~";
+pub const ROUTE_SCHEMA: &str = "gts.cf.core.oagw.route.v1~";
+pub const PROTOCOL_SCHEMA: &str = "gts.cf.core.oagw.protocol.v1~";
+pub const AUTH_PLUGIN_SCHEMA: &str = "gts.cf.core.oagw.auth_plugin.v1~";
+pub const GUARD_PLUGIN_SCHEMA: &str = "gts.cf.core.oagw.guard_plugin.v1~";
+pub const TRANSFORM_PLUGIN_SCHEMA: &str = "gts.cf.core.oagw.transform_plugin.v1~";
+pub const PROXY_SCHEMA: &str = "gts.cf.core.oagw.proxy.v1~";
 
 // -- Builtin protocol instances --
-pub const HTTP_PROTOCOL_ID: &str = "gts.x.core.oagw.protocol.v1~x.core.oagw.http.v1";
-pub const GRPC_PROTOCOL_ID: &str = "gts.x.core.oagw.protocol.v1~x.core.oagw.grpc.v1";
+pub const HTTP_PROTOCOL_ID: &str = "gts.cf.core.oagw.protocol.v1~cf.core.oagw.http.v1";
+pub const GRPC_PROTOCOL_ID: &str = "gts.cf.core.oagw.protocol.v1~cf.core.oagw.grpc.v1";
 
 // -- Builtin auth plugin instances --
-pub const NOOP_AUTH_PLUGIN_ID: &str = "gts.x.core.oagw.auth_plugin.v1~x.core.oagw.noop.v1";
-pub const APIKEY_AUTH_PLUGIN_ID: &str = "gts.x.core.oagw.auth_plugin.v1~x.core.oagw.apikey.v1";
-pub const BASIC_AUTH_PLUGIN_ID: &str = "gts.x.core.oagw.auth_plugin.v1~x.core.oagw.basic.v1";
-pub const BEARER_AUTH_PLUGIN_ID: &str = "gts.x.core.oagw.auth_plugin.v1~x.core.oagw.bearer.v1";
+pub const NOOP_AUTH_PLUGIN_ID: &str = "gts.cf.core.oagw.auth_plugin.v1~cf.core.oagw.noop.v1";
+pub const APIKEY_AUTH_PLUGIN_ID: &str = "gts.cf.core.oagw.auth_plugin.v1~cf.core.oagw.apikey.v1";
+pub const BASIC_AUTH_PLUGIN_ID: &str = "gts.cf.core.oagw.auth_plugin.v1~cf.core.oagw.basic.v1";
+pub const BEARER_AUTH_PLUGIN_ID: &str = "gts.cf.core.oagw.auth_plugin.v1~cf.core.oagw.bearer.v1";
 pub const OAUTH2_CLIENT_CRED_AUTH_PLUGIN_ID: &str =
-    "gts.x.core.oagw.auth_plugin.v1~x.core.oagw.oauth2_client_cred.v1";
+    "gts.cf.core.oagw.auth_plugin.v1~cf.core.oagw.oauth2_client_cred.v1";
 pub const OAUTH2_CLIENT_CRED_BASIC_AUTH_PLUGIN_ID: &str =
-    "gts.x.core.oagw.auth_plugin.v1~x.core.oagw.oauth2_client_cred_basic.v1";
+    "gts.cf.core.oagw.auth_plugin.v1~cf.core.oagw.oauth2_client_cred_basic.v1";
 
 // -- Builtin guard plugin instances --
-pub const TIMEOUT_GUARD_PLUGIN_ID: &str = "gts.x.core.oagw.guard_plugin.v1~x.core.oagw.timeout.v1";
-pub const CORS_GUARD_PLUGIN_ID: &str = "gts.x.core.oagw.guard_plugin.v1~x.core.oagw.cors.v1";
+pub const TIMEOUT_GUARD_PLUGIN_ID: &str =
+    "gts.cf.core.oagw.guard_plugin.v1~cf.core.oagw.timeout.v1";
+pub const CORS_GUARD_PLUGIN_ID: &str = "gts.cf.core.oagw.guard_plugin.v1~cf.core.oagw.cors.v1";
 pub const REQUIRED_HEADERS_GUARD_PLUGIN_ID: &str =
-    "gts.x.core.oagw.guard_plugin.v1~x.core.oagw.required_headers.v1";
+    "gts.cf.core.oagw.guard_plugin.v1~cf.core.oagw.required_headers.v1";
 
 // -- Builtin transform plugin instances --
 pub const LOGGING_TRANSFORM_PLUGIN_ID: &str =
-    "gts.x.core.oagw.transform_plugin.v1~x.core.oagw.logging.v1";
+    "gts.cf.core.oagw.transform_plugin.v1~cf.core.oagw.logging.v1";
 pub const METRICS_TRANSFORM_PLUGIN_ID: &str =
-    "gts.x.core.oagw.transform_plugin.v1~x.core.oagw.metrics.v1";
+    "gts.cf.core.oagw.transform_plugin.v1~cf.core.oagw.metrics.v1";
 pub const REQUEST_ID_TRANSFORM_PLUGIN_ID: &str =
-    "gts.x.core.oagw.transform_plugin.v1~x.core.oagw.request_id.v1";
+    "gts.cf.core.oagw.transform_plugin.v1~cf.core.oagw.request_id.v1";
 
 /// Format an upstream resource as a GTS identifier.
 #[must_use]

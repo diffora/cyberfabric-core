@@ -54,7 +54,7 @@ impl Module for StaticMiniChatAuditPlugin {
             .map_err(|_| anyhow::anyhow!("{} module already initialized", Self::MODULE_NAME))?;
 
         let instance_id =
-            MiniChatAuditPluginSpecV1::gts_make_instance_id("x.core._.static_mini_chat_audit.v1");
+            MiniChatAuditPluginSpecV1::gts_make_instance_id("cf.core._.static_mini_chat_audit.v1");
 
         let registry = ctx.client_hub().get::<dyn TypesRegistryClient>()?;
         let instance = BaseModkitPluginV1::<MiniChatAuditPluginSpecV1> {

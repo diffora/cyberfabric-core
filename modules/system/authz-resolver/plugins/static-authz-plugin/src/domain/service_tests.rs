@@ -21,7 +21,7 @@ fn make_request(require_constraints: bool, tenant_id: Option<Uuid>) -> Evaluatio
             name: "list".to_owned(),
         },
         resource: Resource {
-            resource_type: "gts.x.core.users.user.v1~".to_owned(),
+            resource_type: "gts.cf.core.users.user.v1~".to_owned(),
             id: None,
             properties: HashMap::new(),
         },
@@ -105,7 +105,7 @@ fn missing_tenant_context_and_subject_property_is_denied() {
             name: "list".to_owned(),
         },
         resource: Resource {
-            resource_type: "gts.x.core.users.user.v1~".to_owned(),
+            resource_type: "gts.cf.core.users.user.v1~".to_owned(),
             id: None,
             properties: HashMap::new(),
         },

@@ -1,10 +1,10 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "gts://gts.x.llmgw.streaming.event.v1~x.llmgw.streaming.content_part_done.v1~",
+  "$id": "gts://gts.cf.llmgw.streaming.event.v1~x.llmgw.streaming.content_part_done.v1~",
   "title": "Response content part done event",
   "description": "A streaming event indicating a content part was completed.",
   "allOf": [
-    { "$ref": "gts://gts.x.llmgw.streaming.event.v1~" },
+    { "$ref": "gts://gts.cf.llmgw.streaming.event.v1~" },
     {
       "properties": {
         "type": {
@@ -24,7 +24,7 @@
           "description": "The index of the content part that was completed."
         },
         "part": {
-          "$ref": "gts://gts.x.llmgw.content.output_content_part.v1~",
+          "$ref": "gts://gts.cf.llmgw.content.output_content_part.v1~",
           "description": "The content part that was completed."
         }
       },

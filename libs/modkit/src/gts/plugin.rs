@@ -5,7 +5,7 @@ use gts_macros::struct_to_gts_schema;
 #[struct_to_gts_schema(
     dir_path = "schemas",
     base = true,
-    schema_id = "gts.x.core.modkit.plugin.v1~",
+    schema_id = "gts.cf.core.modkit.plugin.v1~",
     description = "Base modkit plugin schema",
     properties = "id,vendor,priority,properties"
 )]

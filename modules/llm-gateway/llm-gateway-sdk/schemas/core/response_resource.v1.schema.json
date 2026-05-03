@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "gts://gts.x.llmgw.core.response_resource.v1~",
+  "$id": "gts://gts.cf.llmgw.core.response_resource.v1~",
   "title": "ResponseResource",
   "description": "Open Responses protocol response object",
   "type": "object",
@@ -58,13 +58,13 @@
     "output": {
       "type": "array",
       "items": {
-        "$ref": "gts://gts.x.llmgw.items.item.v1~"
+        "$ref": "gts://gts.cf.llmgw.items.item.v1~"
       },
       "description": "Output items produced by the model"
     },
     "error": {
       "oneOf": [
-        { "$ref": "gts://gts.x.llmgw.core.error.v1~" },
+        { "$ref": "gts://gts.cf.llmgw.core.error.v1~" },
         { "type": "null" }
       ],
       "description": "Error details if status is failed"
@@ -72,7 +72,7 @@
     "tools": {
       "type": "array",
       "items": {
-        "$ref": "gts://gts.x.llmgw.tools.tool.v1~"
+        "$ref": "gts://gts.cf.llmgw.tools.tool.v1~"
       },
       "description": "Tools available for this response"
     },
@@ -100,7 +100,7 @@
       "description": "Whether parallel tool calls were enabled"
     },
     "text": {
-      "$ref": "gts://gts.x.llmgw.core.text_format.v1~",
+      "$ref": "gts://gts.cf.llmgw.core.text_format.v1~",
       "description": "Text format configuration"
     },
     "top_p": {
@@ -124,12 +124,12 @@
       "description": "Sampling temperature"
     },
     "reasoning": {
-      "$ref": "gts://gts.x.llmgw.core.reasoning_config.v1~",
+      "$ref": "gts://gts.cf.llmgw.core.reasoning_config.v1~",
       "description": "Reasoning configuration"
     },
     "usage": {
       "oneOf": [
-        { "$ref": "gts://gts.x.llmgw.core.usage.v1~" },
+        { "$ref": "gts://gts.cf.llmgw.core.usage.v1~" },
         { "type": "null" }
       ],
       "description": "Token usage information. Null until response is completed."

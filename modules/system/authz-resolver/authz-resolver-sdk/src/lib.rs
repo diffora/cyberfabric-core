@@ -19,7 +19,7 @@
 //! };
 //!
 //! const USER: ResourceType = ResourceType {
-//!     name: "gts.x.core.users.user.v1~",
+//!     name: "gts.cf.core.users.user.v1~",
 //!     supported_properties: &["owner_tenant_id", "id"],
 //! };
 //!

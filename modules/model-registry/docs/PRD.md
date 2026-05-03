@@ -116,7 +116,7 @@ LLM Gateway requires a centralized source of truth for model availability, capab
 | Provider Cost | Raw cost data from providers in AICredits; NOT user-facing pricing |
 | OAGW | Outbound API Gateway - handles provider authentication and circuit breaking |
 | GTS | Global Type System - platform-wide type definitions and contracts |
-| GTS Type (Provider) | Versioned provider type identifier (e.g., `gts.x.genai.model.provider.v1~msft.azure._.ai_studio.v1~`) |
+| GTS Type (Provider) | Versioned provider type identifier (e.g., `gts.cf.genai.model.provider.v1~msft.azure._.ai_studio.v1~`) |
 | Root Tenant | Top-level tenant from which all other tenants inherit |
 | Canonical ID | Unique model identifier in format `{provider_slug}::{provider_model_id}` |
 | Provider Slug | Human-readable unique identifier for a provider instance (e.g., `azure-corp-global`) |
@@ -159,7 +159,7 @@ Represents a configured AI provider instance for a tenant.
 - `slug`: Human-readable unique identifier (e.g., `azure-corp-global`, `ollama-us-west`). Used in canonical model IDs. Immutable after creation.
 - `tenant_id`: Owner tenant
 - `name`: Display name
-- `gts_type`: GTS type identifier for provider (e.g., `gts.x.genai.model.provider.v1~msft.azure._.ai_studio.v1~`)
+- `gts_type`: GTS type identifier for provider (e.g., `gts.cf.genai.model.provider.v1~msft.azure._.ai_studio.v1~`)
 - `base_url`: Provider API endpoint
 - `status`: `active` | `disabled`
 - `discovery`: Discovery config (enabled, interval)
@@ -211,11 +211,11 @@ Represents an AI model in the catalog.
 **Lifecycle Status** (GTS types for native access control):
 | Status | GTS Type | Description |
 |--------|----------|-------------|
-| `production` | `gts.x.genai.model.lifecycle.v1~production~` | Stable, fully supported |
-| `preview` | `gts.x.genai.model.lifecycle.v1~preview~` | Feature-complete but limited support |
-| `experimental` | `gts.x.genai.model.lifecycle.v1~experimental~` | Early access, may change |
-| `deprecated` | `gts.x.genai.model.lifecycle.v1~deprecated~` | Scheduled for removal |
-| `sunset` | `gts.x.genai.model.lifecycle.v1~sunset~` | End of life, read-only |
+| `production` | `gts.cf.genai.model.lifecycle.v1~production~` | Stable, fully supported |
+| `preview` | `gts.cf.genai.model.lifecycle.v1~preview~` | Feature-complete but limited support |
+| `experimental` | `gts.cf.genai.model.lifecycle.v1~experimental~` | Early access, may change |
+| `deprecated` | `gts.cf.genai.model.lifecycle.v1~deprecated~` | Scheduled for removal |
+| `sunset` | `gts.cf.genai.model.lifecycle.v1~sunset~` | End of life, read-only |
 
 **Infrastructure Fields Rationale**: For local/self-hosted LLMs, these fields enable:
 - Capacity planning (size_bytes)
@@ -337,8 +337,8 @@ The system must enforce role-based and GTS-based authorization.
 **GTS-based access** (model/provider access control):
 | Access Type | GTS Claim Required | Example |
 |-------------|-------------------|---------|
-| Provider access | Provider GTS type | `gts.x.genai.model.provider.v1~msft.azure.*` grants access to all Azure models |
-| Lifecycle access | Lifecycle GTS type | `gts.x.genai.model.lifecycle.v1~experimental~` grants access to experimental models |
+| Provider access | Provider GTS type | `gts.cf.genai.model.provider.v1~msft.azure.*` grants access to all Azure models |
+| Lifecycle access | Lifecycle GTS type | `gts.cf.genai.model.lifecycle.v1~experimental~` grants access to experimental models |
 
 **Benefits of GTS-based access control**:
 - Cheap generic rules — no custom development needed

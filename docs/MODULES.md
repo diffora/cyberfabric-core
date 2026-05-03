@@ -882,12 +882,12 @@ Chat hooks allow integrations to intercept internal message/file/search traffic 
 
 | Hook ID | Trigger point | Capabilities | Use case |
 |---------|---------------|--------------|----------|
-| `gts.x.genai.flow.hook.v1~x.genai.chat.user_message_pre_store.v1~` | After user message submitted, before DB store | BLOCK, OVERRIDE | DLP: scan outgoing content |
-| `gts.x.genai.flow.hook.v1~x.genai.file.post_parse.v1~` | After file content parsed | INFORMATIVE | Audit, classification |
-| `gts.x.genai.flow.hook.v1~x.genai.llm.pre_call.v1~` | Before final message goes to LLM | BLOCK, OVERRIDE | Content filtering, PII redaction |
-| `gts.x.genai.flow.hook.v1~x.genai.llm.post_response.v1~` | After LLM response, before DB store | BLOCK, OVERRIDE | Response filtering |
-| `gts.x.genai.flow.hook.v1~x.genai.search.pre_request.v1~` | Before search request (RAG or WebSearch) | BLOCK, OVERRIDE | Query sanitization |
-| `gts.x.genai.flow.hook.v1~x.genai.search.post_response.v1~` | After search response received | BLOCK, OVERRIDE | Result filtering |
+| `gts.cf.genai.flow.hook.v1~x.genai.chat.user_message_pre_store.v1~` | After user message submitted, before DB store | BLOCK, OVERRIDE | DLP: scan outgoing content |
+| `gts.cf.genai.flow.hook.v1~x.genai.file.post_parse.v1~` | After file content parsed | INFORMATIVE | Audit, classification |
+| `gts.cf.genai.flow.hook.v1~x.genai.llm.pre_call.v1~` | Before final message goes to LLM | BLOCK, OVERRIDE | Content filtering, PII redaction |
+| `gts.cf.genai.flow.hook.v1~x.genai.llm.post_response.v1~` | After LLM response, before DB store | BLOCK, OVERRIDE | Response filtering |
+| `gts.cf.genai.flow.hook.v1~x.genai.search.pre_request.v1~` | Before search request (RAG or WebSearch) | BLOCK, OVERRIDE | Query sanitization |
+| `gts.cf.genai.flow.hook.v1~x.genai.search.post_response.v1~` | After search response received | BLOCK, OVERRIDE | Result filtering |
 
 All the hook types are registered in GTS and can be enabled/disabled per tenant/user by customers or integrations. All the registered hooks will be executed in the priority order.
 
@@ -920,7 +920,7 @@ sequenceDiagram
     CE->>CE: Skip hook invocation, proceed normally
   else Hooks registered
     Note over CE,TR: [ ] p3 - Step 2: Get hook details from GTS
-    CE->>TR: GET /types/v1/instances?$filter=type_id eq 'gts.x.genai.flow.hook.v1~*'
+    CE->>TR: GET /types/v1/instances?$filter=type_id eq 'gts.cf.genai.flow.hook.v1~*'
     Note right of CE: Filter by hook_ids from settings
     TR-->>CE: Hook definitions[] {id, endpoint_url, auth_config, timeout_ms}
 
@@ -953,7 +953,7 @@ sequenceDiagram
 **user_message.pre_store:**
 ```json
 {
-  "hook_type": "gts.x.genai.flow.hook.v1~x.genai.chat.user_message_pre_store.v1~",
+  "hook_type": "gts.cf.genai.flow.hook.v1~x.genai.chat.user_message_pre_store.v1~",
   "payload": {
     "message_id": "msg_123",
     "content": "Please analyze this financial report",
@@ -966,7 +966,7 @@ sequenceDiagram
 **llm.pre_call:**
 ```json
 {
-  "hook_type": "gts.x.genai.flow.hook.v1~x.genai.chat.llm_pre_call.v1~",
+  "hook_type": "gts.cf.genai.flow.hook.v1~x.genai.chat.llm_pre_call.v1~",
   "payload": {
     "messages": [...],
     "tools": [...],
@@ -1224,7 +1224,7 @@ sequenceDiagram
   end
 
   Note over CE,TR: [ ] p4 - Resolve tool definitions from GTS (no MCP validation)
-  CE->>TR: GET /types/v1/instances?$filter=type_id eq 'gts.x.genai.mcp.tools.v1~*'
+  CE->>TR: GET /types/v1/instances?$filter=type_id eq 'gts.cf.genai.mcp.tools.v1~*'
   Note right of CE: Filter by enabled_tool_ids from settings
   TR-->>CE: Tool definitions[] {id, schema, mcp_server_uri, auth_config}
   CE->>CE: Use GTS-registered tools directly (trust registration)
@@ -1559,7 +1559,7 @@ sequenceDiagram
   Note over CE,SET: [ ] p1 - Load settings (p2: tools)
   CE->>SET: Get settings (tenant_id, user_id)
   SET-->>CE: {enabled_tool_ids[], model_policy}
-  CE->>TR: [ ] p2 - GET tool definitions (gts.x.genai.mcp.tools.v1~*)
+  CE->>TR: [ ] p2 - GET tool definitions (gts.cf.genai.mcp.tools.v1~*)
   TR-->>CE: Tool definitions[] (no runtime validation)
 
   Note over CE,PR: [ ] p1 - Resolve prompt + model

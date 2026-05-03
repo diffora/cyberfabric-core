@@ -127,7 +127,7 @@ Enforces parent-child tenant-type constraints against the runtime GTS types regi
 
 - [ ] `p1` - **ID**: `cpt-cf-account-management-algo-tenant-type-enforcement-allowed-parent-types-evaluation`
 
-**Input**: `child_tenant_type` (chained GTS identifier under `gts.x.core.am.tenant_type.v1~`), `parent_tenant_type` (chained GTS identifier for a non-root parent).
+**Input**: `child_tenant_type` (chained GTS identifier under `gts.cf.core.am.tenant_type.v1~`), `parent_tenant_type` (chained GTS identifier for a non-root parent).
 
 **Output**: `admit`, `(reject, sub_code=invalid_tenant_type)`, `(reject, sub_code=type_not_allowed)`, or `(error, sub_code=service_unavailable)`.
 
@@ -136,7 +136,7 @@ Enforces parent-child tenant-type constraints against the runtime GTS types regi
 1. [ ] - `p1` - Probe `child_tenant_type` via `TypesRegistryClient` to confirm it is a registered chained GTS identifier and resolve its effective `allowed_parent_types` trait through `x-gts-traits` defaulting - `inst-algo-apte-probe-child`
 2. [ ] - `p1` - **IF** GTS is unreachable, times out, or returns a trait-resolution failure before an effective trait value can be determined - `inst-algo-apte-gts-unavailable`
    1. [ ] - `p1` - **RETURN** `(error, sub_code=service_unavailable)` - `inst-algo-apte-return-gts-unavailable`
-3. [ ] - `p1` - **IF** `child_tenant_type` is not registered in GTS or does not resolve under the `gts.x.core.am.tenant_type.v1~` envelope - `inst-algo-apte-child-unregistered`
+3. [ ] - `p1` - **IF** `child_tenant_type` is not registered in GTS or does not resolve under the `gts.cf.core.am.tenant_type.v1~` envelope - `inst-algo-apte-child-unregistered`
    1. [ ] - `p1` - **RETURN** `(reject, invalid_tenant_type)` - `inst-algo-apte-return-invalid-child`
 4. [ ] - `p1` - **IF** the effective `allowed_parent_types` value is missing after default resolution or is not an array of chained tenant-type identifiers - `inst-algo-apte-trait-malformed`
    1. [ ] - `p1` - **RETURN** `(reject, invalid_tenant_type)` - `inst-algo-apte-return-malformed-trait`
@@ -151,13 +151,13 @@ Enforces parent-child tenant-type constraints against the runtime GTS types regi
 
 - [ ] `p1` - **ID**: `cpt-cf-account-management-algo-tenant-type-enforcement-same-type-nesting-admission`
 
-**Input**: `tenant_type` (chained GTS identifier under `gts.x.core.am.tenant_type.v1~`).
+**Input**: `tenant_type` (chained GTS identifier under `gts.cf.core.am.tenant_type.v1~`).
 
 **Output**: `admit`, `(reject, sub_code=type_not_allowed)`, or `(error, sub_code=service_unavailable)`.
 
 **Steps**:
 
-1. [ ] - `p1` - Resolve `tenant_type.allowed_parent_types` trait via `x-gts-traits` resolution against the GTS base schema `gts.x.core.am.tenant_type.v1~` - `inst-algo-stn-resolve-trait`
+1. [ ] - `p1` - Resolve `tenant_type.allowed_parent_types` trait via `x-gts-traits` resolution against the GTS base schema `gts.cf.core.am.tenant_type.v1~` - `inst-algo-stn-resolve-trait`
 2. [ ] - `p1` - **IF** GTS is unreachable, times out, or returns a trait-resolution failure before an effective trait value can be determined - `inst-algo-stn-gts-unavailable`
    1. [ ] - `p1` - **RETURN** `(error, sub_code=service_unavailable)` - `inst-algo-stn-return-gts-unavailable`
 3. [ ] - `p1` - **IF** `tenant_type` is a member of its own effective `allowed_parent_types` (same-type nesting explicitly permitted by GTS) - `inst-algo-stn-self-allowed`
@@ -189,7 +189,7 @@ Every child-tenant create path and every mode-conversion approval path **MUST** 
 **Touches**:
 
 - Entities: `TenantType`, `AllowedParentTypes`
-- Data: `gts://gts.x.core.am.tenant_type.v1~` (GTS base schema for tenant types)
+- Data: `gts://gts.cf.core.am.tenant_type.v1~` (GTS base schema for tenant types)
 - Sibling integration: `cpt-cf-account-management-algo-tenant-hierarchy-management-create-tenant-saga` (step 3 `inst-algo-saga-type-check`)
 - Error taxonomy: `errors-observability` sub-codes `invalid_tenant_type` / `type_not_allowed` (catalog owned by `errors-observability`)
 
@@ -207,7 +207,7 @@ Same-type nesting (child `tenant_type` equals parent `tenant_type`) **MUST** be 
 **Touches**:
 
 - Entities: `TenantType`, `AllowedParentTypes`
-- Data: `gts://gts.x.core.am.tenant_type.v1~`
+- Data: `gts://gts.cf.core.am.tenant_type.v1~`
 
 ### Mode-Conversion Pre-Approval Re-Evaluation
 
@@ -240,13 +240,13 @@ The barrier **MUST** treat the GTS Types Registry as a hard runtime dependency: 
 **Touches**:
 
 - Error taxonomy: `errors-observability` envelope (catalog owned by `errors-observability`; classification of GTS-unavailability is delegated, not redefined)
-- Data: `gts://gts.x.core.am.tenant_type.v1~`
+- Data: `gts://gts.cf.core.am.tenant_type.v1~`
 
 ### Tenant-Type Envelope Alignment
 
 - [ ] `p1` - **ID**: `cpt-cf-account-management-dod-tenant-type-enforcement-tenant-type-envelope-alignment`
 
-The barrier **MUST** consume chained GTS identifiers whose base schema is `gts.x.core.am.tenant_type.v1~` and **MUST** resolve the effective `allowed_parent_types` trait via the `x-gts-traits` resolution path per DESIGN §3.1. Trait values **MUST** be GTS-instance identifiers resolved to chained schema identifiers before comparison — string-equality on raw type names is not sufficient for admit decisions. Omitted trait properties in a derived type **MUST** fall back to defaults from the base `x-gts-traits-schema` (so an omitted `allowed_parent_types` resolves to `[]`); only a trait that is missing after effective resolution, non-array, or not composed of chained tenant-type identifiers **MUST** be treated as an unregistered child and rejected with `sub_code=invalid_tenant_type`.
+The barrier **MUST** consume chained GTS identifiers whose base schema is `gts.cf.core.am.tenant_type.v1~` and **MUST** resolve the effective `allowed_parent_types` trait via the `x-gts-traits` resolution path per DESIGN §3.1. Trait values **MUST** be GTS-instance identifiers resolved to chained schema identifiers before comparison — string-equality on raw type names is not sufficient for admit decisions. Omitted trait properties in a derived type **MUST** fall back to defaults from the base `x-gts-traits-schema` (so an omitted `allowed_parent_types` resolves to `[]`); only a trait that is missing after effective resolution, non-array, or not composed of chained tenant-type identifiers **MUST** be treated as an unregistered child and rejected with `sub_code=invalid_tenant_type`.
 
 **Implements**:
 
@@ -256,17 +256,17 @@ The barrier **MUST** consume chained GTS identifiers whose base schema is `gts.x
 **Touches**:
 
 - Entities: `TenantType`, `AllowedParentTypes`
-- Data: `gts://gts.x.core.am.tenant_type.v1~`
+- Data: `gts://gts.cf.core.am.tenant_type.v1~`
 - DESIGN anchor: `DESIGN.md` §3.1 Tenant Types GTS Schema with Traits (envelope contract)
 
 ## 6. Acceptance Criteria
 
-- [ ] A child-tenant create request whose `tenant_type` is not a registered chained GTS identifier under `gts.x.core.am.tenant_type.v1~` is rejected by the barrier with `sub_code=invalid_tenant_type` (mapped to `validation` by the calling saga); no row is written to `dbtable-tenants` and no row is written or rewritten in `dbtable-tenant-closure`. Fingerprints `dod-tenant-type-enforcement-type-barrier-invocation-contract`.
+- [ ] A child-tenant create request whose `tenant_type` is not a registered chained GTS identifier under `gts.cf.core.am.tenant_type.v1~` is rejected by the barrier with `sub_code=invalid_tenant_type` (mapped to `validation` by the calling saga); no row is written to `dbtable-tenants` and no row is written or rewritten in `dbtable-tenant-closure`. Fingerprints `dod-tenant-type-enforcement-type-barrier-invocation-contract`.
 - [ ] A child-tenant create request where the parent's `tenant_type` is not a member of the child type's `allowed_parent_types` trait is rejected by the barrier with `sub_code=type_not_allowed` (mapped to `conflict` by the calling saga); no row is written to `dbtable-tenants` and no row is written or rewritten in `dbtable-tenant-closure`. Fingerprints `dod-tenant-type-enforcement-type-barrier-invocation-contract`.
 - [ ] Given a registered tenant type whose `allowed_parent_types` trait contains the type's own chained GTS identifier, a create request where `child_tenant_type == parent_tenant_type` is admitted by the barrier; given a registered tenant type whose `allowed_parent_types` does NOT include itself, the same same-type nesting request is rejected with `sub_code=type_not_allowed` (mapped to `conflict`). Fingerprints `dod-tenant-type-enforcement-same-type-nesting-admission`.
 - [ ] At approval time for a pending `managed-self-managed-modes` conversion, if GTS trait updates or parent re-types since the request would produce an illegal topology, the barrier returns `sub_code=type_not_allowed` (mapped to `conflict` by the approval flow) and the mode flip is not committed; `dbtable-tenant-closure.barrier` for the target tenant is not rewritten. A complementary check confirms that when the topology remains legal, the barrier returns `admit` and the approval flow commits the conversion. Fingerprints `dod-tenant-type-enforcement-mode-conversion-preapproval-reevaluation`.
 - [ ] When the GTS Types Registry is unreachable, times out, or returns a trait-resolution failure during a create or mode-conversion barrier invocation, the barrier returns `(error, sub_code=service_unavailable)` to the calling saga/approval flow; no tenant row, closure row, or mode flip is committed. Fingerprints `dod-tenant-type-enforcement-gts-availability-surface`.
-- [ ] The barrier accepts full chained `GtsSchemaId` values whose base schema is `gts.x.core.am.tenant_type.v1~` and resolves `allowed_parent_types` via `x-gts-traits` resolution per DESIGN §3.1; a create request whose `tenant_type` is a short-name alias or a chain whose base schema is not `gts.x.core.am.tenant_type.v1~` is rejected with `sub_code=invalid_tenant_type` (mapped to `validation`). A derived type that omits `allowed_parent_types` inherits the base default `[]`; a type whose effective trait is missing after resolution or is not an array of chained identifiers is rejected with `sub_code=invalid_tenant_type`. A distinct chain whose leaf name collides with a different registered chain is NOT admitted solely by leaf-name equality. Fingerprints `dod-tenant-type-enforcement-tenant-type-envelope-alignment`.
+- [ ] The barrier accepts full chained `GtsSchemaId` values whose base schema is `gts.cf.core.am.tenant_type.v1~` and resolves `allowed_parent_types` via `x-gts-traits` resolution per DESIGN §3.1; a create request whose `tenant_type` is a short-name alias or a chain whose base schema is not `gts.cf.core.am.tenant_type.v1~` is rejected with `sub_code=invalid_tenant_type` (mapped to `validation`). A derived type that omits `allowed_parent_types` inherits the base default `[]`; a type whose effective trait is missing after resolution or is not an array of chained identifiers is rejected with `sub_code=invalid_tenant_type`. A distinct chain whose leaf name collides with a different registered chain is NOT admitted solely by leaf-name equality. Fingerprints `dod-tenant-type-enforcement-tenant-type-envelope-alignment`.
 
 ## 7. Deliberate Omissions
 

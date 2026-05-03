@@ -263,7 +263,7 @@ The system **MUST** transform request and response headers: set, add, and remove
 
 - [ ] `p2` - **ID**: `cpt-cf-oagw-fr-plugin-system`
 
-The system **MUST** provide a plugin system with three plugin types: Auth (`gts.x.core.oagw.auth_plugin.v1~*`) for credential injection, Guard (`gts.x.core.oagw.guard_plugin.v1~*`) for validation/policy enforcement (can reject requests), and Transform (`gts.x.core.oagw.transform_plugin.v1~*`) for request/response mutation. Execution order **MUST** be: Auth -> Guards -> Transform(request) -> Upstream call -> Transform(response/error). Upstream plugins **MUST** execute before route plugins. Plugin definitions **MUST** be immutable after creation; updates are performed by creating a new plugin version and re-binding references.
+The system **MUST** provide a plugin system with three plugin types: Auth (`gts.cf.core.oagw.auth_plugin.v1~*`) for credential injection, Guard (`gts.cf.core.oagw.guard_plugin.v1~*`) for validation/policy enforcement (can reject requests), and Transform (`gts.cf.core.oagw.transform_plugin.v1~*`) for request/response mutation. Execution order **MUST** be: Auth -> Guards -> Transform(request) -> Upstream call -> Transform(response/error). Upstream plugins **MUST** execute before route plugins. Plugin definitions **MUST** be immutable after creation; updates are performed by creating a new plugin version and re-binding references.
 
 - **Rationale**: Extensibility for custom authentication schemes, validation rules, and request/response transformations without modifying the gateway core.
 - **Actors**: `cpt-cf-oagw-actor-platform-operator`, `cpt-cf-oagw-actor-tenant-admin`
@@ -277,21 +277,21 @@ Circuit breaker is a core gateway resilience capability (configured as core poli
 The system **MUST** include the following built-in plugins:
 
 **Auth Plugins**:
-- `gts.x.core.oagw.auth_plugin.v1~x.core.oagw.noop.v1` — No authentication
-- `gts.x.core.oagw.auth_plugin.v1~x.core.oagw.apikey.v1` — API key injection (header/query)
-- `gts.x.core.oagw.auth_plugin.v1~x.core.oagw.basic.v1` — HTTP Basic authentication
-- `gts.x.core.oagw.auth_plugin.v1~x.core.oagw.oauth2_client_cred.v1` — OAuth2 client credentials flow
-- `gts.x.core.oagw.auth_plugin.v1~x.core.oagw.oauth2_client_cred_basic.v1` — OAuth2 with Basic auth
-- `gts.x.core.oagw.auth_plugin.v1~x.core.oagw.bearer.v1` — Bearer token injection
+- `gts.cf.core.oagw.auth_plugin.v1~cf.core.oagw.noop.v1` — No authentication
+- `gts.cf.core.oagw.auth_plugin.v1~cf.core.oagw.apikey.v1` — API key injection (header/query)
+- `gts.cf.core.oagw.auth_plugin.v1~cf.core.oagw.basic.v1` — HTTP Basic authentication
+- `gts.cf.core.oagw.auth_plugin.v1~cf.core.oagw.oauth2_client_cred.v1` — OAuth2 client credentials flow
+- `gts.cf.core.oagw.auth_plugin.v1~cf.core.oagw.oauth2_client_cred_basic.v1` — OAuth2 with Basic auth
+- `gts.cf.core.oagw.auth_plugin.v1~cf.core.oagw.bearer.v1` — Bearer token injection
 
 **Guard Plugins**:
-- `gts.x.core.oagw.guard_plugin.v1~x.core.oagw.timeout.v1` — Request timeout enforcement
-- `gts.x.core.oagw.guard_plugin.v1~x.core.oagw.cors.v1` — CORS preflight validation
+- `gts.cf.core.oagw.guard_plugin.v1~cf.core.oagw.timeout.v1` — Request timeout enforcement
+- `gts.cf.core.oagw.guard_plugin.v1~cf.core.oagw.cors.v1` — CORS preflight validation
 
 **Transform Plugins**:
-- `gts.x.core.oagw.transform_plugin.v1~x.core.oagw.logging.v1` — Request/response logging
-- `gts.x.core.oagw.transform_plugin.v1~x.core.oagw.metrics.v1` — Prometheus metrics collection
-- `gts.x.core.oagw.transform_plugin.v1~x.core.oagw.request_id.v1` — X-Request-ID propagation
+- `gts.cf.core.oagw.transform_plugin.v1~cf.core.oagw.logging.v1` — Request/response logging
+- `gts.cf.core.oagw.transform_plugin.v1~cf.core.oagw.metrics.v1` — Prometheus metrics collection
+- `gts.cf.core.oagw.transform_plugin.v1~cf.core.oagw.request_id.v1` — X-Request-ID propagation
 
 - **Rationale**: Covers the most common outbound API authentication and observability patterns out of the box.
 - **Actors**: `cpt-cf-oagw-actor-platform-operator`
@@ -636,7 +636,7 @@ None. All project-default NFRs apply to this module.
 **Actor**: `cpt-cf-oagw-actor-platform-operator`
 
 **Preconditions**:
-- Actor is authenticated with `gts.x.core.oagw.upstream.v1~:create` permission
+- Actor is authenticated with `gts.cf.core.oagw.upstream.v1~:create` permission
 
 **Main Flow**:
 1. Operator sends POST to `/api/oagw/v1/upstreams` with server endpoints, protocol, auth config
@@ -658,7 +658,7 @@ None. All project-default NFRs apply to this module.
 
 **Preconditions**:
 - Target upstream exists
-- Actor is authenticated with `gts.x.core.oagw.route.v1~:create` permission
+- Actor is authenticated with `gts.cf.core.oagw.route.v1~:create` permission
 
 **Main Flow**:
 1. Operator sends POST to `/api/oagw/v1/routes` with upstream_id and match rules

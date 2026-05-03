@@ -180,11 +180,11 @@ Client → :443
 ```rust
 async fn handle_connection(stream: TcpStream, tls_acceptor: TlsAcceptor) {
     let tls_stream = tls_acceptor.accept(stream).await?;
-    
+
     match tls_stream.negotiated_alpn_protocol() {
         Some(b"h2") => {
             let first_bytes = peek_first_request_header(&tls_stream).await?;
-            
+
             if is_grpc_content_type(&first_bytes) {
                 handle_grpc_request(tls_stream).await
             } else {
@@ -223,7 +223,7 @@ Unified configuration:
     "grpc_enabled": true
   },
   "upstream": {
-    "protocol": "gts.x.core.oagw.protocol.v1~x.core.oagw.grpc.v1",
+    "protocol": "gts.cf.core.oagw.protocol.v1~cf.core.oagw.grpc.v1",
     "server": {
       "endpoints": [
         {"scheme": "grpc", "host": "grpc-service.example.com", "port": 50051}

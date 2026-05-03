@@ -10,35 +10,35 @@ import httpx
 # ---------------------------------------------------------------------------
 
 # Schema GTS identifiers (7)
-UPSTREAM_SCHEMA = "gts.x.core.oagw.upstream.v1~"
-ROUTE_SCHEMA = "gts.x.core.oagw.route.v1~"
-PROTOCOL_SCHEMA = "gts.x.core.oagw.protocol.v1~"
-AUTH_PLUGIN_SCHEMA = "gts.x.core.oagw.auth_plugin.v1~"
-GUARD_PLUGIN_SCHEMA = "gts.x.core.oagw.guard_plugin.v1~"
-TRANSFORM_PLUGIN_SCHEMA = "gts.x.core.oagw.transform_plugin.v1~"
-PROXY_SCHEMA = "gts.x.core.oagw.proxy.v1~"
+UPSTREAM_SCHEMA = "gts.cf.core.oagw.upstream.v1~"
+ROUTE_SCHEMA = "gts.cf.core.oagw.route.v1~"
+PROTOCOL_SCHEMA = "gts.cf.core.oagw.protocol.v1~"
+AUTH_PLUGIN_SCHEMA = "gts.cf.core.oagw.auth_plugin.v1~"
+GUARD_PLUGIN_SCHEMA = "gts.cf.core.oagw.guard_plugin.v1~"
+TRANSFORM_PLUGIN_SCHEMA = "gts.cf.core.oagw.transform_plugin.v1~"
+PROXY_SCHEMA = "gts.cf.core.oagw.proxy.v1~"
 
 # Protocol instances (2)
-HTTP_PROTOCOL_ID = "gts.x.core.oagw.protocol.v1~x.core.oagw.http.v1"
-GRPC_PROTOCOL_ID = "gts.x.core.oagw.protocol.v1~x.core.oagw.grpc.v1"
+HTTP_PROTOCOL_ID = "gts.cf.core.oagw.protocol.v1~cf.core.oagw.http.v1"
+GRPC_PROTOCOL_ID = "gts.cf.core.oagw.protocol.v1~cf.core.oagw.grpc.v1"
 
 # Auth plugin instances (6)
-NOOP_AUTH_PLUGIN_ID = "gts.x.core.oagw.auth_plugin.v1~x.core.oagw.noop.v1"
-APIKEY_AUTH_PLUGIN_ID = "gts.x.core.oagw.auth_plugin.v1~x.core.oagw.apikey.v1"
-BASIC_AUTH_PLUGIN_ID = "gts.x.core.oagw.auth_plugin.v1~x.core.oagw.basic.v1"
-BEARER_AUTH_PLUGIN_ID = "gts.x.core.oagw.auth_plugin.v1~x.core.oagw.bearer.v1"
-OAUTH2_CLIENT_CRED_AUTH_PLUGIN_ID = "gts.x.core.oagw.auth_plugin.v1~x.core.oagw.oauth2_client_cred.v1"
-OAUTH2_CLIENT_CRED_BASIC_AUTH_PLUGIN_ID = "gts.x.core.oagw.auth_plugin.v1~x.core.oagw.oauth2_client_cred_basic.v1"
+NOOP_AUTH_PLUGIN_ID = "gts.cf.core.oagw.auth_plugin.v1~cf.core.oagw.noop.v1"
+APIKEY_AUTH_PLUGIN_ID = "gts.cf.core.oagw.auth_plugin.v1~cf.core.oagw.apikey.v1"
+BASIC_AUTH_PLUGIN_ID = "gts.cf.core.oagw.auth_plugin.v1~cf.core.oagw.basic.v1"
+BEARER_AUTH_PLUGIN_ID = "gts.cf.core.oagw.auth_plugin.v1~cf.core.oagw.bearer.v1"
+OAUTH2_CLIENT_CRED_AUTH_PLUGIN_ID = "gts.cf.core.oagw.auth_plugin.v1~cf.core.oagw.oauth2_client_cred.v1"
+OAUTH2_CLIENT_CRED_BASIC_AUTH_PLUGIN_ID = "gts.cf.core.oagw.auth_plugin.v1~cf.core.oagw.oauth2_client_cred_basic.v1"
 
 # Guard plugin instances (3)
-TIMEOUT_GUARD_PLUGIN_ID = "gts.x.core.oagw.guard_plugin.v1~x.core.oagw.timeout.v1"
-CORS_GUARD_PLUGIN_ID = "gts.x.core.oagw.guard_plugin.v1~x.core.oagw.cors.v1"
-REQUIRED_HEADERS_GUARD_PLUGIN_ID = "gts.x.core.oagw.guard_plugin.v1~x.core.oagw.required_headers.v1"
+TIMEOUT_GUARD_PLUGIN_ID = "gts.cf.core.oagw.guard_plugin.v1~cf.core.oagw.timeout.v1"
+CORS_GUARD_PLUGIN_ID = "gts.cf.core.oagw.guard_plugin.v1~cf.core.oagw.cors.v1"
+REQUIRED_HEADERS_GUARD_PLUGIN_ID = "gts.cf.core.oagw.guard_plugin.v1~cf.core.oagw.required_headers.v1"
 
 # Transform plugin instances (3)
-LOGGING_TRANSFORM_PLUGIN_ID = "gts.x.core.oagw.transform_plugin.v1~x.core.oagw.logging.v1"
-METRICS_TRANSFORM_PLUGIN_ID = "gts.x.core.oagw.transform_plugin.v1~x.core.oagw.metrics.v1"
-REQUEST_ID_TRANSFORM_PLUGIN_ID = "gts.x.core.oagw.transform_plugin.v1~x.core.oagw.request_id.v1"
+LOGGING_TRANSFORM_PLUGIN_ID = "gts.cf.core.oagw.transform_plugin.v1~cf.core.oagw.logging.v1"
+METRICS_TRANSFORM_PLUGIN_ID = "gts.cf.core.oagw.transform_plugin.v1~cf.core.oagw.metrics.v1"
+REQUEST_ID_TRANSFORM_PLUGIN_ID = "gts.cf.core.oagw.transform_plugin.v1~cf.core.oagw.request_id.v1"
 
 # Grouped for assertions
 OAGW_SCHEMAS = [

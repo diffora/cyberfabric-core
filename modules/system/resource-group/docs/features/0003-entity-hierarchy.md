@@ -757,7 +757,7 @@ Test setup: SQLite in-memory + TypeService + GroupService with configurable Quer
 #### Type code / type_path — wrong GTS format:
 
 #### TC-NOGTS-01: Create type with valid GTS path but NOT RG prefix [P1]
-- `code: "gts.x.core.user.v1~"` — valid GTS format, but missing `system.rg.type.v1~` prefix
+- `code: "gts.cf.core.user.v1~"` — valid GTS format, but missing `system.rg.type.v1~` prefix
 - **Assert**: 400 Validation ("must start with prefix")
 
 #### TC-NOGTS-02: Create type with empty code [P1]
@@ -769,7 +769,7 @@ Test setup: SQLite in-memory + TypeService + GroupService with configurable Quer
 - **Assert**: 400 Validation (wrong prefix) — no SQL injection
 
 #### TC-NOGTS-04: Create group with non-RG type_path [P1]
-- `type: "gts.x.core.user.v1~"` — valid GTS but not RG type
+- `type: "gts.cf.core.user.v1~"` — valid GTS but not RG type
 - **Assert**: 400 Validation ("must start with prefix")
 
 #### TC-NOGTS-05: Create group with empty type_path [P1]
@@ -1002,7 +1002,7 @@ GTS-level validation (33 tests in `rg_gts_type_system_tests.rs`) validates at sc
 - **Assert**: metadata_schema matches input
 
 #### TC-ADR-16: Chained type path format in RG [P1]
-- ADR uses: `gts.x.core.rg.type.v1~y.core.tn.tenant.v1~` (multi-segment)
+- ADR uses: `gts.cf.core.rg.type.v1~y.core.tn.tenant.v1~` (multi-segment)
 - Code validates prefix: `gts.cf.core.rg.type.v1~` (different namespace!)
 - **Assert**: Verify which prefix the code actually requires. If `system` not `core` → document discrepancy with ADR.
 

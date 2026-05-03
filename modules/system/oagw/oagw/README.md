@@ -30,7 +30,7 @@ let gw = ctx.client_hub().get::<dyn ServiceGatewayClientV1>()?;
 ```rust
 let upstream = gw.create_upstream(ctx, CreateUpstreamRequest::builder(
     Server { endpoints: vec![Endpoint { scheme: Scheme::Https, host: "api.openai.com".into(), port: 443 }] },
-    "gts.x.core.oagw.protocol.v1~x.core.oagw.http.v1",
+    "gts.cf.core.oagw.protocol.v1~cf.core.oagw.http.v1",
 ).build()).await?;
 ```
 

@@ -311,7 +311,7 @@ This feature realizes the sole feature entry in the `cf-tr-plugin` sub-system DE
 
 **Input**: `tenant_type_uuid` (AM-stored UUIDv5 surrogate observed on a `tenants` row, or a batch of such UUIDs).
 
-**Output**: public chained `tenant_type` identifier for each UUID (for example, the `gts.x.core.am.tenant_type.v1~` envelope tail), or the canonical `service_unavailable` sub-code when Types Registry cannot resolve a UUID — the plugin MUST NOT return raw UUIDs in place of the public `tenant_type` field per `contract-types-registry-reverse-lookup`.
+**Output**: public chained `tenant_type` identifier for each UUID (for example, the `gts.cf.core.am.tenant_type.v1~` envelope tail), or the canonical `service_unavailable` sub-code when Types Registry cannot resolve a UUID — the plugin MUST NOT return raw UUIDs in place of the public `tenant_type` field per `contract-types-registry-reverse-lookup`.
 
 **Steps**:
 

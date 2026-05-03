@@ -8,7 +8,7 @@ Attempt to create upstream:
 {
   "alias": "grpc.example.com",
   "server": { "endpoints": [ { "scheme": "grpc", "host": "grpc.example.com", "port": 443 } ] },
-  "protocol": "gts.x.core.oagw.protocol.v1~x.core.oagw.http.v1"
+  "protocol": "gts.cf.core.oagw.protocol.v1~cf.core.oagw.http.v1"
 }
 ```
 
@@ -23,7 +23,7 @@ Attempt to create upstream:
 {
   "alias": "api.example.com",
   "server": { "endpoints": [ { "scheme": "https", "host": "api.example.com", "port": 443 } ] },
-  "protocol": "gts.x.core.oagw.protocol.v1~x.core.oagw.grpc.v1"
+  "protocol": "gts.cf.core.oagw.protocol.v1~cf.core.oagw.grpc.v1"
 }
 ```
 

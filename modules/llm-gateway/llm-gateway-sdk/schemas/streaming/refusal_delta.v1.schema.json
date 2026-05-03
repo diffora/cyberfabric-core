@@ -1,10 +1,10 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "gts://gts.x.llmgw.streaming.event.v1~x.llmgw.streaming.refusal_delta.v1~",
+  "$id": "gts://gts.cf.llmgw.streaming.event.v1~x.llmgw.streaming.refusal_delta.v1~",
   "title": "Response refusal delta event",
   "description": "A streaming event indicating refusal text was incrementally added.",
   "allOf": [
-    { "$ref": "gts://gts.x.llmgw.streaming.event.v1~" },
+    { "$ref": "gts://gts.cf.llmgw.streaming.event.v1~" },
     {
       "properties": {
         "type": {

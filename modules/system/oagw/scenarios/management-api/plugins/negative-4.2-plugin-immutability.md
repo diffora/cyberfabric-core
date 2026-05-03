@@ -7,7 +7,7 @@ Create a custom plugin (guard or transform).
 ## Attempt to update plugin
 
 ```http
-PUT /api/oagw/v1/plugins/gts.x.core.oagw.guard_plugin.v1~<uuid> HTTP/1.1
+PUT /api/oagw/v1/plugins/gts.cf.core.oagw.guard_plugin.v1~<uuid> HTTP/1.1
 Host: oagw.example.com
 Authorization: Bearer <tenant-token>
 Content-Type: application/json

@@ -168,7 +168,7 @@ async fn membership_add_unregistered_resource_type() {
 
     // Try to add membership with a type path that is NOT registered in gts_type table
     let err = mbr_svc
-        .add_membership(&ctx, group.id, "gts.x.fake.nonexistent.v1~", "res-001")
+        .add_membership(&ctx, group.id, "gts.cf.fake.nonexistent.v1~", "res-001")
         .await
         .expect_err("unregistered type should fail");
 
@@ -423,7 +423,7 @@ async fn membership_remove_unregistered_resource_type() {
     let group = common::create_root_group(&group_svc, &ctx, &grp_type.code, "G1", tenant).await;
 
     let err = mbr_svc
-        .remove_membership(&ctx, group.id, "gts.x.fake.unregistered.v1~", "res-001")
+        .remove_membership(&ctx, group.id, "gts.cf.fake.unregistered.v1~", "res-001")
         .await
         .expect_err("remove with unregistered type should fail");
 

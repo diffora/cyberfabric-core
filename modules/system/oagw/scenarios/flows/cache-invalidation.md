@@ -47,7 +47,7 @@ upstream:{tenant_id}:openai → {...config...} (TTL: 3 minutes remaining)
 ### Management Request
 
 ```http
-PUT /api/oagw/v1/upstreams/gts.x.core.oagw.upstream.v1~7c9e6679... HTTP/1.1
+PUT /api/oagw/v1/upstreams/gts.cf.core.oagw.upstream.v1~7c9e6679... HTTP/1.1
 Host: oagw.example.com
 Authorization: Bearer <tenant-token>
 Content-Type: application/json
@@ -58,7 +58,7 @@ Content-Type: application/json
       { "scheme": "https", "host": "api.openai.com", "port": 443 }
     ]
   },
-  "protocol": "gts.x.core.oagw.protocol.v1~x.core.oagw.http.v1",
+  "protocol": "gts.cf.core.oagw.protocol.v1~cf.core.oagw.http.v1",
   "alias": "openai",
   "rate_limit": {
     "sustained": { "rate": 50, "window": "minute" }
@@ -177,7 +177,7 @@ Authorization: Bearer <tenant-token>
 Content-Type: application/json
 
 {
-  "upstream_id": "gts.x.core.oagw.upstream.v1~7c9e6679...",
+  "upstream_id": "gts.cf.core.oagw.upstream.v1~7c9e6679...",
   "match": {
     "http": {
       "methods": ["POST"],
@@ -205,7 +205,7 @@ No CP notification needed (route not cached yet)
 ### Management Request
 
 ```http
-DELETE /api/oagw/v1/upstreams/gts.x.core.oagw.upstream.v1~7c9e6679...?cascade=true HTTP/1.1
+DELETE /api/oagw/v1/upstreams/gts.cf.core.oagw.upstream.v1~7c9e6679...?cascade=true HTTP/1.1
 Host: oagw.example.com
 Authorization: Bearer <tenant-token>
 ```

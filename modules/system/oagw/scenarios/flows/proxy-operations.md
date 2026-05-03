@@ -88,17 +88,17 @@ CP receives request
 Resolved upstream:
 ```json
 {
-  "id": "gts.x.core.oagw.upstream.v1~7c9e6679...",
+  "id": "gts.cf.core.oagw.upstream.v1~7c9e6679...",
   "alias": "openai",
   "server": {
     "endpoints": [
       { "scheme": "https", "host": "api.openai.com", "port": 443 }
     ]
   },
-  "protocol": "gts.x.core.oagw.protocol.v1~x.core.oagw.http.v1",
+  "protocol": "gts.cf.core.oagw.protocol.v1~cf.core.oagw.http.v1",
   "auth": {
-    "plugin": "gts.x.core.oagw.auth_plugin.v1~x.core.oagw.bearer.v1",
-    "config": { "secret_ref": "gts.x.core.cred.v1~abc123..." }
+    "plugin": "gts.cf.core.oagw.auth_plugin.v1~cf.core.oagw.bearer.v1",
+    "config": { "secret_ref": "gts.cf.core.cred.v1~abc123..." }
   }
 }
 ```
@@ -114,8 +114,8 @@ CP calls DP.resolve_route(upstream_id, "POST", "/v1/chat/completions")
 Resolved route:
 ```json
 {
-  "id": "gts.x.core.oagw.route.v1~def456...",
-  "upstream_id": "gts.x.core.oagw.upstream.v1~7c9e6679...",
+  "id": "gts.cf.core.oagw.route.v1~def456...",
+  "upstream_id": "gts.cf.core.oagw.upstream.v1~7c9e6679...",
   "match": {
     "http": {
       "methods": ["POST"],
@@ -123,7 +123,7 @@ Resolved route:
     }
   },
   "plugins": {
-    "guards": ["gts.x.core.oagw.guard_plugin.v1~x.core.oagw.timeout.v1"]
+    "guards": ["gts.cf.core.oagw.guard_plugin.v1~cf.core.oagw.timeout.v1"]
   }
 }
 ```
@@ -246,7 +246,7 @@ X-OAGW-Error-Source: gateway
 Content-Type: application/problem+json
 
 {
-  "type": "gts.x.core.errors.err.v1~x.oagw.routing.upstream_not_found.v1",
+  "type": "gts.cf.core.errors.err.v1~cf.oagw.routing.upstream_not_found.v1",
   "title": "Upstream Not Found",
   "status": 404,
   "detail": "No upstream found with alias 'openai' for tenant",
@@ -262,12 +262,12 @@ X-OAGW-Error-Source: gateway
 Content-Type: application/problem+json
 
 {
-  "type": "gts.x.core.errors.err.v1~x.oagw.routing.upstream_disabled.v1",
+  "type": "gts.cf.core.errors.err.v1~cf.oagw.routing.upstream_disabled.v1",
   "title": "Upstream Disabled",
   "status": 503,
   "detail": "Upstream 'openai' is disabled",
   "instance": "/api/oagw/v1/proxy/openai/v1/chat/completions",
-  "upstream_id": "gts.x.core.oagw.upstream.v1~7c9e6679..."
+  "upstream_id": "gts.cf.core.oagw.upstream.v1~7c9e6679..."
 }
 ```
 
@@ -279,7 +279,7 @@ X-OAGW-Error-Source: gateway
 Content-Type: application/problem+json
 
 {
-  "type": "gts.x.core.errors.err.v1~x.oagw.routing.route_not_found.v1",
+  "type": "gts.cf.core.errors.err.v1~cf.oagw.routing.route_not_found.v1",
   "title": "Route Not Found",
   "status": 404,
   "detail": "No route matches POST /v1/unknown/path",
@@ -295,7 +295,7 @@ X-OAGW-Error-Source: gateway
 Content-Type: application/problem+json
 
 {
-  "type": "gts.x.core.errors.err.v1~x.oagw.guard.timeout.v1",
+  "type": "gts.cf.core.errors.err.v1~cf.oagw.guard.timeout.v1",
   "title": "Request Timeout",
   "status": 408,
   "detail": "Request timeout budget exceeded (30s)",

@@ -170,7 +170,7 @@ Circuit breaker is a first-class field in upstream definitions (not a plugin).
       { "scheme": "https", "host": "api.openai.com", "port": 443 }
     ]
   },
-  "protocol": "gts.x.core.oagw.protocol.v1~x.core.oagw.http.v1",
+  "protocol": "gts.cf.core.oagw.protocol.v1~cf.core.oagw.http.v1",
   "circuit_breaker": {
     "enabled": true,
     "failure_threshold": 5,
@@ -295,7 +295,7 @@ When circuit is open:
 ```json
 {
   "error": {
-    "type": "gts.x.core.errors.err.v1~x.oagw.circuit_breaker.open.v1",
+    "type": "gts.cf.core.errors.err.v1~cf.oagw.circuit_breaker.open.v1",
     "status": 503,
     "code": "CIRCUIT_BREAKER_OPEN",
     "message": "Circuit breaker is open for upstream api.openai.com",

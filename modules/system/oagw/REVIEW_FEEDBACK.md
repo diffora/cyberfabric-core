@@ -1,6 +1,6 @@
 # OAGW Design Review - Combined Feedback
 
-**Date**: 2026-02-05  
+**Date**: 2026-02-05
 **Sources**: Cascade Review, Claude Review
 
 ---
@@ -263,7 +263,7 @@
 
 - [ ] 5.1 **[High]** Dual Permission Systems (Cascade)
     - Location: `DESIGN.md` → Permissions and Access Control (lines 860-872) vs Inbound AuthZ permissions table (lines 159-174)
-    - Issue: Two permission systems: GTS permission strings (`gts.x.core...`) and separate `oagw:*` permissions, relationship unspecified
+    - Issue: Two permission systems: GTS permission strings (`gts.cf.core...`) and separate `oagw:*` permissions, relationship unspecified
     - Impact: Authorization gaps, inconsistent policy across management/proxy/override operations
     - Recommendation: Define single permission model or deterministic mapping, specify which API operation checks which permissions, add bypass tests
 

@@ -18,7 +18,7 @@ async def test_create_minimal_upstream_returns_201(
         )
 
         assert "id" in upstream
-        assert upstream["id"].startswith("gts.x.core.oagw.upstream.v1~")
+        assert upstream["id"].startswith("gts.cf.core.oagw.upstream.v1~")
         assert upstream.get("enabled") is True
         assert upstream.get("alias") == alias
 
@@ -149,7 +149,7 @@ async def test_create_route_returns_201(
             client, oagw_base_url, oagw_headers, uid, ["POST"], "/v1/chat/completions",
         )
         assert "id" in route
-        assert route["id"].startswith("gts.x.core.oagw.route.v1~")
+        assert route["id"].startswith("gts.cf.core.oagw.route.v1~")
 
         await delete_upstream(client, oagw_base_url, oagw_headers, uid)
 

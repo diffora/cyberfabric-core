@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "gts://gts.x.llmgw.content.input_video.v1~",
+  "$id": "gts://gts.cf.llmgw.content.input_video.v1~",
   "title": "InputVideo",
   "description": "Input video content part with FileStorage URL or file ID",
   "type": "object",

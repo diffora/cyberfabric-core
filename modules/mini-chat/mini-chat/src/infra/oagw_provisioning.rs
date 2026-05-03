@@ -108,7 +108,7 @@ async fn create_upstream(
     };
 
     let mut builder =
-        CreateUpstreamRequest::builder(server, "gts.x.core.oagw.protocol.v1~x.core.oagw.http.v1")
+        CreateUpstreamRequest::builder(server, "gts.cf.core.oagw.protocol.v1~cf.core.oagw.http.v1")
             .enabled(true);
 
     // Only pass alias when explicitly configured (IP-based hosts).
@@ -173,7 +173,7 @@ async fn create_tenant_upstream(
     };
 
     let mut builder =
-        CreateUpstreamRequest::builder(server, "gts.x.core.oagw.protocol.v1~x.core.oagw.http.v1")
+        CreateUpstreamRequest::builder(server, "gts.cf.core.oagw.protocol.v1~cf.core.oagw.http.v1")
             .enabled(true);
 
     // Only pass alias when the tenant override explicitly sets one (IP-based hosts).

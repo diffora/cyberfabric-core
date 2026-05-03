@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "gts://gts.x.llmgw.core.error.v1~",
+  "$id": "gts://gts.cf.llmgw.core.error.v1~",
   "title": "ResponseError",
   "description": "Open Responses error object within a response resource",
   "type": "object",

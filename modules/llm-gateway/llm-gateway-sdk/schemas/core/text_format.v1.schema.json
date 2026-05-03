@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "gts://gts.x.llmgw.core.text_format.v1~",
+  "$id": "gts://gts.cf.llmgw.core.text_format.v1~",
   "title": "TextFormat",
   "description": "Response text format configuration",
   "type": "object",

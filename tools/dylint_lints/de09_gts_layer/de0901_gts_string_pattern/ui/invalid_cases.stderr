@@ -40,39 +40,55 @@ LL |     let _id1 = ProductV1::<()>::gts_make_instance_id("vendor.package.sku.ab
    |
    = help: Example: vendor.package.sku.abc.v1
 
-error: invalid GTS string: 'gts.x.core.lic.feat.v1~x.core.global.base' (DE0901)
+error: invalid GTS string: 'gts.vendor.core.lic.feat.v1~x.core.global.base' (DE0901)
   --> $DIR/invalid_cases.rs:48:14
    |
-LL |     let _s = "gts.x.core.lic.feat.v1~x.core.global.base";
-   |              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+LL |     let _s = "gts.vendor.core.lic.feat.v1~x.core.global.base";
+   |              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
    |
-   = note: Invalid GTS segment #2 @ offset 23: 'x.core.global.base': Too few tokens (got 4, min 5). Expected format: vendor.package.namespace.type.vMAJOR[.MINOR]
+   = note: Invalid GTS segment #2 @ offset 28: 'x.core.global.base': Too few tokens (got 4, min 5). Expected format: vendor.package.namespace.type.vMAJOR[.MINOR]
 
-error: invalid GTS string: 'gts.x.core.events.type.v1' (DE0901)
+error: invalid GTS string: 'gts.vendor.core.events.type.v1' (DE0901)
   --> $DIR/invalid_cases.rs:52:14
    |
-LL |     let _s = "gts.x.core.events.type.v1";
-   |              ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+LL |     let _s = "gts.vendor.core.events.type.v1";
+   |              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
    |
-   = note: Invalid GTS identifier: gts.x.core.events.type.v1: Single-segment instance IDs are prohibited. Instance IDs must be chained with at least one type segment (e.g., 'type~instance')
+   = note: Invalid GTS identifier: gts.vendor.core.events.type.v1: Single-segment instance IDs are prohibited. Instance IDs must be chained with at least one type segment (e.g., 'type~instance')
 
-error: invalid GTS string (wildcards not allowed): 'gts.x.core.events.type.*' (DE0901)
+error: invalid GTS string (wildcards not allowed): 'gts.vendor.core.events.type.*' (DE0901)
   --> $DIR/invalid_cases.rs:56:14
    |
-LL |     let _s = "gts.x.core.events.type.*";
-   |              ^^^^^^^^^^^^^^^^^^^^^^^^^^
+LL |     let _s = "gts.vendor.core.events.type.*";
+   |              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
    |
    = note: Wildcards (*) are only allowed in permission strings, not in regular GTS identifiers
    = help: Use concrete type names
 
+error: invalid GTS vendor in segment #0: 'gts.badvendor.core.events.type.v1~' (DE0901)
+  --> $DIR/invalid_cases.rs:60:14
+   |
+LL |     let _s = "gts.badvendor.core.events.type.v1~";
+   |              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: found vendor 'badvendor', allowed vendors are 'cf' and 'example'
+
+error: invalid GTS vendor in segment: 'badvendor.package.sku.abc.v1' (DE0901)
+  --> $DIR/invalid_cases.rs:64:22
+   |
+LL |     let _id_vendor = ProductV1::<()>::gts_make_instance_id("badvendor.package.sku.abc.v1");
+   |                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: found vendor 'badvendor', allowed vendors are 'cf' and 'example'
+
 error: GTS wildcard string in `const`/`static` `BAD_PATTERN` must have a name ending with `_WILDCARD` (DE0901)
-  --> $DIR/invalid_cases.rs:68:1
+  --> $DIR/invalid_cases.rs:76:1
    |
-LL | const BAD_PATTERN: &str = "gts.x.core.srr.resource.v1~*";
-   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+LL | const BAD_PATTERN: &str = "gts.vendor.core.srr.resource.v1~*";
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
    |
-   = note: found wildcard GTS pattern `gts.x.core.srr.resource.v1~*` stored in `BAD_PATTERN`
+   = note: found wildcard GTS pattern `gts.vendor.core.srr.resource.v1~*` stored in `BAD_PATTERN`
    = help: rename to `BAD_PATTERN_WILDCARD` or use a non-wildcard value
 
-error: aborting due to 9 previous errors
+error: aborting due to 11 previous errors
 

@@ -8,7 +8,7 @@ use gts_macros::struct_to_gts_schema;
     dir_path = "schemas",
     base = true,
     // Should NOT trigger - valid GTS schema_id string
-    schema_id = "gts.x.test.entities.product.v1~",
+    schema_id = "gts.vendor.test.entities.product.v1~",
     description = "Product entity",
     properties = "id"
 )]
@@ -45,15 +45,23 @@ fn main() {
 
     // Error 6: invalid GTS segment
     // Should trigger DE0901 - invalid GTS segment
-    let _s = "gts.x.core.lic.feat.v1~x.core.global.base";
+    let _s = "gts.vendor.core.lic.feat.v1~x.core.global.base";
 
     // Error 7: Invalid GTS identifier (no trailing type segment)
     // Should trigger DE0901 - invalid GTS indentifier
-    let _s = "gts.x.core.events.type.v1";
+    let _s = "gts.vendor.core.events.type.v1";
 
     // Error 8: GTS wildcard is not allowed in regular strings
     // Should trigger DE0901 - invalid GTS
-    let _s = "gts.x.core.events.type.*";
+    let _s = "gts.vendor.core.events.type.*";
+
+    // Error 9: disallowed vendor in full GTS string
+    // Should trigger DE0901 - invalid GTS vendor
+    let _s = "gts.badvendor.core.events.type.v1~";
+
+    // Error 10: disallowed vendor in instance segment
+    // Should trigger DE0901 - invalid GTS vendor
+    let _id_vendor = ProductV1::<()>::gts_make_instance_id("badvendor.package.sku.abc.v1");
 
     // Valid case for comparison
     // Should NOT trigger - valid GTS instance segment
@@ -63,9 +71,9 @@ fn main() {
     _use_bad_pattern();
 }
 
-// Error 9: GTS wildcard in const without _WILDCARD suffix
+// Error 11: GTS wildcard in const without _WILDCARD suffix
 // Should trigger DE0901 - invalid GTS wildcard const name (must end with _WILDCARD)
-const BAD_PATTERN: &str = "gts.x.core.srr.resource.v1~*";
+const BAD_PATTERN: &str = "gts.vendor.core.srr.resource.v1~*";
 
 fn _use_bad_pattern() {
     let _ = BAD_PATTERN;

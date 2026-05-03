@@ -107,7 +107,7 @@ The plugin **MUST** translate OData $filter and $orderby parameters to SeaORM qu
 
 - [ ] `p1` - **ID**: `cpt-cf-srr-rdb-fr-gts-wildcard`
 
-The plugin **MUST** support GTS wildcard filtering on the `type` column. A trailing wildcard (`*`) in the type filter **MUST** be translated to a SQL `LIKE` prefix match (e.g., `type LIKE 'gts.x.core.srr.resource.v1~acme.%'`). The wildcard is greedy and matches through the `~` chain separator.
+The plugin **MUST** support GTS wildcard filtering on the `type` column. A trailing wildcard (`*`) in the type filter **MUST** be translated to a SQL `LIKE` prefix match (e.g., `type LIKE 'gts.cf.core.srr.resource.v1~acme.%'`). The wildcard is greedy and matches through the `~` chain separator.
 
 **Rationale**: Enables the main module's GTS wildcard filtering requirement.
 **Actors**: `cpt-cf-srr-rdb-actor-srr-main`

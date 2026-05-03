@@ -899,7 +899,7 @@ where
     /// impl AsRef<str> for License {
     ///     fn as_ref(&self) -> &str {
     ///         match self {
-    ///             License::Base => "gts.x.core.lic.feat.v1~x.core.global.base.v1",
+    ///             License::Base => "gts.cf.core.lic.feat.v1~cf.core.global.base.v1",
     ///         }
     ///     }
     /// }

@@ -481,7 +481,7 @@ sequenceDiagram
 | base_url | VARCHAR(2048) | NOT NULL | Provider API endpoint |
 | status | VARCHAR(20) | NOT NULL, DEFAULT 'active' | active, disabled |
 | managed | BOOLEAN | NOT NULL, DEFAULT false | Whether CyberFabric can manage this provider (e.g. install/unload models on ollama, lm_studio) |
-| metadata | JSONB | | Provider-specific metadata, GTS-typed (e.g. `gts.x.genai.models.provider.v1~x.genai.local.provider.v1~` for local providers with capabilities like `install_model`, `import_model`, `streaming`) |
+| metadata | JSONB | | Provider-specific metadata, GTS-typed (e.g. `gts.cf.genai.models.provider.v1~x.genai.local.provider.v1~` for local providers with capabilities like `install_model`, `import_model`, `streaming`) |
 | discovery_enabled | BOOLEAN | NOT NULL, DEFAULT false | Discovery feature flag |
 | discovery_interval_seconds | INTEGER | | Discovery interval |
 | created_at | TIMESTAMPTZ | NOT NULL | Creation timestamp |
@@ -508,9 +508,9 @@ sequenceDiagram
 | architecture | VARCHAR(64) | | Model architecture (qwen, llama, etc.) |
 | size_bytes | BIGINT | | Model size for capacity planning |
 | format | VARCHAR(32) | | Model format (gguf, mlx, safetensors, api-only) |
-| capabilities | JSONB | NOT NULL | GTS-typed capability flags (base type `gts.x.genai.model.capabilities.v1~`), e.g. text_input, image_input, streaming |
-| limits | JSONB | | GTS-typed model limits (base type `gts.x.genai.model.limits.v1~`), e.g. context_window, max_output_tokens |
-| provider_cost | JSONB | | GTS-typed AICredits per tier (base type `gts.x.genai.model.provider_cost.v1~`), sync/batch/cached |
+| capabilities | JSONB | NOT NULL | GTS-typed capability flags (base type `gts.cf.genai.model.capabilities.v1~`), e.g. text_input, image_input, streaming |
+| limits | JSONB | | GTS-typed model limits (base type `gts.cf.genai.model.limits.v1~`), e.g. context_window, max_output_tokens |
+| provider_cost | JSONB | | GTS-typed AICredits per tier (base type `gts.cf.genai.model.provider_cost.v1~`), sync/batch/cached |
 | version | VARCHAR(64) | | Provider's model version |
 | deprecated_at | TIMESTAMPTZ | | Soft-delete timestamp |
 | created_at | TIMESTAMPTZ | NOT NULL | Creation timestamp |

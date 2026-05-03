@@ -270,7 +270,7 @@ mod tests {
     #[test]
     fn test_domain_to_sdk_error_conversion_for_type_schema() {
         let sdk_err =
-            DomainError::not_found_by_id("gts.x.core.events.test.v1~").into_sdk_for_type_schema();
+            DomainError::not_found_by_id("gts.cf.core.events.test.v1~").into_sdk_for_type_schema();
         assert!(sdk_err.is_gts_type_schema_not_found());
 
         // UUID-keyed not-found also surfaces as `GtsTypeSchemaNotFound` —
@@ -284,7 +284,7 @@ mod tests {
         assert!(sdk_err.is_invalid_gts_type_id());
 
         let sdk_err =
-            DomainError::already_exists("gts.x.core.events.test.v1~").into_sdk_for_type_schema();
+            DomainError::already_exists("gts.cf.core.events.test.v1~").into_sdk_for_type_schema();
         assert!(sdk_err.is_already_exists());
 
         let sdk_err = DomainError::validation_failed("bad schema").into_sdk_for_type_schema();
@@ -294,7 +294,7 @@ mod tests {
     #[test]
     fn test_domain_to_sdk_error_conversion_for_instance() {
         let sdk_err =
-            DomainError::not_found_by_id("gts.x.core.events.test.v1~x.core.instances.u1.v1")
+            DomainError::not_found_by_id("gts.cf.core.events.test.v1~cf.core.instances.u1.v1")
                 .into_sdk_for_instance();
         assert!(sdk_err.is_gts_instance_not_found());
 
@@ -338,10 +338,10 @@ mod tests {
         let err = DomainError::InvalidGtsId("bad format".to_owned());
         assert_eq!(err.to_string(), "Invalid GTS ID: bad format");
 
-        let err = DomainError::not_found_by_id("gts.x.core.events.test.v1~");
+        let err = DomainError::not_found_by_id("gts.cf.core.events.test.v1~");
         assert_eq!(
             err.to_string(),
-            "Entity not found (GTS ID): gts.x.core.events.test.v1~"
+            "Entity not found (GTS ID): gts.cf.core.events.test.v1~"
         );
 
         let err = DomainError::not_found_by_uuid(uuid::Uuid::nil());
@@ -350,10 +350,10 @@ mod tests {
             "Entity not found (UUID): 00000000-0000-0000-0000-000000000000"
         );
 
-        let err = DomainError::AlreadyExists("gts.x.core.events.test.v1~".to_owned());
+        let err = DomainError::AlreadyExists("gts.cf.core.events.test.v1~".to_owned());
         assert_eq!(
             err.to_string(),
-            "Entity already exists: gts.x.core.events.test.v1~"
+            "Entity already exists: gts.cf.core.events.test.v1~"
         );
 
         let err = DomainError::ValidationFailed("schema invalid".to_owned());

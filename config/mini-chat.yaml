@@ -137,7 +137,7 @@ modules:
           host: "${AZURE_OPENAI_API_HOST}"
           api_path: "/openai/v1/responses"
           api_version: "2025-03-01-preview"
-          auth_plugin_type: "gts.x.core.oagw.auth_plugin.v1~x.core.oagw.apikey.v1"
+          auth_plugin_type: "gts.cf.core.oagw.auth_plugin.v1~cf.core.oagw.apikey.v1"
           auth_config:
             header: "api-key"
             prefix: ""
@@ -149,7 +149,7 @@ modules:
       #     host: "<your-resource>.openai.azure.com"       # Azure endpoint
       #     # upstream_alias: "custom-alias"               # optional, defaults to host
       #     api_path: "/openai/v1/responses"
-      #     auth_plugin_type: "gts.x.core.oagw.auth_plugin.v1~x.core.oagw.apikey.v1"
+      #     auth_plugin_type: "gts.cf.core.oagw.auth_plugin.v1~cf.core.oagw.apikey.v1"
       #     auth_config:
       #       header: "api-key"
       #       prefix: ""
@@ -164,7 +164,7 @@ modules:
       #     kind: openai_responses
       #     host: "default.openai.azure.com"
       #     api_path: "/openai/v1/responses"
-      #     auth_plugin_type: "gts.x.core.oagw.auth_plugin.v1~x.core.oagw.apikey.v1"
+      #     auth_plugin_type: "gts.cf.core.oagw.auth_plugin.v1~cf.core.oagw.apikey.v1"
       #     auth_config:
       #       header: "api-key"
       #       prefix: ""

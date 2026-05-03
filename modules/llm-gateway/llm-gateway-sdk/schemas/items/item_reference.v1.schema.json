@@ -1,10 +1,10 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "gts://gts.x.llmgw.items.item.v1~x.llmgw.items.item_reference.v1~",
+  "$id": "gts://gts.cf.llmgw.items.item.v1~x.llmgw.items.item_reference.v1~",
   "title": "ItemReference",
   "description": "Reference to an item from a previous response.",
   "allOf": [
-    { "$ref": "gts://gts.x.llmgw.items.item.v1~" },
+    { "$ref": "gts://gts.cf.llmgw.items.item.v1~" },
     {
       "properties": {
         "type": {

@@ -46,7 +46,7 @@ Content-Type: application/json
       { "scheme": "https", "host": "api.openai.com", "port": 443 }
     ]
   },
-  "protocol": "gts.x.core.oagw.protocol.v1~x.core.oagw.http.v1",
+  "protocol": "gts.cf.core.oagw.protocol.v1~cf.core.oagw.http.v1",
   "alias": "openai"
 }
 ```
@@ -71,10 +71,10 @@ Content-Type: application/json
 ```http
 HTTP/1.1 201 Created
 Content-Type: application/json
-Location: /api/oagw/v1/upstreams/gts.x.core.oagw.upstream.v1~7c9e6679...
+Location: /api/oagw/v1/upstreams/gts.cf.core.oagw.upstream.v1~7c9e6679...
 
 {
-  "id": "gts.x.core.oagw.upstream.v1~7c9e6679-7425-40de-944b-e07fc1f90ae7",
+  "id": "gts.cf.core.oagw.upstream.v1~7c9e6679-7425-40de-944b-e07fc1f90ae7",
   "tenant_id": "...",
   "alias": "openai",
   "server": { ... },
@@ -88,7 +88,7 @@ Location: /api/oagw/v1/upstreams/gts.x.core.oagw.upstream.v1~7c9e6679...
 ### Request
 
 ```http
-PUT /api/oagw/v1/upstreams/gts.x.core.oagw.upstream.v1~7c9e6679... HTTP/1.1
+PUT /api/oagw/v1/upstreams/gts.cf.core.oagw.upstream.v1~7c9e6679... HTTP/1.1
 Host: oagw.example.com
 Authorization: Bearer <tenant-token>
 Content-Type: application/json
@@ -99,7 +99,7 @@ Content-Type: application/json
       { "scheme": "https", "host": "api.openai.com", "port": 443 }
     ]
   },
-  "protocol": "gts.x.core.oagw.protocol.v1~x.core.oagw.http.v1",
+  "protocol": "gts.cf.core.oagw.protocol.v1~cf.core.oagw.http.v1",
   "alias": "openai",
   "rate_limit": {
     "sustained": { "rate": 100, "window": "minute" }
@@ -143,7 +143,7 @@ HTTP/1.1 200 OK
 Content-Type: application/json
 
 {
-  "id": "gts.x.core.oagw.upstream.v1~7c9e6679...",
+  "id": "gts.cf.core.oagw.upstream.v1~7c9e6679...",
   "tenant_id": "...",
   "alias": "openai",
   "rate_limit": {
@@ -158,7 +158,7 @@ Content-Type: application/json
 ### Request
 
 ```http
-DELETE /api/oagw/v1/upstreams/gts.x.core.oagw.upstream.v1~7c9e6679... HTTP/1.1
+DELETE /api/oagw/v1/upstreams/gts.cf.core.oagw.upstream.v1~7c9e6679... HTTP/1.1
 Host: oagw.example.com
 Authorization: Bearer <tenant-token>
 ```
@@ -191,11 +191,11 @@ HTTP/1.1 409 Conflict
 Content-Type: application/problem+json
 
 {
-  "type": "gts.x.core.errors.err.v1~x.oagw.config.upstream_has_routes.v1",
+  "type": "gts.cf.core.errors.err.v1~cf.oagw.config.upstream_has_routes.v1",
   "title": "Upstream Has Dependent Routes",
   "status": 409,
   "detail": "Cannot delete upstream with active routes. Use cascade=true or delete routes first.",
-  "instance": "/api/oagw/v1/upstreams/gts.x.core.oagw.upstream.v1~7c9e6679...",
+  "instance": "/api/oagw/v1/upstreams/gts.cf.core.oagw.upstream.v1~7c9e6679...",
   "route_count": 3
 }
 ```

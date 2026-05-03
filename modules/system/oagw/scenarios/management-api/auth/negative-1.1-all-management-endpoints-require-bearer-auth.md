@@ -13,7 +13,7 @@ Content-Type: application/json
       { "scheme": "https", "host": "httpbin.org", "port": 443 }
     ]
   },
-  "protocol": "gts.x.core.oagw.protocol.v1~x.core.oagw.http.v1"
+  "protocol": "gts.cf.core.oagw.protocol.v1~cf.core.oagw.http.v1"
 }
 ```
 
@@ -24,7 +24,7 @@ Content-Type: application/json
 
 ```json
 {
-  "type": "gts.x.core.errors.err.v1~x.oagw.auth.failed.v1",
+  "type": "gts.cf.core.errors.err.v1~cf.oagw.auth.failed.v1",
   "title": "Authentication Failed",
   "status": 401,
   "detail": "Missing or invalid bearer token",

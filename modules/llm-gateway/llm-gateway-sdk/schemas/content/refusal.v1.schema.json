@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "gts://gts.x.llmgw.content.refusal.v1~",
+  "$id": "gts://gts.cf.llmgw.content.refusal.v1~",
   "title": "Refusal",
   "description": "Output content part indicating the model refused to generate content",
   "type": "object",

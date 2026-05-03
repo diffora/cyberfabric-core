@@ -65,11 +65,11 @@ In Cyber Fabric's architecture:
 
 In a multi-tenant system, resource access is defined along **two orthogonal dimensions**:
 
-**Tenancy (mandatory, isolation boundary)**  
+**Tenancy (mandatory, isolation boundary)**
 Every resource belongs to exactly one tenant (`owner_tenant_id`). This is the primary data boundary.
 PEP MUST always enforce a tenant predicate in queries to prevent cross-tenant data leakage, regardless of policy decisions.
 
-**Subject scoping (optional, per-subject filtering)**  
+**Subject scoping (optional, per-subject filtering)**
 A resource may optionally be associated with a specific subject within the tenant via `owner_id`.
 This enables "my resources" views (e.g., "show only my tasks"). Tenant-level shared objects may have empty `owner_id`. It aligns with AuthZEN's `resource.properties.ownerID` resource property convention (see [AuthZEN interop spec](https://authzen-interop.net/docs/scenarios/todo-1.1/)).
 
@@ -286,7 +286,7 @@ Token scopes provide capability narrowing for third-party applications. They act
 | Aspect | Scope | Permission |
 |--------|-------|------------|
 | Granularity | Coarse (human-readable) | Fine (technical) |
-| Example | `read:calendar` | `gts.x.core.events.event.v1~:read` |
+| Example | `read:calendar` | `gts.cf.core.events.event.v1~:read` |
 | Who defines | OAuth consent / IdP | PDP policies |
 | Purpose | Limit app capabilities | Grant user access |
 
@@ -317,7 +317,7 @@ AuthN Resolver plugin is responsible for:
 ```rust
 SecurityContext {
     subject_id: "user123-uuid",                                  // required
-    subject_type: Some("gts.x.core.security.subject_user.v1~"),  // optional
+    subject_type: Some("gts.cf.core.security.subject_user.v1~"),  // optional
     subject_tenant_id: "tenant456-uuid",                         // required
     bearer_token: Some(Secret::new("eyJ...".into())),            // optional, Secret<String>
     token_scopes: ["*"],                                         // first-party: full access
@@ -481,7 +481,7 @@ SecurityContext {
 | Field | Required | Description | Used By |
 |-------|----------|-------------|---------|
 | `subject_id` | Yes | Unique identifier for the subject | All authorization decisions |
-| `subject_type` | No | GTS type identifier (e.g., `gts.x.core.security.subject_user.v1~`) | PDP for role/permission mapping |
+| `subject_type` | No | GTS type identifier (e.g., `gts.cf.core.security.subject_user.v1~`) | PDP for role/permission mapping |
 | `subject_tenant_id` | Yes | Subject Tenant — tenant the subject belongs to. Used as default `owner_tenant_id` for CREATE when the API has no explicit tenant field (see S06 in [AUTHZ_USAGE_SCENARIOS.md](./AUTHZ_USAGE_SCENARIOS.md)) | PDP for tenant context, PEP for resource ownership |
 | `token_scopes` | Yes | Capability restrictions from token (see [Token Scopes](#token-scopes)) | PDP for scope narrowing |
 | `bearer_token` | No | Original bearer token (wrapped in `Secret` from [secrecy](https://crates.io/crates/secrecy) crate) | PDP validation, external API calls |
@@ -756,7 +756,7 @@ All **core entity identifiers** in the authorization API are **UUIDs**:
 | `resource_group_closure` keys | UUID | `ancestor_id`, `descendant_id` |
 | `resource_group_membership` keys | UUID | `resource_id`, `group_id` |
 
-**Domain-specific identifiers** (e.g., `topic_id`) are **exceptions** — they are structured string identifiers from the Global Type System (e.g., `gts.x.core.events.topic.v1~`), not UUIDs. How a domain module stores GTS IDs internally is up to the module: either as a string as-is, or as a deterministic UUIDv5 computed from the GTS ID string. PDP may return GTS IDs in constraint values (e.g., `topic_id`); PEP is responsible for mapping them to the storage format used by the module.
+**Domain-specific identifiers** (e.g., `topic_id`) are **exceptions** — they are structured string identifiers from the Global Type System (e.g., `gts.cf.core.events.topic.v1~`), not UUIDs. How a domain module stores GTS IDs internally is up to the module: either as a string as-is, or as a deterministic UUIDv5 computed from the GTS ID string. PDP may return GTS IDs in constraint values (e.g., `topic_id`); PEP is responsible for mapping them to the storage format used by the module.
 
 #### Request / Response Example
 
@@ -778,7 +778,7 @@ Content-Type: application/json
 {
   // Subject — from SecurityContext (produced by AuthN Resolver)
   "subject": {
-    "type": "gts.x.core.security.user.v1~",          // optional - SecurityContext.subject_type
+    "type": "gts.cf.core.security.user.v1~",          // optional - SecurityContext.subject_type
     "id": "a254d252-7129-4240-bae5-847c59008fb6",    // required - SecurityContext.subject_id
     "properties": {
       "tenant_id": "51f18034-3b2f-4bfa-bb99-22113bddee68"  // optional - SecurityContext.subject_tenant_id
@@ -792,10 +792,10 @@ Content-Type: application/json
 
   // Resource — handler sets type; id/properties from HTTP request
   "resource": {
-    "type": "gts.x.core.events.event.v1~",               // handler: module's resource GTS type
+    "type": "gts.cf.core.events.event.v1~",               // handler: module's resource GTS type
     "id": "e81307e5-5ee8-4c0a-8d1f-bd98a65c517e",   // URL path param (point ops only, absent for list)
     "properties": {
-      "topic_id": "gts.x.core.events.topic.v1~z.app._.some_topic.v1"  // from query param ?topic=...
+      "topic_id": "gts.cf.core.events.topic.v1~z.app._.some_topic.v1"  // from query param ?topic=...
     }
   },
 
@@ -845,7 +845,7 @@ The response contains a `decision` and, when `decision: true`, optional `context
             // Equality predicate
             "type": "eq",
             "resource_property": "topic_id",
-            "value": "gts.x.core.events.topic.v1~z.app._.some_topic.v1"
+            "value": "gts.cf.core.events.topic.v1~z.app._.some_topic.v1"
           }
         ]
       }
@@ -863,9 +863,9 @@ The response contains a `decision` and, when `decision: true`, optional `context
     // deny_reason is required when decision is false
     "deny_reason": {
       // GTS-formatted error code for programmatic handling (required)
-      "error_code": "gts.x.core.errors.err.v1~x.authz.errors.insufficient_permissions.v1",
+      "error_code": "gts.cf.core.errors.err.v1~x.authz.errors.insufficient_permissions.v1",
       // Human-readable details for logging (optional)
-      "details": "Subject lacks permission for action 'list' on resource type 'gts.x.core.events.event.v1~'"
+      "details": "Subject lacks permission for action 'list' on resource type 'gts.cf.core.events.event.v1~'"
     }
   }
 }
@@ -903,7 +903,7 @@ The `barrier_mode` and `tenant_status` parameters apply to any scope source — 
 {
   "action": { "name": "create" },
   "resource": {
-    "type": "gts.x.core.events.event.v1~",
+    "type": "gts.cf.core.events.event.v1~",
     "properties": { "owner_tenant_id": "tenantB-uuid", "topic_id": "..." }
   },
   "context": { "require_constraints": true }
@@ -929,7 +929,7 @@ The `barrier_mode` and `tenant_status` parameters apply to any scope source — 
 // PEP -> PDP
 {
   "action": { "name": "list" },
-  "resource": { "type": "gts.x.core.events.event.v1~" }  // no id
+  "resource": { "type": "gts.cf.core.events.event.v1~" }  // no id
   // ... subject, context
 }
 
@@ -955,7 +955,7 @@ The `barrier_mode` and `tenant_status` parameters apply to any scope source — 
 // PEP -> PDP
 {
   "action": { "name": "read" },
-  "resource": { "type": "gts.x.core.events.event.v1~", "id": "evt123-uuid" }
+  "resource": { "type": "gts.cf.core.events.event.v1~", "id": "evt123-uuid" }
   // ... subject, context
 }
 
@@ -1023,16 +1023,16 @@ The `deny_reason` object is **required** when `decision: false` and provides str
 
 | Code | When to use |
 |------|-------------|
-| `gts.x.core.errors.err.v1~x.authz.errors.insufficient_permissions.v1` | No matching policy, scope restricted, tenant boundary violation, missing role/permission |
-| `gts.x.core.errors.err.v1~x.authz.errors.invalid_request.v1` | Malformed request (missing required fields, invalid format, unknown resource type) |
+| `gts.cf.core.errors.err.v1~x.authz.errors.insufficient_permissions.v1` | No matching policy, scope restricted, tenant boundary violation, missing role/permission |
+| `gts.cf.core.errors.err.v1~x.authz.errors.invalid_request.v1` | Malformed request (missing required fields, invalid format, unknown resource type) |
 
 ##### Vendor Extensibility
 
 Vendors can define custom error codes via GTS namespace for domain-specific denial reasons:
 
 ```
-gts.x.core.errors.err.v1~vendor.acme.license_expired.v1
-gts.x.core.errors.err.v1~vendor.acme.quota_exceeded.v1
+gts.cf.core.errors.err.v1~vendor.acme.license_expired.v1
+gts.cf.core.errors.err.v1~vendor.acme.quota_exceeded.v1
 ```
 
 ##### PEP Handling of Deny Reason

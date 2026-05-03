@@ -19,11 +19,11 @@ use types_registry::domain::model::ListQuery;
 // Helpers: schema factories (from ADR-001, metadata approach)
 // =============================================================================
 
-/// RG base contract — gts.x.core.rg.type.v1~
+/// RG base contract — gts.cf.core.rg.type.v1~
 /// Closed model (additionalProperties:false) with metadata placeholder.
 fn rg_base_contract() -> serde_json::Value {
     json!({
-        "$id": "gts://gts.x.core.rg.type.v1~",
+        "$id": "gts://gts.cf.core.rg.type.v1~",
         "$schema": "http://json-schema.org/draft-07/schema#",
         "title": "Resource Group Type",
         "type": "object",
@@ -37,7 +37,7 @@ fn rg_base_contract() -> serde_json::Value {
                 },
                 "allowed_parent_types": {
                     "type": "array",
-                    "items": { "type": "string", "x-gts-ref": "gts.x.core.rg.type.v1~" },
+                    "items": { "type": "string", "x-gts-ref": "gts.cf.core.rg.type.v1~" },
                     "default": []
                 },
                 "allowed_membership_types": {
@@ -100,10 +100,10 @@ fn department_entity_schema() -> serde_json::Value {
     })
 }
 
-/// Branch entity schema — gts.x.core.rg.branch.v1~ (registered for reference)
+/// Branch entity schema — gts.cf.core.rg.branch.v1~ (registered for reference)
 fn branch_entity_schema() -> serde_json::Value {
     json!({
-        "$id": "gts://gts.x.core.rg.branch.v1~",
+        "$id": "gts://gts.cf.core.rg.branch.v1~",
         "$schema": "http://json-schema.org/draft-07/schema#",
         "title": "Branch",
         "type": "object",
@@ -151,10 +151,10 @@ fn course_resource_schema() -> serde_json::Value {
 /// Tenant as RG type — single $ref + inline metadata
 fn tenant_rg_type() -> serde_json::Value {
     json!({
-        "$id": "gts://gts.x.core.rg.type.v1~y.core.tn.tenant.v1~",
+        "$id": "gts://gts.cf.core.rg.type.v1~y.core.tn.tenant.v1~",
         "$schema": "http://json-schema.org/draft-07/schema#",
         "allOf": [
-            { "$ref": "gts://gts.x.core.rg.type.v1~" },
+            { "$ref": "gts://gts.cf.core.rg.type.v1~" },
             {
                 "properties": {
                     "metadata": {
@@ -168,7 +168,7 @@ fn tenant_rg_type() -> serde_json::Value {
                 },
                 "x-gts-traits": {
                     "can_be_root": true,
-                    "allowed_parent_types": ["gts.x.core.rg.type.v1~y.core.tn.tenant.v1~"],
+                    "allowed_parent_types": ["gts.cf.core.rg.type.v1~y.core.tn.tenant.v1~"],
                     "allowed_membership_types": ["gts.z.core.idp.user.v1~"]
                 }
             }
@@ -179,10 +179,10 @@ fn tenant_rg_type() -> serde_json::Value {
 /// Department as RG type — single $ref + inline metadata
 fn department_rg_type() -> serde_json::Value {
     json!({
-        "$id": "gts://gts.x.core.rg.type.v1~w.core.org.department.v1~",
+        "$id": "gts://gts.cf.core.rg.type.v1~w.core.org.department.v1~",
         "$schema": "http://json-schema.org/draft-07/schema#",
         "allOf": [
-            { "$ref": "gts://gts.x.core.rg.type.v1~" },
+            { "$ref": "gts://gts.cf.core.rg.type.v1~" },
             {
                 "properties": {
                     "metadata": {
@@ -196,7 +196,7 @@ fn department_rg_type() -> serde_json::Value {
                 },
                 "x-gts-traits": {
                     "can_be_root": false,
-                    "allowed_parent_types": ["gts.x.core.rg.type.v1~y.core.tn.tenant.v1~"],
+                    "allowed_parent_types": ["gts.cf.core.rg.type.v1~y.core.tn.tenant.v1~"],
                     "allowed_membership_types": ["gts.z.core.idp.user.v1~"]
                 }
             }
@@ -207,10 +207,10 @@ fn department_rg_type() -> serde_json::Value {
 /// Branch as RG type — single $ref + inline metadata
 fn branch_rg_type() -> serde_json::Value {
     json!({
-        "$id": "gts://gts.x.core.rg.type.v1~x.core.rg.branch.v1~",
+        "$id": "gts://gts.cf.core.rg.type.v1~cf.core.rg.branch.v1~",
         "$schema": "http://json-schema.org/draft-07/schema#",
         "allOf": [
-            { "$ref": "gts://gts.x.core.rg.type.v1~" },
+            { "$ref": "gts://gts.cf.core.rg.type.v1~" },
             {
                 "properties": {
                     "metadata": {
@@ -223,7 +223,7 @@ fn branch_rg_type() -> serde_json::Value {
                 },
                 "x-gts-traits": {
                     "can_be_root": false,
-                    "allowed_parent_types": ["gts.x.core.rg.type.v1~w.core.org.department.v1~"],
+                    "allowed_parent_types": ["gts.cf.core.rg.type.v1~w.core.org.department.v1~"],
                     "allowed_membership_types": [
                         "gts.z.core.idp.user.v1~",
                         "gts.z.core.lms.course.v1~"
@@ -287,9 +287,9 @@ async fn test_all_rg_schemas_register_and_validate() {
 #[tokio::test]
 async fn test_base_rg_contract_has_metadata_property() {
     let service = setup_rg_type_system();
-    let rg_base = service.get("gts.x.core.rg.type.v1~").unwrap();
+    let rg_base = service.get("gts.cf.core.rg.type.v1~").unwrap();
     assert!(rg_base.is_type());
-    assert_eq!(rg_base.vendor(), Some("x"));
+    assert_eq!(rg_base.vendor(), Some("cf"));
 
     let content = &rg_base.content;
     assert!(content.get("x-gts-traits-schema").is_some());
@@ -300,7 +300,7 @@ async fn test_base_rg_contract_has_metadata_property() {
 async fn test_chained_tenant_has_inline_metadata_schema() {
     let service = setup_rg_type_system();
     let tenant_rg = service
-        .get("gts.x.core.rg.type.v1~y.core.tn.tenant.v1~")
+        .get("gts.cf.core.rg.type.v1~y.core.tn.tenant.v1~")
         .unwrap();
     assert!(tenant_rg.is_type());
     assert_eq!(tenant_rg.segments.len(), 2);
@@ -324,7 +324,7 @@ async fn test_chained_tenant_has_inline_metadata_schema() {
 async fn test_chained_department_cannot_be_root() {
     let service = setup_rg_type_system();
     let dept_rg = service
-        .get("gts.x.core.rg.type.v1~w.core.org.department.v1~")
+        .get("gts.cf.core.rg.type.v1~w.core.org.department.v1~")
         .unwrap();
     let all_of = dept_rg.content["allOf"].as_array().unwrap();
     let traits_block = all_of
@@ -334,7 +334,7 @@ async fn test_chained_department_cannot_be_root() {
     assert_eq!(traits_block["x-gts-traits"]["can_be_root"], json!(false));
     assert_eq!(
         traits_block["x-gts-traits"]["allowed_parent_types"],
-        json!(["gts.x.core.rg.type.v1~y.core.tn.tenant.v1~"])
+        json!(["gts.cf.core.rg.type.v1~y.core.tn.tenant.v1~"])
     );
 }
 
@@ -342,7 +342,7 @@ async fn test_chained_department_cannot_be_root() {
 async fn test_branch_allows_users_and_courses_as_members() {
     let service = setup_rg_type_system();
     let branch_rg = service
-        .get("gts.x.core.rg.type.v1~x.core.rg.branch.v1~")
+        .get("gts.cf.core.rg.type.v1~cf.core.rg.branch.v1~")
         .unwrap();
     let all_of = branch_rg.content["allOf"].as_array().unwrap();
     let traits_block = all_of
@@ -366,7 +366,7 @@ async fn test_vendor_isolation_across_rg_types() {
     let service = setup_rg_type_system();
     assert!(
         service
-            .list(&ListQuery::default().with_pattern("gts.x.*"))
+            .list(&ListQuery::default().with_pattern("gts.cf.*"))
             .unwrap()
             .len()
             >= 3
@@ -400,7 +400,7 @@ async fn test_vendor_isolation_across_rg_types() {
 async fn test_valid_tenant_root_no_metadata() {
     let service = setup_rg_type_system();
     let t1 = json!({
-        "id": "gts.x.core.rg.type.v1~y.core.tn.tenant.v1~x.core._.t1.v1",
+        "id": "gts.cf.core.rg.type.v1~y.core.tn.tenant.v1~cf.core._.t1.v1",
         "name": "T1",
         "parent_id": null,
         "tenant_id": "11111111-1111-1111-1111-111111111111",
@@ -418,7 +418,7 @@ async fn test_valid_tenant_root_no_metadata() {
 async fn test_valid_tenant_with_metadata_custom_domain() {
     let service = setup_rg_type_system();
     let t9 = json!({
-        "id": "gts.x.core.rg.type.v1~y.core.tn.tenant.v1~x.core._.t9.v1",
+        "id": "gts.cf.core.rg.type.v1~y.core.tn.tenant.v1~cf.core._.t9.v1",
         "name": "T9",
         "parent_id": null,
         "tenant_id": "99999999-9999-9999-9999-999999999999",
@@ -437,7 +437,7 @@ async fn test_valid_tenant_with_metadata_custom_domain() {
 async fn test_valid_tenant_with_metadata_barrier() {
     let service = setup_rg_type_system();
     let t7 = json!({
-        "id": "gts.x.core.rg.type.v1~y.core.tn.tenant.v1~x.core._.t7.v1",
+        "id": "gts.cf.core.rg.type.v1~y.core.tn.tenant.v1~cf.core._.t7.v1",
         "name": "T7",
         "parent_id": "11111111-1111-1111-1111-111111111111",
         "tenant_id": "77777777-7777-7777-7777-777777777777",
@@ -456,7 +456,7 @@ async fn test_valid_tenant_with_metadata_barrier() {
 async fn test_valid_department_with_metadata() {
     let service = setup_rg_type_system();
     let d2 = json!({
-        "id": "gts.x.core.rg.type.v1~w.core.org.department.v1~x.core._.d2.v1",
+        "id": "gts.cf.core.rg.type.v1~w.core.org.department.v1~cf.core._.d2.v1",
         "name": "D2",
         "parent_id": "11111111-1111-1111-1111-111111111111",
         "tenant_id": "11111111-1111-1111-1111-111111111111",
@@ -475,7 +475,7 @@ async fn test_valid_department_with_metadata() {
 async fn test_valid_branch_with_metadata() {
     let service = setup_rg_type_system();
     let b3 = json!({
-        "id": "gts.x.core.rg.type.v1~x.core.rg.branch.v1~x.core._.b3.v1",
+        "id": "gts.cf.core.rg.type.v1~cf.core.rg.branch.v1~cf.core._.b3.v1",
         "name": "B3",
         "parent_id": "22222222-2222-2222-2222-222222222222",
         "tenant_id": "11111111-1111-1111-1111-111111111111",
@@ -521,7 +521,7 @@ async fn test_valid_course_instance() {
 async fn test_tenant_missing_required_name() {
     let service = setup_rg_type_system();
     let bad = json!({
-        "id": "gts.x.core.rg.type.v1~y.core.tn.tenant.v1~x.core._.bad1.v1",
+        "id": "gts.cf.core.rg.type.v1~y.core.tn.tenant.v1~cf.core._.bad1.v1",
         "parent_id": null,
         "tenant_id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
         "depth": 0
@@ -533,7 +533,7 @@ async fn test_tenant_missing_required_name() {
 async fn test_tenant_name_too_long() {
     let service = setup_rg_type_system();
     let bad = json!({
-        "id": "gts.x.core.rg.type.v1~y.core.tn.tenant.v1~x.core._.bad2.v1",
+        "id": "gts.cf.core.rg.type.v1~y.core.tn.tenant.v1~cf.core._.bad2.v1",
         "name": "X".repeat(256),
         "parent_id": null,
         "tenant_id": "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
@@ -546,7 +546,7 @@ async fn test_tenant_name_too_long() {
 async fn test_tenant_empty_name() {
     let service = setup_rg_type_system();
     let bad = json!({
-        "id": "gts.x.core.rg.type.v1~y.core.tn.tenant.v1~x.core._.bad3.v1",
+        "id": "gts.cf.core.rg.type.v1~y.core.tn.tenant.v1~cf.core._.bad3.v1",
         "name": "",
         "parent_id": null,
         "tenant_id": "cccccccc-cccc-cccc-cccc-cccccccccccc",
@@ -582,7 +582,7 @@ async fn test_course_missing_required_title() {
 async fn test_metadata_department_category_too_long() {
     let service = setup_rg_type_system();
     let bad = json!({
-        "id": "gts.x.core.rg.type.v1~w.core.org.department.v1~x.core._.bad_cat.v1",
+        "id": "gts.cf.core.rg.type.v1~w.core.org.department.v1~cf.core._.bad_cat.v1",
         "name": "Bad Dept",
         "parent_id": "11111111-1111-1111-1111-111111111111",
         "tenant_id": "11111111-1111-1111-1111-111111111111",
@@ -599,7 +599,7 @@ async fn test_metadata_department_category_too_long() {
 async fn test_metadata_department_short_description_too_long() {
     let service = setup_rg_type_system();
     let bad = json!({
-        "id": "gts.x.core.rg.type.v1~w.core.org.department.v1~x.core._.bad_desc.v1",
+        "id": "gts.cf.core.rg.type.v1~w.core.org.department.v1~cf.core._.bad_desc.v1",
         "name": "Bad Dept",
         "parent_id": "11111111-1111-1111-1111-111111111111",
         "tenant_id": "11111111-1111-1111-1111-111111111111",
@@ -616,7 +616,7 @@ async fn test_metadata_department_short_description_too_long() {
 async fn test_metadata_tenant_barrier_wrong_type() {
     let service = setup_rg_type_system();
     let bad = json!({
-        "id": "gts.x.core.rg.type.v1~y.core.tn.tenant.v1~x.core._.bad_barrier.v1",
+        "id": "gts.cf.core.rg.type.v1~y.core.tn.tenant.v1~cf.core._.bad_barrier.v1",
         "name": "Bad Barrier",
         "parent_id": null,
         "tenant_id": "dddddddd-dddd-dddd-dddd-dddddddddddd",
@@ -633,7 +633,7 @@ async fn test_metadata_tenant_barrier_wrong_type() {
 async fn test_metadata_tenant_unknown_field_rejected() {
     let service = setup_rg_type_system();
     let bad = json!({
-        "id": "gts.x.core.rg.type.v1~y.core.tn.tenant.v1~x.core._.bad_unknown.v1",
+        "id": "gts.cf.core.rg.type.v1~y.core.tn.tenant.v1~cf.core._.bad_unknown.v1",
         "name": "Unknown Field Tenant",
         "parent_id": null,
         "tenant_id": "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee",
@@ -654,7 +654,7 @@ async fn test_top_level_custom_field_passes_gts_but_app_layer_rejects() {
     // not at GTS level. GTS only validates metadata sub-object.
     let service = setup_rg_type_system();
     let instance = json!({
-        "id": "gts.x.core.rg.type.v1~y.core.tn.tenant.v1~x.core._.flat_ok.v1",
+        "id": "gts.cf.core.rg.type.v1~y.core.tn.tenant.v1~cf.core._.flat_ok.v1",
         "name": "Flat Field Tenant",
         "parent_id": null,
         "tenant_id": "ffffffff-ffff-ffff-ffff-ffffffffffff",
@@ -682,14 +682,14 @@ async fn test_invalid_gts_id_no_prefix() {
 #[tokio::test]
 async fn test_invalid_gts_id_uppercase() {
     let service = setup_rg_type_system();
-    let bad = json!({ "$id": "gts://gts.X.Core.Rg.Type.V1~", "$schema": "http://json-schema.org/draft-07/schema#", "type": "object" });
+    let bad = json!({ "$id": "gts://gts.cf.core.Rg.Type.V1~", "$schema": "http://json-schema.org/draft-07/schema#", "type": "object" });
     assert!(service.register(vec![bad])[0].is_err());
 }
 
 #[tokio::test]
 async fn test_invalid_gts_id_missing_version() {
     let service = setup_rg_type_system();
-    let bad = json!({ "$id": "gts://gts.x.core.rg.type~", "$schema": "http://json-schema.org/draft-07/schema#", "type": "object" });
+    let bad = json!({ "$id": "gts://gts.cf.core.rg.type~", "$schema": "http://json-schema.org/draft-07/schema#", "type": "object" });
     assert!(service.register(vec![bad])[0].is_err());
 }
 
@@ -701,10 +701,10 @@ async fn test_invalid_gts_id_missing_version() {
 async fn test_chained_type_with_broken_ref_fails_on_ready() {
     let service = create_service();
     let orphan = json!({
-        "$id": "gts://gts.x.core.rg.type.v1~q.nonexistent._.foo.v1~",
+        "$id": "gts://gts.cf.core.rg.type.v1~q.nonexistent._.foo.v1~",
         "$schema": "http://json-schema.org/draft-07/schema#",
         "allOf": [
-            { "$ref": "gts://gts.x.core.rg.type.v1~" },
+            { "$ref": "gts://gts.cf.core.rg.type.v1~" },
             { "x-gts-traits": { "can_be_root": true, "allowed_parent_types": [], "allowed_membership_types": [] } }
         ]
     });
@@ -728,36 +728,36 @@ async fn test_full_hierarchy_batch() {
 
     let instances = vec![
         json!({
-            "id": "gts.x.core.rg.type.v1~y.core.tn.tenant.v1~x.core._.t1.v1",
+            "id": "gts.cf.core.rg.type.v1~y.core.tn.tenant.v1~cf.core._.t1.v1",
             "name": "T1", "parent_id": null,
             "tenant_id": "11111111-1111-1111-1111-111111111111", "depth": 0
         }),
         json!({
-            "id": "gts.x.core.rg.type.v1~w.core.org.department.v1~x.core._.d2.v1",
+            "id": "gts.cf.core.rg.type.v1~w.core.org.department.v1~cf.core._.d2.v1",
             "name": "D2", "parent_id": "11111111-1111-1111-1111-111111111111",
             "tenant_id": "11111111-1111-1111-1111-111111111111", "depth": 1,
             "metadata": { "category": "finance", "short_description": "Mega Department" }
         }),
         json!({
-            "id": "gts.x.core.rg.type.v1~x.core.rg.branch.v1~x.core._.b3.v1",
+            "id": "gts.cf.core.rg.type.v1~cf.core.rg.branch.v1~cf.core._.b3.v1",
             "name": "B3", "parent_id": "22222222-2222-2222-2222-222222222222",
             "tenant_id": "11111111-1111-1111-1111-111111111111", "depth": 2,
             "metadata": { "location": "Building A, Floor 3" }
         }),
         json!({
-            "id": "gts.x.core.rg.type.v1~y.core.tn.tenant.v1~x.core._.t7.v1",
+            "id": "gts.cf.core.rg.type.v1~y.core.tn.tenant.v1~cf.core._.t7.v1",
             "name": "T7", "parent_id": "11111111-1111-1111-1111-111111111111",
             "tenant_id": "77777777-7777-7777-7777-777777777777", "depth": 1,
             "metadata": { "self_managed": true }
         }),
         json!({
-            "id": "gts.x.core.rg.type.v1~w.core.org.department.v1~x.core._.d8.v1",
+            "id": "gts.cf.core.rg.type.v1~w.core.org.department.v1~cf.core._.d8.v1",
             "name": "D8", "parent_id": "77777777-7777-7777-7777-777777777777",
             "tenant_id": "77777777-7777-7777-7777-777777777777", "depth": 2,
             "metadata": { "category": "hr" }
         }),
         json!({
-            "id": "gts.x.core.rg.type.v1~y.core.tn.tenant.v1~x.core._.t9.v1",
+            "id": "gts.cf.core.rg.type.v1~y.core.tn.tenant.v1~cf.core._.t9.v1",
             "name": "T9", "parent_id": null,
             "tenant_id": "99999999-9999-9999-9999-999999999999", "depth": 0,
             "metadata": { "custom_domain": "t9.example.com" }
@@ -798,7 +798,7 @@ async fn test_config_mode_accepts_invalid_then_ready_rejects() {
 
     // Invalid tenant: missing name (accepted in config mode)
     let bad = json!({
-        "id": "gts.x.core.rg.type.v1~y.core.tn.tenant.v1~x.core._.bad_cfg.v1",
+        "id": "gts.cf.core.rg.type.v1~y.core.tn.tenant.v1~cf.core._.bad_cfg.v1",
         "parent_id": null, "tenant_id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", "depth": 0
     });
     assert!(
@@ -813,7 +813,7 @@ async fn test_config_mode_accepts_invalid_then_ready_rejects() {
     assert!(!errors.is_empty());
     assert!(errors.iter().any(|e| {
         e.gts_id
-            .contains("gts.x.core.rg.type.v1~y.core.tn.tenant.v1~")
+            .contains("gts.cf.core.rg.type.v1~y.core.tn.tenant.v1~")
     }));
 }
 
@@ -825,7 +825,7 @@ async fn test_config_mode_accepts_invalid_then_ready_rejects() {
 async fn test_wildcard_query_all_rg_chained_types() {
     let service = setup_rg_type_system();
     let results = service
-        .list(&ListQuery::default().with_pattern("gts.x.core.rg.type.v1~*"))
+        .list(&ListQuery::default().with_pattern("gts.cf.core.rg.type.v1~*"))
         .unwrap();
     assert!(results.len() >= 3);
 }
@@ -834,11 +834,11 @@ async fn test_wildcard_query_all_rg_chained_types() {
 async fn test_query_by_x_core_rg_prefix() {
     // GTS spec section 10 requires a single trailing `*`, so we can only
     // express vendor/package/namespace as a contiguous prefix — here all
-    // schemas under `gts.x.core.rg.*`, which covers the rg base type, the
-    // rg branch type, and every chain derived from `gts.x.core.rg.type.v1~`.
+    // schemas under `gts.cf.core.rg.*`, which covers the rg base type, the
+    // rg branch type, and every chain derived from `gts.cf.core.rg.type.v1~`.
     let service = setup_rg_type_system();
     let results = service
-        .list(&ListQuery::default().with_pattern("gts.x.core.rg.*"))
+        .list(&ListQuery::default().with_pattern("gts.cf.core.rg.*"))
         .unwrap();
     assert!(!results.is_empty());
 }

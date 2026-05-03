@@ -43,7 +43,7 @@ use authz_resolver_sdk::pep::{PolicyEnforcer, ResourceType};
 use modkit_security::pep_properties;
 
 const USER: ResourceType = ResourceType {
-    name: "gts.x.core.users.user.v1~",
+    name: "gts.cf.core.users.user.v1~",
     supported_properties: &[pep_properties::OWNER_TENANT_ID, pep_properties::RESOURCE_ID],
 };
 

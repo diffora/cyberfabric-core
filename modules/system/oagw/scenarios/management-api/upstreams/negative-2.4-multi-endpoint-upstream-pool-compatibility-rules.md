@@ -17,7 +17,7 @@ Content-Type: application/json
       { "scheme": "wss", "host": "eu.vendor.com", "port": 443 }
     ]
   },
-  "protocol": "gts.x.core.oagw.protocol.v1~x.core.oagw.http.v1",
+  "protocol": "gts.cf.core.oagw.protocol.v1~cf.core.oagw.http.v1",
   "alias": "vendor.com"
 }
 ```
@@ -43,7 +43,7 @@ Content-Type: application/json
       { "scheme": "https", "host": "eu.vendor.com", "port": 8443 }
     ]
   },
-  "protocol": "gts.x.core.oagw.protocol.v1~x.core.oagw.http.v1",
+  "protocol": "gts.cf.core.oagw.protocol.v1~cf.core.oagw.http.v1",
   "alias": "vendor.com"
 }
 ```
@@ -64,7 +64,7 @@ Content-Type: application/json
       { "scheme": "https", "host": "api.vendor.com", "port": 443 }
     ]
   },
-  "protocol": "gts.x.core.oagw.protocol.v1~x.core.oagw.grpc.v1",
+  "protocol": "gts.cf.core.oagw.protocol.v1~cf.core.oagw.grpc.v1",
   "alias": "api.vendor.com"
 }
 ```

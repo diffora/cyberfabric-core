@@ -329,7 +329,7 @@ pub struct Upstream {
     pub tenant_id: Uuid,
     pub alias: String,
     pub server: Server,
-    /// Protocol GTS identifier (e.g. `gts.x.core.oagw.protocol.v1~x.core.oagw.http.v1`).
+    /// Protocol GTS identifier (e.g. `gts.cf.core.oagw.protocol.v1~cf.core.oagw.http.v1`).
     pub protocol: String,
     pub enabled: bool,
     pub auth: Option<AuthConfig>,

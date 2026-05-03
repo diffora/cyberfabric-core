@@ -60,7 +60,7 @@ Delivers PRD §5.7 (Extensible Tenant Metadata) by making every metadata categor
 ### 1.4 References
 
 - **PRD**: [PRD.md](../PRD.md) §5.7 Extensible Tenant Metadata (`fr-tenant-metadata-schema`, `fr-tenant-metadata-crud`, `fr-tenant-metadata-api`, `fr-tenant-metadata-list`, `fr-tenant-metadata-permissions`); §5.8 Deterministic Error Semantics (sub-code taxonomy consumed here).
-- **Design**: [DESIGN.md](../DESIGN.md) §3.1 Domain Model — Tenant Metadata Schemas with Traits (base envelope `gts.x.core.am.tenant_metadata.v1~`, `inheritance_policy` trait); §3.2 Component Model — `MetadataService` (`cpt-cf-account-management-component-metadata-service`); §3.6 Sequences — `cpt-cf-account-management-seq-resolve-metadata`; §3.7 `dbtable-tenant-metadata` storage contract (UNIQUE `(tenant_id, schema_uuid)`, `ON DELETE CASCADE` to `tenants`, index on `schema_uuid`); §3.8 Error Codes Reference (`metadata_schema_not_registered`, `metadata_entry_not_found`); [ADR-0002](../ADR/0002-cpt-cf-account-management-adr-metadata-inheritance.md) (`adr-metadata-inheritance` — application-only enforcement, no DB trigger / materialized column).
+- **Design**: [DESIGN.md](../DESIGN.md) §3.1 Domain Model — Tenant Metadata Schemas with Traits (base envelope `gts.cf.core.am.tenant_metadata.v1~`, `inheritance_policy` trait); §3.2 Component Model — `MetadataService` (`cpt-cf-account-management-component-metadata-service`); §3.6 Sequences — `cpt-cf-account-management-seq-resolve-metadata`; §3.7 `dbtable-tenant-metadata` storage contract (UNIQUE `(tenant_id, schema_uuid)`, `ON DELETE CASCADE` to `tenants`, index on `schema_uuid`); §3.8 Error Codes Reference (`metadata_schema_not_registered`, `metadata_entry_not_found`); [ADR-0002](../ADR/0002-cpt-cf-account-management-adr-metadata-inheritance.md) (`adr-metadata-inheritance` — application-only enforcement, no DB trigger / materialized column).
 - **DECOMPOSITION**: [DECOMPOSITION.md](../DECOMPOSITION.md) §2.7 Tenant Metadata.
 - **Dependencies**:
   - `cpt-cf-account-management-feature-tenant-hierarchy-management` — owns `tenants` + `tenant_closure`, the `parent_id` walk-up primitive, and the `ON DELETE CASCADE` cascade on `tenant_metadata.tenant_id`.
@@ -202,7 +202,7 @@ Delivers PRD §5.7 (Extensible Tenant Metadata) by making every metadata categor
 
 - [ ] `p2` - **ID**: `cpt-cf-account-management-algo-tenant-metadata-schema-uuid-derivation`
 
-**Input**: Full chained `GtsSchemaId` `schema_id` (e.g., `gts.x.core.am.tenant_metadata.v1~z.cf.metadata.branding.v1~`).
+**Input**: Full chained `GtsSchemaId` `schema_id` (e.g., `gts.cf.core.am.tenant_metadata.v1~z.cf.metadata.branding.v1~`).
 
 **Output**: Deterministic UUIDv5 `schema_uuid` computed from `schema_id` using the shared GTS namespace convention.
 
@@ -270,7 +270,7 @@ The system **MUST** accept the full chained `GtsSchemaId` as the `schema_id` pat
 **Touches**:
 
 - Entities: `TenantMetadataEntry`, `MetadataSchema`
-- Data: `cpt-cf-account-management-dbtable-tenant-metadata`, `gts://gts.x.core.am.tenant_metadata.v1~`
+- Data: `cpt-cf-account-management-dbtable-tenant-metadata`, `gts://gts.cf.core.am.tenant_metadata.v1~`
 - Sibling integration: Types Registry (`feature-tenant-type-enforcement` integration path)
 - Error taxonomy: delegated to `feature-errors-observability` (catalog owner); `metadata_schema_not_registered` referenced by name only.
 

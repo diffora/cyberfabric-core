@@ -13,7 +13,7 @@ Authorization: Bearer <tenant-token>
 Content-Type: application/json
 
 {
-  "upstream_id": "gts.x.core.oagw.upstream.v1~<upstream-uuid>",
+  "upstream_id": "gts.cf.core.oagw.upstream.v1~<upstream-uuid>",
   "match": {
     "http": {
       "methods": ["POST"],
@@ -31,8 +31,8 @@ Content-Type: application/json
 
 ```json
 {
-  "id": "gts.x.core.oagw.route.v1~<route-uuid>",
-  "upstream_id": "gts.x.core.oagw.upstream.v1~<upstream-uuid>",
+  "id": "gts.cf.core.oagw.route.v1~<route-uuid>",
+  "upstream_id": "gts.cf.core.oagw.upstream.v1~<upstream-uuid>",
   "match": {
     "http": {
       "methods": ["POST"],

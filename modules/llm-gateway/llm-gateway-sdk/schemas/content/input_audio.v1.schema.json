@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "gts://gts.x.llmgw.content.input_audio.v1~",
+  "$id": "gts://gts.cf.llmgw.content.input_audio.v1~",
   "title": "InputAudio",
   "description": "Input audio content part with FileStorage URL or inline data",
   "type": "object",

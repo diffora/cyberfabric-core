@@ -360,7 +360,7 @@ Test setup: SQLite in-memory + TypeService + GroupService (for hierarchy safety 
 
 #### TC-TYP-02: Create type with non-existent allowed_parent_types [P1]
 - **Covers**: G4
-- **Setup**: Create type with `allowed_parent_types: ["gts.cf.core.rg.type.v1~x.core.rg.missing.v1~"]`
+- **Setup**: Create type with `allowed_parent_types: ["gts.cf.core.rg.type.v1~cf.core.rg.missing.v1~"]`
 - **Assert**: `DomainError::TypeNotFound` or `DomainError::Validation`
 
 #### TC-TYP-03: Create type with non-existent allowed_membership_types [P1]
@@ -571,18 +571,18 @@ These tests verify the system is resilient to adversarial metadata_schema payloa
 - Create type, verify `resolve_id(code)` returns `Some(id)` where id is `i16`
 
 #### TC-GTS-02: resolve_id returns None for nonexistent path [P1]
-- `resolve_id("gts.cf.core.rg.type.v1~x.core.rg.missing.v1~")` → `None`
+- `resolve_id("gts.cf.core.rg.type.v1~cf.core.rg.missing.v1~")` → `None`
 
 #### TC-GTS-03: resolve_ids batch — all found [P1]
 - Create 3 types, `resolve_ids([code1, code2, code3])` → `Ok(vec![id1, id2, id3])`
 - **Assert**: returned IDs match, order may differ
 
 #### TC-GTS-04: resolve_ids batch — some missing [P1]
-- Create type A, `resolve_ids([A, "gts.cf.core.rg.type.v1~x.core.rg.missing.v1~"])` → `Err(Validation("Referenced types not found: gts.cf.core.rg.type.v1~x.core.rg.missing.v1~"))`
+- Create type A, `resolve_ids([A, "gts.cf.core.rg.type.v1~cf.core.rg.missing.v1~"])` → `Err(Validation("Referenced types not found: gts.cf.core.rg.type.v1~cf.core.rg.missing.v1~"))`
 - **Assert**: error message lists ALL missing codes
 
 #### TC-GTS-05: resolve_ids batch — multiple missing [P2]
-- `resolve_ids(["gts.cf.core.rg.type.v1~x.core.rg.missing1.v1~", "gts.cf.core.rg.type.v1~x.core.rg.missing2.v1~"])` → error message contains both
+- `resolve_ids(["gts.cf.core.rg.type.v1~cf.core.rg.missing1.v1~", "gts.cf.core.rg.type.v1~cf.core.rg.missing2.v1~"])` → error message contains both
 
 #### TC-GTS-06: resolve_ids empty list [P2]
 - `resolve_ids([])` → `Ok(vec![])` (early return)

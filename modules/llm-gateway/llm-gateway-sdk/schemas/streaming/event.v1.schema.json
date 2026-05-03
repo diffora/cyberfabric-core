@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "gts://gts.x.llmgw.streaming.event.v1~",
+  "$id": "gts://gts.cf.llmgw.streaming.event.v1~",
   "title": "StreamingEventBase",
   "description": "Base type for all Open Responses streaming events. All concrete event types inherit from this via GTS type inheritance.",
   "type": "object",

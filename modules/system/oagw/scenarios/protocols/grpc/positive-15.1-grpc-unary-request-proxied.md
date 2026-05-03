@@ -2,7 +2,7 @@
 
 ## Setup
 
-- Upstream protocol: `gts.x.core.oagw.protocol.v1~x.core.oagw.grpc.v1`
+- Upstream protocol: `gts.cf.core.oagw.protocol.v1~cf.core.oagw.grpc.v1`
 - Upstream endpoint: `scheme=grpc`
 - Route match:
 

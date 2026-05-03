@@ -35,7 +35,7 @@ Content-Type: application/json
       { "scheme": "http", "host": "server-b.example.com", "port": 8080 }
     ]
   },
-  "protocol": "gts.x.core.oagw.protocol.v1~x.core.oagw.http.v1",
+  "protocol": "gts.cf.core.oagw.protocol.v1~cf.core.oagw.http.v1",
   "alias": "my-service"
 }
 ```

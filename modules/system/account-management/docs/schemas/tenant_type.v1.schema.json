@@ -1,5 +1,5 @@
 {
-  "$id": "gts://gts.x.core.am.tenant_type.v1~",
+  "$id": "gts://gts.cf.core.am.tenant_type.v1~",
   "$schema": "http://json-schema.org/draft-07/schema#",
   "description": "Base tenant type schema for Account Management. Derived tenant type schemas resolve behavioral traits via x-gts-traits. Traits configure system behavior for processing tenants of each type — they are not part of the tenant instance data model.",
   "type": "object",

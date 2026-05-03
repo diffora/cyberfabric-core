@@ -92,7 +92,7 @@ pub async fn list_users(
 |-------|----------|-------------|
 | `subject_id` | Yes | Unique subject identifier (from token `sub` claim) |
 | `subject_tenant_id` | Yes | Tenant the subject belongs to |
-| `subject_type` | No | GTS type identifier (e.g., `gts.x.core.security.subject_user.v1~`) |
+| `subject_type` | No | GTS type identifier (e.g., `gts.cf.core.security.subject_user.v1~`) |
 | `token_scopes` | Yes | Capability restrictions (`["*"]` for first-party apps) |
 | `bearer_token` | No | Original token (wrapped in `Secret<String>`, forwarded to PDP) |
 

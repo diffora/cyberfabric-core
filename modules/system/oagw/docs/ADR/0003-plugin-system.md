@@ -61,11 +61,11 @@ Chosen option: "Three plugin types with separate traits", because it provides cl
 
 ### Plugin Types
 
-**AuthPlugin** (`gts.x.core.oagw.auth_plugin.v1~*`): Injects authentication credentials. Executed once per request, before guards. Examples: API key, OAuth2, Bearer token, Basic auth.
+**AuthPlugin** (`gts.cf.core.oagw.auth_plugin.v1~*`): Injects authentication credentials. Executed once per request, before guards. Examples: API key, OAuth2, Bearer token, Basic auth.
 
-**GuardPlugin** (`gts.x.core.oagw.guard_plugin.v1~*`): Validates requests and enforces policies (can reject). Executed after auth, before transform. Examples: Timeout enforcement, CORS validation, rate limiting.
+**GuardPlugin** (`gts.cf.core.oagw.guard_plugin.v1~*`): Validates requests and enforces policies (can reject). Executed after auth, before transform. Examples: Timeout enforcement, CORS validation, rate limiting.
 
-**TransformPlugin** (`gts.x.core.oagw.transform_plugin.v1~*`): Modifies request/response/error data. Executed before and after proxy call. Examples: Logging, metrics collection, request ID propagation.
+**TransformPlugin** (`gts.cf.core.oagw.transform_plugin.v1~*`): Modifies request/response/error data. Executed before and after proxy call. Examples: Logging, metrics collection, request ID propagation.
 
 ### Plugin Traits
 
@@ -149,7 +149,7 @@ pub struct OAuth2PkceAuthPlugin {
 impl AuthPlugin for OAuth2PkceAuthPlugin {
     fn id(&self) -> &str { "oauth2-pkce" }
     fn plugin_type(&self) -> &str {
-        "gts.x.core.oagw.auth_plugin.v1~custom.oauth2.oagw.pkce.v1"
+        "gts.cf.core.oagw.auth_plugin.v1~custom.oauth2.oagw.pkce.v1"
     }
     async fn authenticate(&self, ctx: &mut RequestContext) -> Result<()> {
         // Custom OAuth2 PKCE flow
@@ -236,7 +236,7 @@ All plugins as interpreted Starlark scripts.
 
 ```json
 {
-  "id": "gts.x.core.oagw.guard_plugin.v1~550e8400-e29b-41d4-a716-446655440000",
+  "id": "gts.cf.core.oagw.guard_plugin.v1~550e8400-e29b-41d4-a716-446655440000",
   "tenant_id": "7c9e6679-7425-40de-944b-e07fc1f90ae7",
   "name": "request_validator",
   "description": "Validates request headers and body size",
@@ -273,7 +273,7 @@ def on_request(ctx):
 
 ```json
 {
-  "id": "gts.x.core.oagw.transform_plugin.v1~6ba7b810-9dad-11d1-80b4-00c04fd430c8",
+  "id": "gts.cf.core.oagw.transform_plugin.v1~6ba7b810-9dad-11d1-80b4-00c04fd430c8",
   "tenant_id": "7c9e6679-7425-40de-944b-e07fc1f90ae7",
   "name": "redact_pii",
   "description": "Redacts PII fields from response",
@@ -308,7 +308,7 @@ def on_response(ctx):
 
 ```json
 {
-  "id": "gts.x.core.oagw.transform_plugin.v1~8f8e8400-e29b-41d4-a716-446655440001",
+  "id": "gts.cf.core.oagw.transform_plugin.v1~8f8e8400-e29b-41d4-a716-446655440001",
   "tenant_id": "7c9e6679-7425-40de-944b-e07fc1f90ae7",
   "name": "path_rewriter",
   "description": "Rewrites request paths and adds API version",

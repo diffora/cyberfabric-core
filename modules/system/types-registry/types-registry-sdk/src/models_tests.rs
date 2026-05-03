@@ -75,11 +75,11 @@ fn test_type_schema_rejects_instance_id() {
 
 #[test]
 fn test_type_schema_rejects_mismatched_parent() {
-    // BASE_ID and "gts.other.vendor.events.x.v1~" are unrelated; passing
+    // BASE_ID and "gts.contoso.vendor.events.x.v1~" are unrelated; passing
     // the wrong one as parent of DERIVED_ID must error rather than
     // silently corrupt the chain.
     let wrong_parent = Arc::new(make_type_schema(
-        "gts.other.vendor.events.base.v1~",
+        "gts.contoso.vendor.events.base.v1~",
         json!({}),
         None,
     ));
@@ -658,7 +658,7 @@ fn test_effective_schema_leaves_non_parent_refs_alone() {
     // A `$ref` in `allOf` that points to something OTHER than the GTS
     // parent (a "mixin") is left as-is — only the parent's body is inlined.
     let base = Arc::new(make_type_schema(BASE_ID, json!({"type": "object"}), None));
-    let mixin_id = "gts.other.vendor.events.mixin.v1~";
+    let mixin_id = "gts.contoso.vendor.events.mixin.v1~";
     let child = make_type_schema(
         DERIVED_ID,
         json!({

@@ -106,24 +106,24 @@ pub trait MyModulePluginClient: Send + Sync {
 Each plugin instance is identified by a **GTS (Global Type System) ID**:
 
 ```
-gts.x.core.modkit.plugin.v1~<vendor>.<package_name>.<module_name>.plugin.v1~
+gts.cf.core.modkit.plugin.v1~<vendor>.<package_name>.<module_name>.plugin.v1~
 └─────────────────────────┘ └──────────────────────────────────────────────┘
     Base plugin type ID           Specific module plugin interface ID
 ```
 
-**Note:** The base plugin type `gts.x.core.modkit.plugin.v1~` is automatically registered by
+**Note:** The base plugin type `gts.cf.core.modkit.plugin.v1~` is automatically registered by
 the `types_registry` module during initialization. You don't need to register it manually.
 
 Example instance IDs:
 
-- `gts.x.core.modkit.plugin.v1~x.core.tenant_resolver.plugin.v1~contoso.app._.plugin.v1`
-- `gts.x.core.modkit.plugin.v1~x.core.tenant_resolver.plugin.v1~fabrikam.app._.plugin.v1`
+- `gts.cf.core.modkit.plugin.v1~cf.core.tenant_resolver.plugin.v1~contoso.app._.plugin.v1`
+- `gts.cf.core.modkit.plugin.v1~cf.core.tenant_resolver.plugin.v1~fabrikam.app._.plugin.v1`
 
 GTS provides:
 
 - **Stable, versioned identifiers** for both schemas and instances
 - **Schema-driven validation** of instance content
-- **Registry-based discovery** of available plugins (e.g. `gts.x.core.modkit.plugin.v1~x.core.tenant_resolver.plugin.v1~*`)
+- **Registry-based discovery** of available plugins (e.g. `gts.cf.core.modkit.plugin.v1~cf.core.tenant_resolver.plugin.v1~*`)
 
 ### 3. Scoped Clients in ClientHub
 
@@ -153,7 +153,7 @@ The `types-registry` module provides:
 
 | What | Who registers             | When                             |
 |------|---------------------------|----------------------------------|
-| Core GTS types (e.g., `gts.x.core.modkit.plugin.v1~`) | **types_registry module** | Automatically during module init |
+| Core GTS types (e.g., `gts.cf.core.modkit.plugin.v1~`) | **types_registry module** | Automatically during module init |
 | Plugin **schema** (GTS type definition) | **Main module**           | During module `init()`           |
 | Plugin **instance** (specific implementation) | **Each plugin**           | During plugin `init()`           |
 
@@ -284,11 +284,11 @@ use serde::{Deserialize, Serialize};
 /// For unit struct plugins (no additional properties), use an empty unit struct.
 /// The `struct_to_gts_schema` macro generates the GTS schema and helper methods.
 ///
-/// GTS ID format: `gts.x.core.modkit.plugin.v1~<vendor>.<package>.<module>.plugin.v1~`
+/// GTS ID format: `gts.cf.core.modkit.plugin.v1~<vendor>.<package>.<module>.plugin.v1~`
 #[struct_to_gts_schema(
     dir_path = "schemas",
     base = BaseModkitPluginV1,
-    schema_id = "gts.x.core.modkit.plugin.v1~vendor.pkg.my_module.plugin.v1~",
+    schema_id = "gts.cf.core.modkit.plugin.v1~vendor.pkg.my_module.plugin.v1~",
     description = "My Module plugin specification",
     properties = ""
 )]
@@ -620,7 +620,7 @@ pub async fn handle_request(
     ctx: &SecurityContext,
     provider: &str,  // e.g., "openai", "anthropic"
 ) -> Result<Response, DomainError> {
-    let plugin_id = format!("gts.x.core.modkit.plugin.v1~x.llm_provider.llm_provider.plugin.v1~{}.llm_provider._.plugin.v1", provider);
+    let plugin_id = format!("gts.cf.core.modkit.plugin.v1~x.llm_provider.llm_provider.plugin.v1~{}.llm_provider._.plugin.v1", provider);
     let scope = ClientScope::gts_id(&plugin_id);
     let plugin = self.hub.get_scoped::<dyn LlmPluginClient>(&scope)?;
     plugin.complete(ctx, request).await
@@ -799,7 +799,7 @@ async fn test_module_plugin_resolution() {
     hub.register::<dyn TypesRegistryClient>(mock_registry);
 
     // Register mock plugin
-    let instance_id = "gts.x.core.modkit.plugin.v1~vendor.pkg.my_module.plugin.v1~fabrikam.test._.plugin.v1";
+    let instance_id = "gts.cf.core.modkit.plugin.v1~vendor.pkg.my_module.plugin.v1~fabrikam.test._.plugin.v1";
     let mock_plugin: Arc<dyn MyModulePluginClient> = Arc::new(MockPlugin::new());
     hub.register_scoped::<dyn MyModulePluginClient>(ClientScope::gts_id(instance_id), mock_plugin);
 

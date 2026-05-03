@@ -40,7 +40,7 @@ fn from_serde_json_error_becomes_internal() {
 #[test]
 fn from_choose_plugin_error_not_found_becomes_plugin_not_found() {
     let src = ChoosePluginError::PluginNotFound {
-        schema_id: "gts.x.core.test.plugin.v1~".into(),
+        schema_id: "gts.cf.core.test.plugin.v1~".into(),
         vendor: "acme".into(),
     };
     let dst = DomainError::from(src);
@@ -50,13 +50,13 @@ fn from_choose_plugin_error_not_found_becomes_plugin_not_found() {
 #[test]
 fn from_choose_plugin_error_invalid_instance_becomes_invalid_plugin_instance() {
     let src = ChoosePluginError::InvalidPluginInstance {
-        gts_id: "gts.x.core.test.error.v1~".into(),
+        gts_id: "gts.cf.core.test.error.v1~".into(),
         reason: "bad content".into(),
     };
     let dst = DomainError::from(src);
     assert!(
         matches!(dst, DomainError::InvalidPluginInstance { gts_id, reason }
-            if gts_id == "gts.x.core.test.error.v1~" && reason == "bad content")
+            if gts_id == "gts.cf.core.test.error.v1~" && reason == "bad content")
     );
 }
 
@@ -111,13 +111,13 @@ fn domain_plugin_not_found_becomes_no_plugin_available() {
 #[test]
 fn domain_invalid_plugin_instance_becomes_internal() {
     let src = DomainError::InvalidPluginInstance {
-        gts_id: "gts.x.core.test.error.v1~".into(),
+        gts_id: "gts.cf.core.test.error.v1~".into(),
         reason: "bad".into(),
     };
     let dst = CredStoreError::from(src);
     assert!(
         matches!(dst, CredStoreError::Internal(ref msg)
-            if msg.contains("gts.x.core.test.error.v1~") && msg.contains("bad")),
+            if msg.contains("gts.cf.core.test.error.v1~") && msg.contains("bad")),
         "expected Internal with gts_id and reason, got: {dst:?}"
     );
 }
@@ -125,13 +125,13 @@ fn domain_invalid_plugin_instance_becomes_internal() {
 #[test]
 fn domain_plugin_unavailable_becomes_service_unavailable() {
     let src = DomainError::PluginUnavailable {
-        gts_id: "gts.x.core.test.error.v1~".into(),
+        gts_id: "gts.cf.core.test.error.v1~".into(),
         reason: "not ready".into(),
     };
     let dst = CredStoreError::from(src);
     assert!(
         matches!(dst, CredStoreError::ServiceUnavailable(ref msg)
-            if msg.contains("gts.x.core.test.error.v1~") && msg.contains("not ready")),
+            if msg.contains("gts.cf.core.test.error.v1~") && msg.contains("not ready")),
         "expected ServiceUnavailable with gts_id and reason, got: {dst:?}"
     );
 }

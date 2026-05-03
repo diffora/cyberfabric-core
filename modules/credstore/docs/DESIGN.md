@@ -932,10 +932,10 @@ Following the ModKit plugin pattern (as documented in `docs/MODKIT_PLUGINS.md` a
 **Exactly one storage plugin is active per deployment** (selected by configuration `vendor` field match). For simple plugins (VendorA, OS keychain), the Gateway handles all cross-cutting concerns (authorization, hierarchical resolution, sharing mode enforcement), while the plugins provide simple per-tenant CRUD operations. The `credentials_storage` plugin is a full microservice that handles merge resolution, authorization, and encryption internally — when active, the Gateway delegates these responsibilities to the plugin.
 
 **GTS Types:**
-- Schema: `gts.x.core.modkit.plugin.v1~x.core.credstore.plugin.v1~`
-- VendorA instance: `gts.x.core.modkit.plugin.v1~x.core.credstore.plugin.v1~x.core.vendor_a.app._.plugin.v1`
-- OS storage instance: `gts.x.core.modkit.plugin.v1~x.core.credstore.plugin.v1~x.core.os_protected.app._.plugin.v1`
-- Credentials Storage instance: `gts.x.core.modkit.plugin.v1~x.core.credstore.plugin.v1~x.core.credentials_storage.app._.plugin.v1`
+- Schema: `gts.cf.core.modkit.plugin.v1~cf.core.credstore.plugin.v1~`
+- VendorA instance: `gts.cf.core.modkit.plugin.v1~cf.core.credstore.plugin.v1~cf.core.vendor_a.app._.plugin.v1`
+- OS storage instance: `gts.cf.core.modkit.plugin.v1~cf.core.credstore.plugin.v1~cf.core.os_protected.app._.plugin.v1`
+- Credentials Storage instance: `gts.cf.core.modkit.plugin.v1~cf.core.credstore.plugin.v1~cf.core.credentials_storage.app._.plugin.v1`
 
 ### Configuration
 

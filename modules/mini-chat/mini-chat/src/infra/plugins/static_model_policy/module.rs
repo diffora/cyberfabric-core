@@ -56,7 +56,7 @@ impl Module for StaticMiniChatModelPolicyPlugin {
 
         // Generate plugin instance ID
         let instance_id = MiniChatModelPolicyPluginSpecV1::gts_make_instance_id(
-            "x.core._.static_mini_chat_model_policy.v1",
+            "cf.core._.static_mini_chat_model_policy.v1",
         );
 
         // Register plugin instance in types-registry

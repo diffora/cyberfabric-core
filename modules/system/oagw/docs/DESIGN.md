@@ -237,13 +237,13 @@ classDiagram
 
 **Key Domain Entities**:
 
-- **Upstream** (`gts.x.core.oagw.upstream.v1~`): Tenant-scoped root configuration object representing an external service. Unique per `(tenant_id, alias)`. Contains server endpoints, auth config, rate limits, CORS, headers, and plugin bindings.
-- **Route** (`gts.x.core.oagw.route.v1~`): Belongs to an upstream. Defines match rules (HTTP path/method; gRPC service/method matching is planned for Phase 3 — no gRPC proxy code path is currently implemented or reachable), priority, and route-level overrides for rate limits, CORS, and plugins.
-- **Plugin** (`gts.x.core.oagw.{type}_plugin.v1~`): Custom tenant-defined Starlark plugins stored in `oagw_plugin`. Named (built-in) plugins are resolved via in-process registry and not persisted.
+- **Upstream** (`gts.cf.core.oagw.upstream.v1~`): Tenant-scoped root configuration object representing an external service. Unique per `(tenant_id, alias)`. Contains server endpoints, auth config, rate limits, CORS, headers, and plugin bindings.
+- **Route** (`gts.cf.core.oagw.route.v1~`): Belongs to an upstream. Defines match rules (HTTP path/method; gRPC service/method matching is planned for Phase 3 — no gRPC proxy code path is currently implemented or reachable), priority, and route-level overrides for rate limits, CORS, and plugins.
+- **Plugin** (`gts.cf.core.oagw.{type}_plugin.v1~`): Custom tenant-defined Starlark plugins stored in `oagw_plugin`. Named (built-in) plugins are resolved via in-process registry and not persisted.
 
 #### Upstream Schema
 
-**Base type**: `gts.x.core.oagw.upstream.v1~`
+**Base type**: `gts.cf.core.oagw.upstream.v1~`
 
 Full schema: [schemas/upstream.v1.schema.json](./schemas/upstream.v1.schema.json)
 
@@ -251,44 +251,44 @@ Sharing fields fragment: [schemas/oagw_upstream_sharing_fields.fragment.json](./
 
 #### Route Schema
 
-**Base type**: `gts.x.core.oagw.route.v1~`
+**Base type**: `gts.cf.core.oagw.route.v1~`
 
 Full schema: [schemas/route.v1.schema.json](./schemas/route.v1.schema.json)
 
 #### Plugin Schemas
 
-**Auth Plugin** — Base type: `gts.x.core.oagw.auth_plugin.v1~` — [schemas/auth_plugin.v1.schema.json](./schemas/auth_plugin.v1.schema.json)
+**Auth Plugin** — Base type: `gts.cf.core.oagw.auth_plugin.v1~` — [schemas/auth_plugin.v1.schema.json](./schemas/auth_plugin.v1.schema.json)
 
 One per upstream. Named auth plugins resolved via in-process registries, not stored in `oagw_plugin`. UUID-backed auth plugins stored in `oagw_plugin`.
 
 Built-in auth plugins:
-- `gts.x.core.oagw.auth_plugin.v1~x.core.oagw.noop.v1`
-- `gts.x.core.oagw.auth_plugin.v1~x.core.oagw.apikey.v1`
-- `gts.x.core.oagw.auth_plugin.v1~x.core.oagw.basic.v1`
-- `gts.x.core.oagw.auth_plugin.v1~x.core.oagw.bearer.v1`
-- `gts.x.core.oagw.auth_plugin.v1~x.core.oagw.oauth2_client_cred.v1`
-- `gts.x.core.oagw.auth_plugin.v1~x.core.oagw.oauth2_client_cred_basic.v1`
+- `gts.cf.core.oagw.auth_plugin.v1~cf.core.oagw.noop.v1`
+- `gts.cf.core.oagw.auth_plugin.v1~cf.core.oagw.apikey.v1`
+- `gts.cf.core.oagw.auth_plugin.v1~cf.core.oagw.basic.v1`
+- `gts.cf.core.oagw.auth_plugin.v1~cf.core.oagw.bearer.v1`
+- `gts.cf.core.oagw.auth_plugin.v1~cf.core.oagw.oauth2_client_cred.v1`
+- `gts.cf.core.oagw.auth_plugin.v1~cf.core.oagw.oauth2_client_cred_basic.v1`
 
-**Guard Plugin** — Base type: `gts.x.core.oagw.guard_plugin.v1~` — [schemas/guard_plugin.v1.schema.json](./schemas/guard_plugin.v1.schema.json)
+**Guard Plugin** — Base type: `gts.cf.core.oagw.guard_plugin.v1~` — [schemas/guard_plugin.v1.schema.json](./schemas/guard_plugin.v1.schema.json)
 
 Multiple per upstream/route. Can reject requests before they reach upstream.
 
 | Plugin ID | Description |
 |---|---|
-| `gts.x.core.oagw.guard_plugin.v1~x.core.oagw.timeout.v1` | Request timeout enforcement |
-| `gts.x.core.oagw.guard_plugin.v1~x.core.oagw.cors.v1` | CORS origin validation (actual requests; preflight handled at handler level — see [ADR: CORS](./ADR/0006-cors.md)) |
+| `gts.cf.core.oagw.guard_plugin.v1~cf.core.oagw.timeout.v1` | Request timeout enforcement |
+| `gts.cf.core.oagw.guard_plugin.v1~cf.core.oagw.cors.v1` | CORS origin validation (actual requests; preflight handled at handler level — see [ADR: CORS](./ADR/0006-cors.md)) |
 
 Circuit breaker is **core functionality** (not a plugin). See [ADR: Circuit Breaker](./ADR/0005-circuit-breaker.md).
 
-**Transform Plugin** — Base type: `gts.x.core.oagw.transform_plugin.v1~` — [schemas/transform_plugin.v1.schema.json](./schemas/transform_plugin.v1.schema.json)
+**Transform Plugin** — Base type: `gts.cf.core.oagw.transform_plugin.v1~` — [schemas/transform_plugin.v1.schema.json](./schemas/transform_plugin.v1.schema.json)
 
 Multiple per upstream/route, executed in order. Each plugin declares supported phases: `on_request`, `on_response`, `on_error`.
 
 | Plugin ID | Phase | Description |
 |---|---|---|
-| `gts.x.core.oagw.transform_plugin.v1~x.core.oagw.logging.v1` | request, response, error | Request/response logging |
-| `gts.x.core.oagw.transform_plugin.v1~x.core.oagw.metrics.v1` | request, response | Prometheus metrics |
-| `gts.x.core.oagw.transform_plugin.v1~x.core.oagw.request_id.v1` | request, response | X-Request-ID injection/propagation |
+| `gts.cf.core.oagw.transform_plugin.v1~cf.core.oagw.logging.v1` | request, response, error | Request/response logging |
+| `gts.cf.core.oagw.transform_plugin.v1~cf.core.oagw.metrics.v1` | request, response | Prometheus metrics |
+| `gts.cf.core.oagw.transform_plugin.v1~cf.core.oagw.request_id.v1` | request, response | X-Request-ID injection/propagation |
 
 #### Plugin Identification Model
 
@@ -299,12 +299,12 @@ The database stores:
 - `plugin_uuid` (UUID, nullable): extracted UUID when `plugin_ref` is UUID-backed.
 
 **Named plugins** (built-in or provided by deployed modules):
-- API: `gts.x.core.oagw.{type}_plugin.v1~x.core.oagw.{name}.v1`
+- API: `gts.cf.core.oagw.{type}_plugin.v1~cf.core.oagw.{name}.v1`
 - Resolved via an in-process plugin registry.
 - Not stored in `oagw_plugin` and not subject to GC.
 
 **Custom plugins** (tenant-defined Starlark):
-- API: `gts.x.core.oagw.{type}_plugin.v1~{uuid}`
+- API: `gts.cf.core.oagw.{type}_plugin.v1~{uuid}`
 - Stored in `oagw_plugin` keyed by `id = {uuid}`.
 
 **Bindings**:
@@ -379,9 +379,9 @@ modules/system/oagw/
 
 Three plugin types with separate traits, deterministic execution order:
 
-1. **AuthPlugin** (`gts.x.core.oagw.auth_plugin.v1~*`): Credential injection. One per upstream.
-2. **GuardPlugin** (`gts.x.core.oagw.guard_plugin.v1~*`): Validation/policy enforcement (can reject). Multiple per upstream/route.
-3. **TransformPlugin** (`gts.x.core.oagw.transform_plugin.v1~*`): Request/response mutation. Multiple per upstream/route.
+1. **AuthPlugin** (`gts.cf.core.oagw.auth_plugin.v1~*`): Credential injection. One per upstream.
+2. **GuardPlugin** (`gts.cf.core.oagw.guard_plugin.v1~*`): Validation/policy enforcement (can reject). Multiple per upstream/route.
+3. **TransformPlugin** (`gts.cf.core.oagw.transform_plugin.v1~*`): Request/response mutation. Multiple per upstream/route.
 
 Execution order: Auth → Guards → Transform(on_request) → Upstream call → Transform(on_response/on_error).
 
@@ -582,20 +582,20 @@ Cache entry TTL: 1 hour. HTTP/3 (QUIC) support is future work.
 
 | Permission Required | Description |
 |---|---|
-| `gts.x.core.oagw.upstream.v1~:{create;override;read;delete}` | Create/Override, read, delete upstream |
-| `gts.x.core.oagw.route.v1~:{create;override;read;delete}` | Create/Override, read, delete route |
-| `gts.x.core.oagw.auth_plugin.v1~:{create;read;delete}` | Create, read, delete auth plugin |
-| `gts.x.core.oagw.guard_plugin.v1~:{create;read;delete}` | Create, read, delete guard plugin |
-| `gts.x.core.oagw.transform_plugin.v1~:{create;read;delete}` | Create, read, delete transform plugin |
+| `gts.cf.core.oagw.upstream.v1~:{create;override;read;delete}` | Create/Override, read, delete upstream |
+| `gts.cf.core.oagw.route.v1~:{create;override;read;delete}` | Create/Override, read, delete route |
+| `gts.cf.core.oagw.auth_plugin.v1~:{create;read;delete}` | Create, read, delete auth plugin |
+| `gts.cf.core.oagw.guard_plugin.v1~:{create;read;delete}` | Create, read, delete guard plugin |
+| `gts.cf.core.oagw.transform_plugin.v1~:{create;read;delete}` | Create, read, delete transform plugin |
 
 **Proxy API** permissions:
 
 | Permission Required | Description |
 |---|---|
-| `gts.x.core.oagw.proxy.v1~:invoke` | Proxy requests to upstreams |
+| `gts.cf.core.oagw.proxy.v1~:invoke` | Proxy requests to upstreams |
 
 Authorization checks:
-1. Token must have `gts.x.core.oagw.proxy.v1~:invoke` permission
+1. Token must have `gts.cf.core.oagw.proxy.v1~:invoke` permission
 2. Upstream must be owned by token's tenant or shared by ancestor
 3. Route must match request method and path
 
@@ -627,7 +627,7 @@ Authorization checks:
 | `DELETE` | `/api/oagw/v1/plugins/{id}` | Delete plugin |
 | `GET` | `/api/oagw/v1/plugins/{id}/source` | Get Starlark source |
 
-IDs use anonymous GTS identifiers: `gts.x.core.oagw.{type}.v1~{uuid}`. Plugins are immutable (no PUT). DELETE returns `409 PluginInUse` when referenced.
+IDs use anonymous GTS identifiers: `gts.cf.core.oagw.{type}.v1~{uuid}`. Plugins are immutable (no PUT). DELETE returns `409 PluginInUse` when referenced.
 
 #### CRUD Semantics
 
@@ -706,26 +706,26 @@ All gateway errors follow RFC 9457 Problem Details (`application/problem+json`) 
 
 | Error Type | HTTP | GTS Instance ID | Retriable | Description |
 |---|---|---|---|---|
-| RouteError | 400 | `gts.x.core.errors.err.v1~x.oagw.validation.error.v1` | No | General route validation error |
-| ValidationError | 400 | `gts.x.core.errors.err.v1~x.oagw.validation.error.v1` | No | Request validation failed |
-| MissingTargetHost | 400 | `gts.x.core.errors.err.v1~x.oagw.routing.missing_target_host.v1` | No | X-OAGW-Target-Host header required for multi-endpoint upstream with common suffix alias |
-| InvalidTargetHost | 400 | `gts.x.core.errors.err.v1~x.oagw.routing.invalid_target_host.v1` | No | X-OAGW-Target-Host header format is invalid (must be hostname or IP, no port/path/special chars) |
-| UnknownTargetHost | 400 | `gts.x.core.errors.err.v1~x.oagw.routing.unknown_target_host.v1` | No | X-OAGW-Target-Host value does not match any configured endpoint |
-| AuthenticationFailed | 401 | `gts.x.core.errors.err.v1~x.oagw.auth.failed.v1` | No | Authentication to upstream failed |
-| RouteNotFound | 404 | `gts.x.core.errors.err.v1~x.oagw.route.not_found.v1` | No | No matching route found |
-| PluginInUse | 409 | `gts.x.core.errors.err.v1~x.oagw.plugin.in_use.v1` | No | Plugin in use |
-| PayloadTooLarge | 413 | `gts.x.core.errors.err.v1~x.oagw.payload.too_large.v1` | No | Request payload exceeds limit |
-| RateLimitExceeded | 429 | `gts.x.core.errors.err.v1~x.oagw.rate_limit.exceeded.v1` | Yes | Rate limit exceeded |
-| SecretNotFound | 500 | `gts.x.core.errors.err.v1~x.oagw.secret.not_found.v1` | No | Referenced secret not found |
-| ProtocolError | 502 | `gts.x.core.errors.err.v1~x.oagw.protocol.error.v1` | No | Protocol-level error |
-| DownstreamError | 502 | `gts.x.core.errors.err.v1~x.oagw.downstream.error.v1` | Depends | Upstream service error |
-| StreamAborted | 502 | `gts.x.core.errors.err.v1~x.oagw.stream.aborted.v1` | No | Stream connection aborted |
-| LinkUnavailable | 503 | `gts.x.core.errors.err.v1~x.oagw.link.unavailable.v1` | Yes | Upstream link unavailable |
-| CircuitBreakerOpen | 503 | `gts.x.core.errors.err.v1~x.oagw.circuit_breaker.open.v1` | Yes | Circuit breaker open |
-| PluginNotFound | 503 | `gts.x.core.errors.err.v1~x.oagw.plugin.not_found.v1` | No | Plugin not found |
-| ConnectionTimeout | 504 | `gts.x.core.errors.err.v1~x.oagw.timeout.connection.v1` | Yes | Connection timeout |
-| RequestTimeout | 504 | `gts.x.core.errors.err.v1~x.oagw.timeout.request.v1` | Yes | Request timeout |
-| IdleTimeout | 504 | `gts.x.core.errors.err.v1~x.oagw.timeout.idle.v1` | Yes | Idle timeout |
+| RouteError | 400 | `gts.cf.core.errors.err.v1~cf.oagw.validation.error.v1` | No | General route validation error |
+| ValidationError | 400 | `gts.cf.core.errors.err.v1~cf.oagw.validation.error.v1` | No | Request validation failed |
+| MissingTargetHost | 400 | `gts.cf.core.errors.err.v1~cf.oagw.routing.missing_target_host.v1` | No | X-OAGW-Target-Host header required for multi-endpoint upstream with common suffix alias |
+| InvalidTargetHost | 400 | `gts.cf.core.errors.err.v1~cf.oagw.routing.invalid_target_host.v1` | No | X-OAGW-Target-Host header format is invalid (must be hostname or IP, no port/path/special chars) |
+| UnknownTargetHost | 400 | `gts.cf.core.errors.err.v1~cf.oagw.routing.unknown_target_host.v1` | No | X-OAGW-Target-Host value does not match any configured endpoint |
+| AuthenticationFailed | 401 | `gts.cf.core.errors.err.v1~cf.oagw.auth.failed.v1` | No | Authentication to upstream failed |
+| RouteNotFound | 404 | `gts.cf.core.errors.err.v1~cf.oagw.route.not_found.v1` | No | No matching route found |
+| PluginInUse | 409 | `gts.cf.core.errors.err.v1~cf.oagw.plugin.in_use.v1` | No | Plugin in use |
+| PayloadTooLarge | 413 | `gts.cf.core.errors.err.v1~cf.oagw.payload.too_large.v1` | No | Request payload exceeds limit |
+| RateLimitExceeded | 429 | `gts.cf.core.errors.err.v1~cf.oagw.rate_limit.exceeded.v1` | Yes | Rate limit exceeded |
+| SecretNotFound | 500 | `gts.cf.core.errors.err.v1~cf.oagw.secret.not_found.v1` | No | Referenced secret not found |
+| ProtocolError | 502 | `gts.cf.core.errors.err.v1~cf.oagw.protocol.error.v1` | No | Protocol-level error |
+| DownstreamError | 502 | `gts.cf.core.errors.err.v1~cf.oagw.downstream.error.v1` | Depends | Upstream service error |
+| StreamAborted | 502 | `gts.cf.core.errors.err.v1~cf.oagw.stream.aborted.v1` | No | Stream connection aborted |
+| LinkUnavailable | 503 | `gts.cf.core.errors.err.v1~cf.oagw.link.unavailable.v1` | Yes | Upstream link unavailable |
+| CircuitBreakerOpen | 503 | `gts.cf.core.errors.err.v1~cf.oagw.circuit_breaker.open.v1` | Yes | Circuit breaker open |
+| PluginNotFound | 503 | `gts.cf.core.errors.err.v1~cf.oagw.plugin.not_found.v1` | No | Plugin not found |
+| ConnectionTimeout | 504 | `gts.cf.core.errors.err.v1~cf.oagw.timeout.connection.v1` | Yes | Connection timeout |
+| RequestTimeout | 504 | `gts.cf.core.errors.err.v1~cf.oagw.timeout.request.v1` | Yes | Request timeout |
+| IdleTimeout | 504 | `gts.cf.core.errors.err.v1~cf.oagw.timeout.idle.v1` | Yes | Idle timeout |
 
 **Standard Fields** (RFC 9457):
 - `type`: GTS identifier for the error type (used for programmatic error handling)
@@ -754,9 +754,9 @@ Header may be stripped by intermediaries. For critical error handling, clients s
 
 | Permission | Description |
 |---|---|
-| `gts.x.core.oagw.upstream.v1~:{create;override;read;delete}` | Upstream CRUD |
-| `gts.x.core.oagw.route.v1~:{create;override;read;delete}` | Route CRUD |
-| `gts.x.core.oagw.proxy.v1~:invoke` | Proxy requests |
+| `gts.cf.core.oagw.upstream.v1~:{create;override;read;delete}` | Upstream CRUD |
+| `gts.cf.core.oagw.route.v1~:{create;override;read;delete}` | Route CRUD |
+| `gts.cf.core.oagw.proxy.v1~:invoke` | Proxy requests |
 
 **Outbound** (OAGW → Upstream): Handled by auth plugins. Credentials resolved from `cred_store` via `secret_ref`.
 
@@ -846,9 +846,9 @@ Schema follows portable relational baseline with JSON blobs for evolving configu
 #### Resource Identification Pattern
 
 All resources use anonymous GTS identifiers in API path parameters:
-- Upstreams: `gts.x.core.oagw.upstream.v1~{uuid}`
-- Routes: `gts.x.core.oagw.route.v1~{uuid}`
-- Plugins: `gts.x.core.oagw.{type}_plugin.v1~{uuid}`
+- Upstreams: `gts.cf.core.oagw.upstream.v1~{uuid}`
+- Routes: `gts.cf.core.oagw.route.v1~{uuid}`
+- Plugins: `gts.cf.core.oagw.{type}_plugin.v1~{uuid}`
 
 See [ADR: Resource Identification](./ADR/0010-resource-identification.md) for the layered resource model.
 

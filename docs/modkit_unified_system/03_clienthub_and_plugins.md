@@ -58,7 +58,7 @@ For plugin-like scenarios where multiple implementations of the same interface c
 use modkit::client_hub::ClientScope;
 
 // Plugin registers with a scope (e.g., GTS instance ID)
-let scope = ClientScope::gts_id("gts.x.core.modkit.plugin.v1~vendor.pkg.my_module.plugin.v1~acme.test._.plugin.v1");
+let scope = ClientScope::gts_id("gts.cf.core.modkit.plugin.v1~vendor.pkg.my_module.plugin.v1~acme.test._.plugin.v1");
 ctx.client_hub().register_scoped::<dyn MyPluginClient>(scope, plugin_impl);
 
 // Main module resolves the selected plugin
@@ -174,7 +174,7 @@ use modkit::gts::BaseModkitPluginV1;
 #[struct_to_gts_schema(
     dir_path = "schemas",
     base = BaseModkitPluginV1,
-    schema_id = "gts.x.core.modkit.plugin.v1~x.y.my_module.plugin.v1~",
+    schema_id = "gts.cf.core.modkit.plugin.v1~x.y.my_module.plugin.v1~",
     description = "My Module plugin specification",
     properties = ""
 )]

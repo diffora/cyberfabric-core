@@ -11,7 +11,7 @@ Authorization: Bearer <token-without-route-create>
 Content-Type: application/json
 
 {
-  "upstream_id": "gts.x.core.oagw.upstream.v1~7c9e6679-7425-40de-944b-e07fc1f90ae7",
+  "upstream_id": "gts.cf.core.oagw.upstream.v1~7c9e6679-7425-40de-944b-e07fc1f90ae7",
   "match": {
     "http": {
       "methods": ["POST"],

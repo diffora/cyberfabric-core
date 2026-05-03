@@ -515,7 +515,7 @@ mod tests {
         let repo = InMemoryGtsRepository::new(default_config());
         repo.switch_to_ready().unwrap();
 
-        let result = repo.get("gts.unknown.pkg.ns.type.v1~");
+        let result = repo.get("gts.fabrikam.pkg.ns.type.v1~");
         assert!(matches!(result, Err(DomainError::NotFound { .. })));
     }
 
@@ -593,7 +593,7 @@ mod tests {
         repo.switch_to_ready().unwrap();
 
         assert!(repo.exists("gts.acme.core.events.user_created.v1~"));
-        assert!(!repo.exists("gts.unknown.pkg.ns.type.v1~"));
+        assert!(!repo.exists("gts.fabrikam.pkg.ns.type.v1~"));
     }
 
     #[test]
@@ -635,7 +635,7 @@ mod tests {
         let results = repo.list(&query).unwrap();
         assert_eq!(results.len(), 1);
 
-        let query = ListQuery::default().with_pattern("gts.other.*");
+        let query = ListQuery::default().with_pattern("gts.contoso.*");
         let results = repo.list(&query).unwrap();
         assert_eq!(results.len(), 0);
     }

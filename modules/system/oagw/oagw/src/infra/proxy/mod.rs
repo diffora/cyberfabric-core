@@ -27,7 +27,7 @@ pub(crate) mod resources {
 
     /// Resource type identifying a proxied upstream target.
     pub const PROXY: ResourceType = ResourceType {
-        name: "gts.x.core.oagw.proxy.v1~",
+        name: "gts.cf.core.oagw.proxy.v1~",
         supported_properties: &[pep_properties::OWNER_TENANT_ID],
     };
 }

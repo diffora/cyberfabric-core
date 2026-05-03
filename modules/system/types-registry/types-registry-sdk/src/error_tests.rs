@@ -69,24 +69,24 @@ fn test_error_display() {
     let err = TypesRegistryError::InvalidGtsInstanceId("bad format".to_owned());
     assert_eq!(err.to_string(), "Invalid GTS instance id: bad format");
 
-    let err = TypesRegistryError::GtsTypeSchemaNotFound("gts.x.core.events.test.v1~".to_owned());
+    let err = TypesRegistryError::GtsTypeSchemaNotFound("gts.cf.core.events.test.v1~".to_owned());
     assert_eq!(
         err.to_string(),
-        "GTS type-schema not found: gts.x.core.events.test.v1~"
+        "GTS type-schema not found: gts.cf.core.events.test.v1~"
     );
 
     let err = TypesRegistryError::GtsInstanceNotFound(
-        "gts.x.core.events.test.v1~x.core.instances.u1.v1".to_owned(),
+        "gts.cf.core.events.test.v1~cf.core.instances.u1.v1".to_owned(),
     );
     assert_eq!(
         err.to_string(),
-        "GTS instance not found: gts.x.core.events.test.v1~x.core.instances.u1.v1"
+        "GTS instance not found: gts.cf.core.events.test.v1~cf.core.instances.u1.v1"
     );
 
-    let err = TypesRegistryError::AlreadyExists("gts.x.core.events.test.v1~".to_owned());
+    let err = TypesRegistryError::AlreadyExists("gts.cf.core.events.test.v1~".to_owned());
     assert_eq!(
         err.to_string(),
-        "Entity already exists: gts.x.core.events.test.v1~"
+        "Entity already exists: gts.cf.core.events.test.v1~"
     );
 
     let err = TypesRegistryError::ValidationFailed("missing required field".to_owned());

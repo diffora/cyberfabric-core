@@ -14,7 +14,7 @@ Content-Type: application/json
       { "scheme": "https", "host": "10.0.1.1", "port": 443 }
     ]
   },
-  "protocol": "gts.x.core.oagw.protocol.v1~x.core.oagw.http.v1"
+  "protocol": "gts.cf.core.oagw.protocol.v1~cf.core.oagw.http.v1"
 }
 ```
 
@@ -25,7 +25,7 @@ Content-Type: application/json
 
 ```json
 {
-  "type": "gts.x.core.errors.err.v1~x.oagw.validation.error.v1",
+  "type": "gts.cf.core.errors.err.v1~cf.oagw.validation.error.v1",
   "title": "Validation Error",
   "status": 400,
   "detail": "alias is required for IP-based endpoints",

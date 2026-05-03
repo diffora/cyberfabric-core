@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 use crate::middleware::common;
 
-const BASE_FEATURE: &str = "gts.x.core.lic.feat.v1~x.core.global.base.v1";
+const BASE_FEATURE: &str = "gts.cf.core.lic.feat.v1~cf.core.global.base.v1";
 
 type LicenseKey = (Method, String);
 

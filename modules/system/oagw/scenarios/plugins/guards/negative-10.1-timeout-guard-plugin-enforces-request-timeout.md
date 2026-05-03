@@ -3,7 +3,7 @@
 ## Setup
 
 Attach builtin timeout guard plugin to the route:
-- `gts.x.core.oagw.guard_plugin.v1~x.core.oagw.timeout.v1`
+- `gts.cf.core.oagw.guard_plugin.v1~cf.core.oagw.timeout.v1`
 
 Route plugin list includes the timeout guard with a low timeout (example: 100ms) via its config mechanism (exact config shape is implementation-defined).
 

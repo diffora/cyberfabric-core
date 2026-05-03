@@ -14,7 +14,7 @@ Content-Type: application/json
       { "scheme": "https", "host": "httpbin.org", "port": 443 }
     ]
   },
-  "protocol": "gts.x.core.oagw.protocol.v1~x.core.oagw.http.v1",
+  "protocol": "gts.cf.core.oagw.protocol.v1~cf.core.oagw.http.v1",
   "alias": "httpbin.org"
 }
 ```
@@ -30,7 +30,7 @@ Authorization: Bearer <tenant-token>
 Content-Type: application/json
 
 {
-  "upstream_id": "gts.x.core.oagw.upstream.v1~<uuid>",
+  "upstream_id": "gts.cf.core.oagw.upstream.v1~<uuid>",
   "match": {
     "http": {
       "methods": ["GET"],
@@ -51,7 +51,7 @@ Authorization: Bearer <tenant-token>
 Content-Type: application/json
 
 {
-  "upstream_id": "gts.x.core.oagw.upstream.v1~<uuid>",
+  "upstream_id": "gts.cf.core.oagw.upstream.v1~<uuid>",
   "match": {
     "http": {
       "methods": ["POST"],

@@ -4,7 +4,7 @@ import pytest
 
 from .helpers import create_route, create_upstream, delete_upstream, unique_alias
 
-APIKEY_AUTH_PLUGIN_ID = "gts.x.core.oagw.auth_plugin.v1~x.core.oagw.apikey.v1"
+APIKEY_AUTH_PLUGIN_ID = "gts.cf.core.oagw.auth_plugin.v1~cf.core.oagw.apikey.v1"
 
 
 @pytest.mark.asyncio

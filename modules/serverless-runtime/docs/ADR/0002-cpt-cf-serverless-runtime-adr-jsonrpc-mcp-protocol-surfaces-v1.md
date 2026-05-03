@@ -150,8 +150,8 @@ This decision directly addresses the following requirements and design elements:
 * `cpt-cf-serverless-runtime-fr-execution-engine` — BR-004: synchronous invocation is a first-class feature; JSON-RPC non-streaming mode provides synchronous response semantics for direct callers
 * `cpt-cf-serverless-runtime-fr-runtime-capabilities` — BR-008: workflows/functions can invoke runtime-provided capabilities; sampling enables functions to invoke LLM capabilities provided by the connecting agent client
 * `cpt-cf-serverless-runtime-nfr-security` — both JSON-RPC and MCP surfaces must enforce the same authentication, authorization, and tenant isolation as the REST API; the Invocation Engine delegation model ensures this
-* `gts.x.core.serverless.jsonrpc_traits.v1~` — design entity controlling JSON-RPC exposure for a function definition
-* `gts.x.core.serverless.mcp_traits.v1~` — design entity controlling MCP tool exposure, elicitation capability, and sampling capability for a function definition
-* `gts.x.core.serverless.mcp_session.v1~` — design entity representing MCP protocol session state per client connection
-* `gts.x.core.serverless.mcp_elicitation_context.v1~` — design entity for elicitation request parameters passed from executor to MCP server layer
-* `gts.x.core.serverless.mcp_sampling_context.v1~` — design entity for sampling request parameters passed from executor to MCP server layer
+* `gts.cf.core.serverless.jsonrpc_traits.v1~` — design entity controlling JSON-RPC exposure for a function definition
+* `gts.cf.core.serverless.mcp_traits.v1~` — design entity controlling MCP tool exposure, elicitation capability, and sampling capability for a function definition
+* `gts.cf.core.serverless.mcp_session.v1~` — design entity representing MCP protocol session state per client connection
+* `gts.cf.core.serverless.mcp_elicitation_context.v1~` — design entity for elicitation request parameters passed from executor to MCP server layer
+* `gts.cf.core.serverless.mcp_sampling_context.v1~` — design entity for sampling request parameters passed from executor to MCP server layer

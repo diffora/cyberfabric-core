@@ -5,10 +5,10 @@ import pytest
 from .helpers import create_route, create_upstream, delete_upstream, unique_alias
 
 OAUTH2_CC_PLUGIN_ID = (
-    "gts.x.core.oagw.auth_plugin.v1~x.core.oagw.oauth2_client_cred.v1"
+    "gts.cf.core.oagw.auth_plugin.v1~cf.core.oagw.oauth2_client_cred.v1"
 )
 OAUTH2_CC_BASIC_PLUGIN_ID = (
-    "gts.x.core.oagw.auth_plugin.v1~x.core.oagw.oauth2_client_cred_basic.v1"
+    "gts.cf.core.oagw.auth_plugin.v1~cf.core.oagw.oauth2_client_cred_basic.v1"
 )
 
 

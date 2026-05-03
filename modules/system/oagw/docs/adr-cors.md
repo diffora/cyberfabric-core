@@ -57,7 +57,7 @@ Implement CORS as a guard plugin. Configurable per upstream/route.
   "plugins": {
     "items": [
       {
-        "type": "gts.x.core.oagw.guard_plugin.v1~x.core.oagw.cors.v1",
+        "type": "gts.cf.core.oagw.guard_plugin.v1~cf.core.oagw.cors.v1",
         "config": {
           "allowed_origins": [ "https://app.example.com", "https://admin.example.com" ],
           "allowed_methods": [ "GET", "POST", "PUT", "DELETE" ],
@@ -378,7 +378,7 @@ HTTP/1.1 403 Forbidden
 Content-Type: application/problem+json
 
 {
-  "type": "gts.x.core.errors.err.v1~x.oagw.cors.origin_not_allowed.v1",
+  "type": "gts.cf.core.errors.err.v1~cf.oagw.cors.origin_not_allowed.v1",
   "title": "CORS Origin Not Allowed",
   "status": 403,
   "detail": "Origin 'https://evil.com' not in allowed origins list"
@@ -391,7 +391,7 @@ Content-Type: application/problem+json
 HTTP/1.1 403 Forbidden
 
 {
-  "type": "gts.x.core.errors.err.v1~x.oagw.cors.method_not_allowed.v1",
+  "type": "gts.cf.core.errors.err.v1~cf.oagw.cors.method_not_allowed.v1",
   "title": "CORS Method Not Allowed",
   "status": 403,
   "detail": "Method 'DELETE' not in allowed methods list"

@@ -127,7 +127,7 @@ pub struct ProviderEntry {
     #[serde(default = "default_api_path")]
     pub api_path: String,
     /// OAGW auth plugin type for this upstream (optional).
-    /// Example: `gts.x.core.oagw.auth_plugin.v1~x.core.oagw.apikey.v1`
+    /// Example: `gts.cf.core.oagw.auth_plugin.v1~cf.core.oagw.apikey.v1`
     #[serde(default)]
     pub auth_plugin_type: Option<String>,
     /// Auth plugin config (e.g., `header`, `prefix`, `secret_ref`).
@@ -276,7 +276,7 @@ fn default_providers() -> HashMap<String, ProviderEntry> {
             use_http: false,
             api_path: default_api_path(),
             auth_plugin_type: Some(
-                "gts.x.core.oagw.auth_plugin.v1~x.core.oagw.apikey.v1".to_owned(),
+                "gts.cf.core.oagw.auth_plugin.v1~cf.core.oagw.apikey.v1".to_owned(),
             ),
             auth_config: Some({
                 let mut c = HashMap::new();
@@ -1157,7 +1157,7 @@ mod tests {
             "kind": "openai_responses",
             "storage_kind": "openai",
             "host": "api.openai.com",
-            "auth_plugin_type": "gts.x.core.oagw.auth_plugin.v1~x.core.oagw.apikey.v1",
+            "auth_plugin_type": "gts.cf.core.oagw.auth_plugin.v1~cf.core.oagw.apikey.v1",
             "auth_config": {
                 "header": "Authorization",
                 "prefix": "Bearer ",

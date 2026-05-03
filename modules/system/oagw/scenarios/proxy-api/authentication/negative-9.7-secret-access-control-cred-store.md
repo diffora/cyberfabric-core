@@ -7,7 +7,7 @@ Upstream auth references a secret not accessible to the calling tenant:
 ```json
 {
   "auth": {
-    "type": "gts.x.core.oagw.auth_plugin.v1~x.core.oagw.apikey.v1",
+    "type": "gts.cf.core.oagw.auth_plugin.v1~cf.core.oagw.apikey.v1",
     "config": {
       "header": "Authorization",
       "prefix": "Bearer ",

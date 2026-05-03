@@ -522,7 +522,7 @@ Full integration walkthroughs — each demonstrates the complete journey (upstre
 
 #### Proxy invoke permission required → 403
 - **Scenario**: [negative-5.1-proxy-invoke-permission-required.md](proxy-api/authz/negative-5.1-proxy-invoke-permission-required.md)
-- **What happens**: Missing `gts.x.core.oagw.proxy.v1~:invoke` returns `403`.
+- **What happens**: Missing `gts.cf.core.oagw.proxy.v1~:invoke` returns `403`.
 
 #### Proxy cannot access upstream not owned or shared → 403/404
 - **Scenario**: [negative-5.2-proxy-cannot-access-upstream-not-owned-shared.md](proxy-api/authz/negative-5.2-proxy-cannot-access-upstream-not-owned-shared.md)
@@ -784,7 +784,7 @@ Full integration walkthroughs — each demonstrates the complete journey (upstre
 
 #### IDs are anonymous GTS identifiers on API surface
 - **Scenario**: *Section 27.1 — no separate file.*
-- **What happens**: `GET /upstreams/{id}` accepts `gts.x.core.oagw.upstream.v1~{uuid}`. Same for routes/plugins.
+- **What happens**: `GET /upstreams/{id}` accepts `gts.cf.core.oagw.upstream.v1~{uuid}`. Same for routes/plugins.
 
 ---
 

@@ -91,17 +91,17 @@ Chosen option: **"Option D: Function | Workflow (sibling peer types)"**, because
 
 ### Consequences
 
-* Functions and workflows are independent GTS base types: `gts.x.core.sless.function.v1~` and `gts.x.core.sless.workflow.v1~`
+* Functions and workflows are independent GTS base types: `gts.cf.core.sless.function.v1~` and `gts.cf.core.sless.workflow.v1~`
 * Both types carry identical base fields (version, tenant_id, owner, status, schema, traits: invocation/limits/retry/rate_limit, implementation) — the shared contract is enforced by schema convention, not GTS inheritance
-* Runtimes that support only functions match positively on `gts.x.core.sless.function.v1~*` with no need to exclude workflow subtypes
-* Runtimes that support only workflows match positively on `gts.x.core.sless.workflow.v1~*`
+* Runtimes that support only functions match positively on `gts.cf.core.sless.function.v1~*` with no need to exclude workflow subtypes
+* Runtimes that support only workflows match positively on `gts.cf.core.sless.workflow.v1~*`
 * References to "any callable" (schedules, triggers, invocation records) carry a comment noting both base types; code-level abstractions may use a union or protocol/interface
 * The `workflow_traits` block (checkpointing, compensation, suspension) lives exclusively on the workflow type and is not inherited by functions
 * No abstract base type exists that is never instantiated, eliminating phantom types
 
 ### Confirmation
 
-* DESIGN_GTS_SCHEMAS.md defines `gts.x.core.sless.function.v1~` and `gts.x.core.sless.workflow.v1~` as independent schemas with no `allOf`/`$ref` relationship between them
+* DESIGN_GTS_SCHEMAS.md defines `gts.cf.core.sless.function.v1~` and `gts.cf.core.sless.workflow.v1~` as independent schemas with no `allOf`/`$ref` relationship between them
 * Both schemas carry identical base fields by convention
 * Adapter/runtime capability routing uses positive GTS type matching on `function.v1~*` or `workflow.v1~*` independently
 * Code review verifies that SDK types treat Function and Workflow as peer structs sharing a common interface/protocol, not as parent/child structs
@@ -114,8 +114,8 @@ Function and Workflow are independent base types. Both carry the same base field
 
 **GTS hierarchy:**
 ```
-gts.x.core.sless.function.v1~    ← function base (independent)
-gts.x.core.sless.workflow.v1~    ← workflow base (independent sibling — NOT derived from function)
+gts.cf.core.sless.function.v1~    ← function base (independent)
+gts.cf.core.sless.workflow.v1~    ← workflow base (independent sibling — NOT derived from function)
 ```
 
 | | Aspect | Note |
@@ -134,8 +134,8 @@ Function is the base callable type. Workflow extends Function with additional tr
 
 **GTS hierarchy:**
 ```
-gts.x.core.sless.function.v1~                                          — base
-gts.x.core.sless.function.v1~x.core.sless.workflow.v1~                 — derived
+gts.cf.core.sless.function.v1~                                          — base
+gts.cf.core.sless.function.v1~cf.core.sless.workflow.v1~                 — derived
 ```
 
 | | Aspect | Note |
@@ -155,9 +155,9 @@ An abstract Entrypoint type carries shared fields. Function and Workflow are sib
 
 **GTS hierarchy:**
 ```
-gts.x.core.sless.entrypoint.v1~                                         — abstract base
-gts.x.core.sless.entrypoint.v1~x.core.sless.function.v1~               — derived
-gts.x.core.sless.entrypoint.v1~x.core.sless.workflow.v1~               — derived
+gts.cf.core.sless.entrypoint.v1~                                         — abstract base
+gts.cf.core.sless.entrypoint.v1~cf.core.sless.function.v1~               — derived
+gts.cf.core.sless.entrypoint.v1~cf.core.sless.workflow.v1~               — derived
 ```
 
 | | Aspect | Note |
@@ -175,9 +175,9 @@ Same structure as Option B but with a neutral name that avoids the "entrypoint" 
 
 **GTS hierarchy:**
 ```
-gts.x.core.sless.callable.v1~                                           — abstract base
-gts.x.core.sless.callable.v1~x.core.sless.function.v1~                 — derived
-gts.x.core.sless.callable.v1~x.core.sless.workflow.v1~                 — derived
+gts.cf.core.sless.callable.v1~                                           — abstract base
+gts.cf.core.sless.callable.v1~cf.core.sless.function.v1~                 — derived
+gts.cf.core.sless.callable.v1~cf.core.sless.workflow.v1~                 — derived
 ```
 
 | | Aspect | Note |
@@ -192,7 +192,7 @@ gts.x.core.sless.callable.v1~x.core.sless.workflow.v1~                 — deriv
 
 The previous project's `Entrypoint` type was introduced when all callables were assumed to be top-level invocation targets. As the domain evolved to include helper functions, abstract base definitions for runtime extension, and utility functions that are called by other functions (not directly invoked by users), the "entrypoint" name became misleading.
 
-The intermediate `function → workflow` model (Option A) was a reasonable step: a workflow is genuinely a superset of a function at the semantic level. However, encoding this at the GTS type level creates a routing hazard: any runtime registered to handle `gts.x.core.sless.function.v1~` would, by GTS inheritance rules, also match workflow instances unless it explicitly excluded them. The sibling model eliminates this hazard entirely. The "conceptually a superset" relationship is documented here and in the schema descriptions, but not encoded as GTS inheritance.
+The intermediate `function → workflow` model (Option A) was a reasonable step: a workflow is genuinely a superset of a function at the semantic level. However, encoding this at the GTS type level creates a routing hazard: any runtime registered to handle `gts.cf.core.sless.function.v1~` would, by GTS inheritance rules, also match workflow instances unless it explicitly excluded them. The sibling model eliminates this hazard entirely. The "conceptually a superset" relationship is documented here and in the schema descriptions, but not encoded as GTS inheritance.
 
 The execution mode (sync vs async) and invocation role (direct target vs helper vs abstract base) are orthogonal to type identity and are handled via invocation parameters and runtime configuration, not via the GTS type hierarchy.
 
@@ -206,7 +206,7 @@ The sibling model has a direct implication for how "any callable" references wor
 // Caller does not need to know if the target is a function or workflow:
 let sless = hub.get::<dyn ServerlessRuntimeClient>()?;
 let record = sless.invoke(ctx, InvokeRequest {
-    function_id: "gts.x.core.sless.workflow.v1~vendor.app.orders.process_order.v1~".into(),
+    function_id: "gts.cf.core.sless.workflow.v1~vendor.app.orders.process_order.v1~".into(),
     mode: InvocationMode::Async,
     params: serde_json::json!({ "order_id": "ORD-123" }),
     ..Default::default()
@@ -217,7 +217,7 @@ let record = sless.invoke(ctx, InvokeRequest {
 
 ### GTS Schema Callable References
 
-Schedule, Trigger, and Webhook Trigger schemas use `function_id` with `x-gts-ref: gts.x.core.sless.function.v1~*`. The description text notes that workflows use `workflow.v1~*`, but the `x-gts-ref` constraint only matches functions. This is a known inconsistency addressed as follows:
+Schedule, Trigger, and Webhook Trigger schemas use `function_id` with `x-gts-ref: gts.cf.core.sless.function.v1~*`. The description text notes that workflows use `workflow.v1~*`, but the `x-gts-ref` constraint only matches functions. This is a known inconsistency addressed as follows:
 
 - The `function_id` field is renamed to `callable_id` in the Rust SDK models (`models.rs`) to accurately reflect that it accepts both types.
 - The GTS schemas retain `function_id` for backward compatibility but add a `callable_type` discriminator field:
@@ -231,7 +231,7 @@ Schedule, Trigger, and Webhook Trigger schemas use `function_id` with `x-gts-ref
   },
   "function_id": {
     "type": "string",
-    "description": "GTS ID of the callable. Must match gts.x.core.sless.function.v1~* when callable_type is 'function', or gts.x.core.sless.workflow.v1~* when callable_type is 'workflow'."
+    "description": "GTS ID of the callable. Must match gts.cf.core.sless.function.v1~* when callable_type is 'function', or gts.cf.core.sless.workflow.v1~* when callable_type is 'workflow'."
   }
 }
 ```
@@ -246,5 +246,5 @@ Schedule, Trigger, and Webhook Trigger schemas use `function_id` with `x-gts-ref
 This decision directly addresses the following requirements and design elements:
 
 * [DESIGN.md — GTS Type Hierarchy](../DESIGN.md) — defines the GTS type hierarchy for Function and Workflow entities
-* Function definition and registration uses `gts.x.core.sless.function.v1~` as the base callable type
-* Workflow definition uses `gts.x.core.sless.workflow.v1~` as a sibling peer base type; `workflow_traits` are defined on this type exclusively
+* Function definition and registration uses `gts.cf.core.sless.function.v1~` as the base callable type
+* Workflow definition uses `gts.cf.core.sless.workflow.v1~` as a sibling peer base type; `workflow_traits` are defined on this type exclusively

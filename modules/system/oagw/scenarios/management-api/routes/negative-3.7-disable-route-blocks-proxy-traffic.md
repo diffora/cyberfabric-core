@@ -8,15 +8,15 @@
 ## Disable route
 
 ```http
-PUT /api/oagw/v1/routes/gts.x.core.oagw.route.v1~<route-uuid> HTTP/1.1
+PUT /api/oagw/v1/routes/gts.cf.core.oagw.route.v1~<route-uuid> HTTP/1.1
 Host: oagw.example.com
 Authorization: Bearer <tenant-token>
 Content-Type: application/json
 
 {
-  "id": "gts.x.core.oagw.route.v1~<route-uuid>",
+  "id": "gts.cf.core.oagw.route.v1~<route-uuid>",
   "enabled": false,
-  "upstream_id": "gts.x.core.oagw.upstream.v1~<upstream-uuid>",
+  "upstream_id": "gts.cf.core.oagw.upstream.v1~<upstream-uuid>",
   "match": {
     "http": {
       "methods": ["POST"],

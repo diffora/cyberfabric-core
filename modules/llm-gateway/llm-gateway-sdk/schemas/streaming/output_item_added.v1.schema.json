@@ -1,10 +1,10 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "gts://gts.x.llmgw.streaming.event.v1~x.llmgw.streaming.output_item_added.v1~",
+  "$id": "gts://gts.cf.llmgw.streaming.event.v1~x.llmgw.streaming.output_item_added.v1~",
   "title": "Response output item added event",
   "description": "A streaming event indicating an output item was added to the response.",
   "allOf": [
-    { "$ref": "gts://gts.x.llmgw.streaming.event.v1~" },
+    { "$ref": "gts://gts.cf.llmgw.streaming.event.v1~" },
     {
       "properties": {
         "type": {
@@ -17,7 +17,7 @@
           "description": "The index of the output item that was added."
         },
         "item": {
-          "$ref": "gts://gts.x.llmgw.items.item.v1~",
+          "$ref": "gts://gts.cf.llmgw.items.item.v1~",
           "description": "The output item that was added."
         }
       },

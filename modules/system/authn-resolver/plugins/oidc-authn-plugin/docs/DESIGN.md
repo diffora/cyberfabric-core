@@ -190,7 +190,7 @@ The plugin produces a `SecurityContext` (defined in `modkit-security`) with fiel
 
 - [ ] `p2` - **ID**: `cpt-cf-authn-plugin-constraint-gts-identity`
 
-The plugin is identified by a chained GTS schema ID: `gts.x.core.modkit.plugin.v1~x.core.authn_resolver.plugin.v1~`. The OIDC plugin instance is registered with vendor key `"cyberfabric"` via `AuthNResolverPluginSpecV1::gts_make_instance_id(...)`. This identity is used for ClientHub registration and vendor-based plugin selection.
+The plugin is identified by a chained GTS schema ID: `gts.cf.core.modkit.plugin.v1~cf.core.authn_resolver.plugin.v1~`. The OIDC plugin instance is registered with vendor key `"cyberfabric"` via `AuthNResolverPluginSpecV1::gts_make_instance_id(...)`. This identity is used for ClientHub registration and vendor-based plugin selection.
 
 **ADRs**: Platform convention — GTS schema identity defined by ModKit plugin framework.
 
@@ -514,7 +514,7 @@ Does not manage client credentials (rotation, provisioning). Does not perform us
 |-----------|------|---------|-------------|
 | `s2s_oauth.discovery_url` | string | — | OIDC discovery URL for the S2S IdP. Plugin fetches `{discovery_url}/.well-known/openid-configuration` (or uses `discovery_url` as-is if it already points at the discovery document) to resolve `token_endpoint`. The `issuer` returned by that discovery document MUST also appear in `jwt.trusted_issuers` — otherwise the obtained token will fail validation with `Unauthorized("untrusted issuer")`. |
 | `s2s_oauth.claim_mapping` | map | — | Claim mapping for obtained tokens. Falls back to `jwt.claim_mapping` if not specified. Useful when S2S tokens use different claim names. |
-| `s2s_oauth.default_subject_type` | string | — | Fallback `subject_type` value when the S2S token does not contain a `subject_type` claim (e.g., `"gts.x.core.security.subject_user.v1~"`). Many IdPs omit type claims from `client_credentials` tokens; this parameter ensures `SecurityContext.subject_type` is always populated for S2S flows. Not applied when the claim is present in the token. |
+| `s2s_oauth.default_subject_type` | string | — | Fallback `subject_type` value when the S2S token does not contain a `subject_type` claim (e.g., `"gts.cf.core.security.subject_user.v1~"`). Many IdPs omit type claims from `client_credentials` tokens; this parameter ensures `SecurityContext.subject_type` is always populated for S2S flows. Not applied when the claim is present in the token. |
 | `s2s_oauth.token_cache.ttl` | duration | `300s` | Max TTL for cached access tokens |
 | `s2s_oauth.token_cache.max_entries` | integer | `100` | Max cached S2S result entries. On capacity overflow, evict the least-recently-used (`LRU`) entry. |
 
@@ -695,8 +695,8 @@ The OIDC plugin integrates with CyberFabric's plugin framework using GTS identif
 
 | Aspect | Value |
 |--------|-------|
-| Base schema | `gts.x.core.modkit.plugin.v1~` |
-| Plugin schema | `gts.x.core.modkit.plugin.v1~x.core.authn_resolver.plugin.v1~` |
+| Base schema | `gts.cf.core.modkit.plugin.v1~` |
+| Plugin schema | `gts.cf.core.modkit.plugin.v1~cf.core.authn_resolver.plugin.v1~` |
 | OIDC instance ID | Generated via `AuthNResolverPluginSpecV1::gts_make_instance_id(...)` |
 
 **ClientHub Registration** (at startup):
@@ -726,7 +726,7 @@ flowchart TD
 
 | Field | Value | Description |
 |-------|-------|-------------|
-| `gts_schema_id` | `gts.x.core.modkit.plugin.v1~x.core.authn_resolver.plugin.v1~` | Plugin type identity |
+| `gts_schema_id` | `gts.cf.core.modkit.plugin.v1~cf.core.authn_resolver.plugin.v1~` | Plugin type identity |
 | `vendor_key` | `"cyberfabric"` | Unique vendor identifier for selection |
 | `priority` | `100` | Default priority (lower = preferred); configurable |
 | `display_name` | `"OIDC AuthN Resolver"` | Human-readable name for diagnostics |
@@ -796,7 +796,7 @@ The OIDC IdP must be configured to include the following in access tokens. Claim
 | `azp` | `platform-portal` |
 | `scope` | `openid profile email` |
 | `tenant_id` | `7c9e6679-7425-40de-944b-e07fc1f90ae7` |
-| `user_type` | `gts.x.core.security.subject_user.v1~` |
+| `user_type` | `gts.cf.core.security.subject_user.v1~` |
 
 ### 3.6 Interactions & Sequences
 

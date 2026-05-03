@@ -14,7 +14,7 @@ Content-Type: application/json
       { "scheme": "https", "host": "api.enabled.com", "port": 443 }
     ]
   },
-  "protocol": "gts.x.core.oagw.protocol.v1~x.core.oagw.http.v1",
+  "protocol": "gts.cf.core.oagw.protocol.v1~cf.core.oagw.http.v1",
   "alias": "api.enabled.com"
 }
 ```
@@ -35,7 +35,7 @@ Content-Type: application/json
       { "scheme": "https", "host": "api.disabled.com", "port": 443 }
     ]
   },
-  "protocol": "gts.x.core.oagw.protocol.v1~x.core.oagw.http.v1",
+  "protocol": "gts.cf.core.oagw.protocol.v1~cf.core.oagw.http.v1",
   "alias": "api.disabled.com",
   "enabled": false
 }

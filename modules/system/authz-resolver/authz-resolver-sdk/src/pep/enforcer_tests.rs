@@ -128,7 +128,7 @@ fn test_ctx() -> SecurityContext {
 }
 
 const TEST_RESOURCE: ResourceType = ResourceType {
-    name: "gts.x.core.users.user.v1~",
+    name: "gts.cf.core.users.user.v1~",
     supported_properties: &[pep_properties::OWNER_TENANT_ID, pep_properties::RESOURCE_ID],
 };
 
@@ -144,7 +144,7 @@ fn build_request_populates_fields() {
     let ctx = test_ctx();
     let req = e.build_request(&ctx, &TEST_RESOURCE, "get", Some(uuid(RESOURCE)), true);
 
-    assert_eq!(req.resource.resource_type, "gts.x.core.users.user.v1~");
+    assert_eq!(req.resource.resource_type, "gts.cf.core.users.user.v1~");
     assert_eq!(req.action.name, "get");
     assert_eq!(req.resource.id, Some(uuid(RESOURCE)));
     assert!(req.context.require_constraints);
@@ -508,7 +508,7 @@ async fn access_scope_with_resource_properties() {
 #[test]
 fn builds_request_with_all_fields() {
     const USERS_RESOURCE: ResourceType = ResourceType {
-        name: "gts.x.core.users.user.v1~",
+        name: "gts.cf.core.users.user.v1~",
         supported_properties: &[pep_properties::OWNER_TENANT_ID],
     };
 
@@ -550,7 +550,7 @@ fn builds_request_with_all_fields() {
     );
     assert_eq!(request.subject.subject_type.as_deref(), Some("user"));
     assert_eq!(request.action.name, "get");
-    assert_eq!(request.resource.resource_type, "gts.x.core.users.user.v1~");
+    assert_eq!(request.resource.resource_type, "gts.cf.core.users.user.v1~");
     assert_eq!(request.resource.id, Some(resource_id));
     assert!(request.context.require_constraints);
     assert_eq!(

@@ -27,12 +27,12 @@ Content-Type: application/json
 
 - `201 Created`
 - Response includes plugin id as anonymous GTS identifier:
-  - `gts.x.core.oagw.guard_plugin.v1~<uuid>`
+  - `gts.cf.core.oagw.guard_plugin.v1~<uuid>`
 
 ## Step 2: Fetch plugin source
 
 ```http
-GET /api/oagw/v1/plugins/gts.x.core.oagw.guard_plugin.v1~<uuid>/source HTTP/1.1
+GET /api/oagw/v1/plugins/gts.cf.core.oagw.guard_plugin.v1~<uuid>/source HTTP/1.1
 Host: oagw.example.com
 Authorization: Bearer <tenant-token-with-plugin-read>
 ```

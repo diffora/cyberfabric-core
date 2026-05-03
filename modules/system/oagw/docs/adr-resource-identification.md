@@ -318,7 +318,7 @@ Tenant: sub-tenant
 1. Search alias "api.openai.com" starting from sub-tenant
 2. Find Upstream B in sub-tenant (closest) → use this upstream
 3. Collect enforced configs from ancestors with same alias:
-   - Root has Upstream A with alias "api.openai.com" 
+   - Root has Upstream A with alias "api.openai.com"
    - Root's rate_limit.sharing = "enforce" → collect
 4. Merge: effective_rate = min(root.enforced:10000, sub:500) = 500
 5. Find tenant binding, apply merged config
@@ -405,7 +405,7 @@ Content-Type: application/json
   "server": {
     "endpoints": [{ "scheme": "https", "host": "api.openai.com", "port": 443 }]
   },
-  "protocol": "gts.x.core.oagw.protocol.v1~x.core.oagw.http.v1",
+  "protocol": "gts.cf.core.oagw.protocol.v1~cf.core.oagw.http.v1",
   "tags": ["openai", "llm", "chat"],
   "auth": { "type": "...", "config": { ... } }
 }
@@ -434,7 +434,7 @@ Content-Type: application/json
   "server": {
     "endpoints": [{ "scheme": "https", "host": "10.0.1.1", "port": 443 }]
   },
-  "protocol": "gts.x.core.oagw.protocol.v1~x.core.oagw.http.v1",
+  "protocol": "gts.cf.core.oagw.protocol.v1~cf.core.oagw.http.v1",
   "alias": "my-internal-service",
   "tags": ["internal", "api"]
 }
@@ -551,7 +551,7 @@ Auth configuration references secrets via `cred_store` (Vault). OAGW does not ma
 ```json
 {
   "auth": {
-    "type": "gts.x.core.oagw.auth_plugin.v1~x.core.oagw.apikey.v1",
+    "type": "gts.cf.core.oagw.auth_plugin.v1~cf.core.oagw.apikey.v1",
     "config": {
       "header": "Authorization",
       "prefix": "Bearer ",
@@ -677,12 +677,12 @@ X-Tenant-ID: partner-uuid
   "server": {
     "endpoints": [{ "scheme": "https", "host": "api.openai.com", "port": 443 }]
   },
-  "protocol": "gts.x.core.oagw.protocol.v1~x.core.oagw.http.v1",
+  "protocol": "gts.cf.core.oagw.protocol.v1~cf.core.oagw.http.v1",
   "tags": ["openai", "llm"],
   "auth": {
-    "type": "gts.x.core.oagw.auth_plugin.v1~x.core.oagw.apikey.v1",
-    "config": { 
-      "header": "Authorization", 
+    "type": "gts.cf.core.oagw.auth_plugin.v1~cf.core.oagw.apikey.v1",
+    "config": {
+      "header": "Authorization",
       "prefix": "Bearer ",
       "secret_ref": "cred://openai-api-key"
     }
@@ -694,7 +694,7 @@ X-Tenant-ID: partner-uuid
   },
   "plugins": {
     "sharing": "inherit",
-    "items": ["gts.x.core.oagw.transform_plugin.v1~x.core.oagw.logging.v1"]
+    "items": ["gts.cf.core.oagw.transform_plugin.v1~cf.core.oagw.logging.v1"]
   }
 }
 ```
@@ -709,11 +709,11 @@ X-Tenant-ID: customer-uuid
   "server": {
     "endpoints": [{ "scheme": "https", "host": "api.openai.com", "port": 443 }]
   },
-  "protocol": "gts.x.core.oagw.protocol.v1~x.core.oagw.http.v1",
+  "protocol": "gts.cf.core.oagw.protocol.v1~cf.core.oagw.http.v1",
   "auth": {
-    "type": "gts.x.core.oagw.auth_plugin.v1~x.core.oagw.apikey.v1",
-    "config": { 
-      "header": "Authorization", 
+    "type": "gts.cf.core.oagw.auth_plugin.v1~cf.core.oagw.apikey.v1",
+    "config": {
+      "header": "Authorization",
       "prefix": "Bearer ",
       "secret_ref": "cred://openai-api-key"
     }
@@ -762,11 +762,11 @@ X-Tenant-ID: customer-uuid
   "server": {
     "endpoints": [{ "scheme": "https", "host": "api.openai.com", "port": 443 }]
   },
-  "protocol": "gts.x.core.oagw.protocol.v1~x.core.oagw.http.v1",
+  "protocol": "gts.cf.core.oagw.protocol.v1~cf.core.oagw.http.v1",
   "auth": {
-    "type": "gts.x.core.oagw.auth_plugin.v1~x.core.oagw.apikey.v1",
-    "config": { 
-      "header": "Authorization", 
+    "type": "gts.cf.core.oagw.auth_plugin.v1~cf.core.oagw.apikey.v1",
+    "config": {
+      "header": "Authorization",
       "prefix": "Bearer ",
       "secret_ref": "cred://my-own-openai-key"
     }
@@ -780,7 +780,7 @@ X-Tenant-ID: customer-uuid
 func resolveEffectiveConfig(tenantID, upstreamID string) EffectiveConfig {
     // 1. Walk tenant hierarchy from child to root
     hierarchy := getTenantHierarchy(tenantID) // [child, parent, grandparent, ...]
-    
+
     // 2. Collect bindings for this upstream
     bindings := []Binding{}
     for _, tid := range hierarchy {
@@ -788,25 +788,25 @@ func resolveEffectiveConfig(tenantID, upstreamID string) EffectiveConfig {
             bindings = append(bindings, b)
         }
     }
-    
+
     // 3. Merge from root to child (root is base, child overrides)
     result := EffectiveConfig{}
     for i := len(bindings) - 1; i >= 0; i-- {
         b := bindings[i]
         isOwn := (i == 0)
-        
+
         // Auth - no inheritance, each tenant specifies own (secret access via cred_store)
         if isOwn && b.Auth != nil {
             result.Auth = b.Auth
         }
-        
+
         // Rate limit - merge with sharing rules
         result.RateLimit = mergeRateLimit(result.RateLimit, b.RateLimit, isOwn)
-        
+
         // Plugins - merge with sharing rules
         result.Plugins = mergePlugins(result.Plugins, b.Plugins, isOwn)
     }
-    
+
     return result
 }
 
@@ -820,7 +820,7 @@ func mergeRateLimit(parent, child *RateLimitConfig, isOwn bool) *RateLimitConfig
         }
         return parent
     }
-    
+
     // Both exist - take stricter (minimum)
     if parent.Sharing == "enforce" || parent.Sharing == "inherit" {
         return &RateLimitConfig{

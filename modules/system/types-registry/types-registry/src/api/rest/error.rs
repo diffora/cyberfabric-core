@@ -93,13 +93,13 @@ mod tests {
 
     #[test]
     fn test_domain_error_to_problem_not_found_by_id() {
-        let err = DomainError::not_found_by_id("gts.x.core.events.test.v1~");
+        let err = DomainError::not_found_by_id("gts.cf.core.events.test.v1~");
         let problem: Problem = err.into();
         assert_eq!(problem.status, StatusCode::NOT_FOUND);
         assert!(
             problem
                 .detail
-                .contains("GTS ID: gts.x.core.events.test.v1~"),
+                .contains("GTS ID: gts.cf.core.events.test.v1~"),
             "expected GTS-id-keyed detail, got {:?}",
             problem.detail,
         );
@@ -121,7 +121,7 @@ mod tests {
 
     #[test]
     fn test_domain_error_to_problem_already_exists() {
-        let err = DomainError::already_exists("gts.x.core.events.test.v1~");
+        let err = DomainError::already_exists("gts.cf.core.events.test.v1~");
         let problem: Problem = err.into();
         assert_eq!(problem.status, StatusCode::CONFLICT);
     }

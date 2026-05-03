@@ -10,9 +10,9 @@
       { "scheme": "https", "host": "vendor-basic.example.com", "port": 443 }
     ]
   },
-  "protocol": "gts.x.core.oagw.protocol.v1~x.core.oagw.http.v1",
+  "protocol": "gts.cf.core.oagw.protocol.v1~cf.core.oagw.http.v1",
   "auth": {
-    "type": "gts.x.core.oagw.auth_plugin.v1~x.core.oagw.oauth2_client_cred_basic.v1",
+    "type": "gts.cf.core.oagw.auth_plugin.v1~cf.core.oagw.oauth2_client_cred_basic.v1",
     "config": {
       "token_url": "https://<oauth-host>/oauth/token",
       "client_id_ref": "cred://vendor-basic/oauth2/client_id",

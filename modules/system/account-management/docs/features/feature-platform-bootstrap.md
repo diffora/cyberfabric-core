@@ -191,7 +191,7 @@ Bootstrap is triggered by the `AccountManagementModule` lifecycle rather than an
 1. [ ] - `p1` - Resolve `bootstrap_config.root_tenant_type` through `TypesRegistryClient` using DESIGN §3.1 effective-trait resolution; this bootstrap-owned root preflight does not call downstream barrier features because bootstrap is earlier in the feature DAG - `inst-algo-saga-type-check`
 2. [ ] - `p1` - **IF** GTS is unavailable, times out, or cannot resolve effective traits - `inst-algo-saga-type-gts-unavailable`
    1. [ ] - `p1` - **RETURN** `clean_failure` with the delegated `service_unavailable` classification from `errors-observability`; no DB state persisted and no IdP call issued - `inst-algo-saga-return-gts-unavailable`
-3. [ ] - `p1` - **IF** the configured root type is not a registered chained tenant type under `gts.x.core.am.tenant_type.v1~` - `inst-algo-saga-type-invalid-branch`
+3. [ ] - `p1` - **IF** the configured root type is not a registered chained tenant type under `gts.cf.core.am.tenant_type.v1~` - `inst-algo-saga-type-invalid-branch`
    1. [ ] - `p1` - **RETURN** `clean_failure` with `sub_code=invalid_tenant_type` (mapped to `validation` by the `errors-observability` envelope); no DB state persisted - `inst-algo-saga-return-invalid-type`
 4. [ ] - `p1` - **ELSE IF** the effective `allowed_parent_types` trait is not exactly `[]` after default resolution - `inst-algo-saga-type-not-root-branch`
    1. [ ] - `p1` - **RETURN** `clean_failure` with `sub_code=type_not_allowed` (mapped to `conflict` by the `errors-observability` envelope); no DB state persisted - `inst-algo-saga-return-not-root-type`

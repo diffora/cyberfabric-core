@@ -1,10 +1,10 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "gts://gts.x.llmgw.streaming.event.v1~x.llmgw.streaming.reasoning_summary_part_added.v1~",
+  "$id": "gts://gts.cf.llmgw.streaming.event.v1~x.llmgw.streaming.reasoning_summary_part_added.v1~",
   "title": "Response reasoning summary part added event",
   "description": "A streaming event indicating a reasoning summary part was added.",
   "allOf": [
-    { "$ref": "gts://gts.x.llmgw.streaming.event.v1~" },
+    { "$ref": "gts://gts.cf.llmgw.streaming.event.v1~" },
     {
       "properties": {
         "type": {

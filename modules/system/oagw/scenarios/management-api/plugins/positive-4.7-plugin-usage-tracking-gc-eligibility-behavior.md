@@ -2,7 +2,7 @@
 
 ## Setup
 
-1. Create a custom plugin `gts.x.core.oagw.transform_plugin.v1~<uuid>`.
+1. Create a custom plugin `gts.cf.core.oagw.transform_plugin.v1~<uuid>`.
 2. Attach it to a route.
 
 ## Step 1: exercise plugin (update usage)

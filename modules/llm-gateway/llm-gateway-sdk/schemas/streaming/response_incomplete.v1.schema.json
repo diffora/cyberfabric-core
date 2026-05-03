@@ -1,10 +1,10 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "gts://gts.x.llmgw.streaming.event.v1~x.llmgw.streaming.response_incomplete.v1~",
+  "$id": "gts://gts.cf.llmgw.streaming.event.v1~x.llmgw.streaming.response_incomplete.v1~",
   "title": "Response incomplete event",
   "description": "A streaming event indicating the response was incomplete.",
   "allOf": [
-    { "$ref": "gts://gts.x.llmgw.streaming.event.v1~" },
+    { "$ref": "gts://gts.cf.llmgw.streaming.event.v1~" },
     {
       "properties": {
         "type": {
@@ -12,7 +12,7 @@
           "const": "response.incomplete"
         },
         "response": {
-          "$ref": "gts://gts.x.llmgw.core.response_resource.v1~",
+          "$ref": "gts://gts.cf.llmgw.core.response_resource.v1~",
           "description": "The response snapshot that was emitted with the event."
         }
       },

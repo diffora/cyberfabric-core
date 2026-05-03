@@ -182,7 +182,7 @@ Behavioral flags (event/audit configuration, user-scoping, retention) are define
 
 ```json
 {
-  "$id": "gts://gts.x.core.srr.resource.v1~",
+  "$id": "gts://gts.cf.core.srr.resource.v1~",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "SimpleResource",
   "type": "object",
@@ -255,9 +255,9 @@ Behavioral flags (event/audit configuration, user-scoping, retention) are define
 
 ```json
 {
-  "$id": "gts://gts.x.core.srr.resource.v1~acme.crm._.contact.v1~",
+  "$id": "gts://gts.cf.core.srr.resource.v1~acme.crm._.contact.v1~",
   "allOf": [
-    { "$ref": "gts://gts.x.core.srr.resource.v1~" },
+    { "$ref": "gts://gts.cf.core.srr.resource.v1~" },
     {
       "x-gts-traits": {
         "is_per_owner_resource": false,
@@ -296,7 +296,7 @@ use gts_macros::struct_to_gts_schema;
 #[struct_to_gts_schema(
     dir_path = "schemas",
     base = true,
-    schema_id = "gts.x.core.srr.resource.v1~",
+    schema_id = "gts.cf.core.srr.resource.v1~",
     description = "Base schema for Simple Resource Registry resources",
     properties = "id,type,tenant_id,owner_id,created_at,updated_at,deleted_at,payload"
 )]
@@ -423,7 +423,7 @@ The storage plugin system follows the standard ModKit plugin pattern:
 Plugin discovery uses the standard pattern:
 
 ```
-GTS plugin instance ID: gts.x.core.modkit.plugin.v1~x.cf.simple_resource_registry.plugin.v1~<vendor>.<plugin_name>._.plugin.v1
+GTS plugin instance ID: gts.cf.core.modkit.plugin.v1~x.cf.simple_resource_registry.plugin.v1~<vendor>.<plugin_name>._.plugin.v1
 ```
 
 **Plugin API Trait** (defined in SDK crate):
@@ -616,7 +616,7 @@ Notes:
 
 **Query Parameters**:
 
-- `$filter` — OData filter on schema fields (e.g., `type eq 'my-type' and owner_id eq '...'`). Supports GTS wildcard matching on `type` with trailing `*` per GTS spec (e.g., `type eq 'gts.x.core.srr.resource.v1~acme.*'`)
+- `$filter` — OData filter on schema fields (e.g., `type eq 'my-type' and owner_id eq '...'`). Supports GTS wildcard matching on `type` with trailing `*` per GTS spec (e.g., `type eq 'gts.cf.core.srr.resource.v1~acme.*'`)
 - `$orderby` — OData ordering on schema fields (e.g., `created_at desc`)
 - `limit` — Maximum number of results (default: 50, max: 1000)
 - `cursor` — Opaque, versioned cursor for cursor-based pagination
@@ -747,10 +747,10 @@ All error responses use the RFC 9457 Problem Details format (`application/proble
 
 ```json
 {
-  "type": "gts.x.core.errors.err.v1~x.core.http.forbidden.v1~",
+  "type": "gts.cf.core.errors.err.v1~cf.core.http.forbidden.v1~",
   "title": "GTS type not in scope",
   "status": 403,
-  "detail": "Caller lacks 'create' permission for GTS type 'gts.x.core.srr.resource.v1~acme.widget'",
+  "detail": "Caller lacks 'create' permission for GTS type 'gts.cf.core.srr.resource.v1~acme.widget'",
   "instance": "/simple-resource-registry/v1/resources",
   "trace_id": "01J..."
 }
@@ -793,10 +793,10 @@ All error responses use the RFC 9457 Problem Details format (`application/proble
 
 ```json
 {
-  "type": "gts.x.core.errors.err.v1~x.core.http.not_implemented.v1~",
+  "type": "gts.cf.core.errors.err.v1~cf.core.http.not_implemented.v1~",
   "title": "Search not supported by plugin",
   "status": 501,
-  "detail": "The storage plugin for resource type 'gts.x.core.srr.resource.v1~acme.widget' does not support search operations",
+  "detail": "The storage plugin for resource type 'gts.cf.core.srr.resource.v1~acme.widget' does not support search operations",
   "trace_id": "01J..."
 }
 ```
@@ -828,7 +828,7 @@ Notes:
 {
   "items": [
     { "index": 0, "status": 200, "data": { "...full resource object..." } },
-    { "index": 1, "status": 404, "error": { "type": "gts.x.core.errors.err.v1~x.core.http.not_found.v1~", "title": "Resource not found", "status": 404, "detail": "Resource with id '01J...' does not exist", "trace_id": "01J...-item-1" } }
+    { "index": 1, "status": 404, "error": { "type": "gts.cf.core.errors.err.v1~cf.core.http.not_found.v1~", "title": "Resource not found", "status": 404, "detail": "Resource with id '01J...' does not exist", "trace_id": "01J...-item-1" } }
   ]
 }
 ```
@@ -886,7 +886,7 @@ Notes:
       "idempotency_key": "req-3-uuid",
       "status": 404,
       "error": {
-        "type": "gts.x.core.errors.err.v1~x.core.http.not_found.v1~",
+        "type": "gts.cf.core.errors.err.v1~cf.core.http.not_found.v1~",
         "title": "Resource not found",
         "status": 404,
         "detail": "Resource with id '01J...' does not exist or is not accessible",
@@ -944,7 +944,7 @@ None. Simple Resource Registry does not communicate with external systems direct
 ```json
 {
   "id": "string (event id)",
-  "type": "string (gts.x.core.events.event.v1~ ... created | updated | deleted)",
+  "type": "string (gts.cf.core.events.event.v1~ ... created | updated | deleted)",
   "subject_type": "string (GTS type ID of the resource)",
   "subject_id": "uuid (resource identifier)"
 }
@@ -961,7 +961,7 @@ None. Simple Resource Registry does not communicate with external systems direct
 ```json
 {
   "id": "string (event id)",
-  "type": "string (gts.x.core.events.event.v1~x.core.audit.event.v1~ created | updated | deleted)",
+  "type": "string (gts.cf.core.events.event.v1~cf.core.audit.event.v1~ created | updated | deleted)",
   "subject_type": "GTS string (GTS type ID of the resource)",
   "subject_id": "uuid (resource identifier)",
   "previous_payload": "object | null (resource payload before operation; null for create)",
@@ -1362,12 +1362,12 @@ simple_resource_registry:
   storage:
     default_plugin: relational-db
     routes:
-      - type: "gts.x.core.srr.resource.v1~vendor.pkg.*"
+      - type: "gts.cf.core.srr.resource.v1~vendor.pkg.*"
         plugin: search-engine
-      - type: "gts.x.core.srr.resource.v1~x.core.*"
+      - type: "gts.cf.core.srr.resource.v1~cf.core.*"
         plugin: relational-db
       # Vendor-provided plugin bridging to an existing platform CMDB
-      - type: "gts.x.core.srr.resource.v1~vendor1.*"
+      - type: "gts.cf.core.srr.resource.v1~vendor1.*"
         plugin: vendor1-cmdb-adapter
 ```
 
@@ -1399,7 +1399,7 @@ Throughout this document, `ctx.subject_tenant_id` is used for `resource.tenant_i
 
 #### GTS Rust Library Alignment
 
-- **ID validation**: uses `GtsID::new(id)` from `gts-rust/gts/src/gts.rs`; GTS type IDs end with `~` (e.g., `gts.x.core.srr.resource.v1~`)
+- **ID validation**: uses `GtsID::new(id)` from `gts-rust/gts/src/gts.rs`; GTS type IDs end with `~` (e.g., `gts.cf.core.srr.resource.v1~`)
 - **Wildcard matching**: uses `GtsWildcard::new(pattern)` + `gts_id.wildcard_match(&pattern)` from `gts-rust/gts/src/gts.rs`
 - **Schema validation**: uses `gts` crate instance validation (OP#6) per `gts-rust` README
 - **In-memory cache**: follows `Arc<RwLock<HashMap<String, V>>>` pattern from `gts-rust/gts/src/store.rs`; aligns with the "In-memory entities registry" feature of `gts-rust`

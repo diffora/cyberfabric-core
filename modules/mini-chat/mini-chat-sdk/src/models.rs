@@ -36,7 +36,7 @@ pub struct KillSwitches {
 /// A single model in the catalog (API: `PolicyModelCatalogItem`).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ModelCatalogEntry {
-    /// model identifier (e.g. "`gts.x.cyber_chat.llm.provider.v1.0~x.core.cyber_chat.azure_openai.v1.0`").
+    /// model identifier (e.g. "`gts.cf.cyber_chat.llm.provider.v1.0~cf.core.cyber_chat.azure_openai.v1.0`").
     pub id: String,
     /// The model ID on the provider side (e.g., `"gpt-5.2"` for `OpenAI`,
     /// `"claude-opus-4-6"` for Anthropic). Sent in LLM API requests.

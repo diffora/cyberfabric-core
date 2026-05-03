@@ -1,10 +1,10 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "gts://gts.x.llmgw.items.item.v1~x.llmgw.items.function_call_item.v1~",
+  "$id": "gts://gts.cf.llmgw.items.item.v1~x.llmgw.items.function_call_item.v1~",
   "title": "FunctionCallItem",
   "description": "Item representing a function call. Used as output when the model invokes a tool, and as input when providing function call context in subsequent requests.",
   "allOf": [
-    { "$ref": "gts://gts.x.llmgw.items.item.v1~" },
+    { "$ref": "gts://gts.cf.llmgw.items.item.v1~" },
     {
       "properties": {
         "type": {

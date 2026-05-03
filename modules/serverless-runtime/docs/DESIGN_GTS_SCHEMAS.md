@@ -59,12 +59,12 @@ Serialization to/from GTS JSON flattens the `base` fields into the top-level obj
 
 ### OwnerRef
 
-**GTS ID:** `gts.x.core.sless.owner_ref.v1~`
+**GTS ID:** `gts.cf.core.sless.owner_ref.v1~`
 
 ```json
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "gts://gts.x.core.sless.owner_ref.v1~",
+  "$id": "gts://gts.cf.core.sless.owner_ref.v1~",
   "title": "Owner Reference",
   "description": "Ownership reference. owner_type determines default visibility: user=private, tenant=tenant-visible, system=platform-provided.",
   "type": "object",
@@ -94,12 +94,12 @@ Serialization to/from GTS JSON flattens the `base` fields into the top-level obj
 
 ### IOSchema
 
-**GTS ID:** `gts.x.core.sless.io_schema.v1~`
+**GTS ID:** `gts.cf.core.sless.io_schema.v1~`
 
 ```json
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "gts://gts.x.core.sless.io_schema.v1~",
+  "$id": "gts://gts.cf.core.sless.io_schema.v1~",
   "title": "IO Schema",
   "description": "Input/output contract. params/returns accept JSON Schema, GTS $ref, or null for void.",
   "type": "object",
@@ -141,12 +141,12 @@ Serialization to/from GTS JSON flattens the `base` fields into the top-level obj
 
 ### Limits (Base)
 
-**GTS ID:** `gts.x.core.sless.limits.v1~`
+**GTS ID:** `gts.cf.core.sless.limits.v1~`
 
 ```json
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "gts://gts.x.core.sless.limits.v1~",
+  "$id": "gts://gts.cf.core.sless.limits.v1~",
   "title": "Function Limits (Base)",
   "description": "Base limits schema. Adapters derive type-specific schemas via GTS inheritance. Use the 'metadata' property for adapter-specific extension points.",
   "type": "object",
@@ -175,17 +175,17 @@ Serialization to/from GTS JSON flattens the `base` fields into the top-level obj
 
 ### Starlark Runtime Limits
 
-**GTS ID:** `gts.x.core.sless.limits.v1~x.core.sless.runtime.starlark.limits.v1~`
+**GTS ID:** `gts.cf.core.sless.limits.v1~cf.core.sless.runtime.starlark.limits.v1~`
 
 ```json
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "gts://gts.x.core.sless.limits.v1~x.core.sless.runtime.starlark.limits.v1~",
+  "$id": "gts://gts.cf.core.sless.limits.v1~cf.core.sless.runtime.starlark.limits.v1~",
   "title": "Starlark Runtime Limits",
   "description": "Limits for Starlark embedded runtime.",
   "allOf": [
     {
-      "$ref": "gts://gts.x.core.sless.limits.v1~"
+      "$ref": "gts://gts.cf.core.sless.limits.v1~"
     },
     {
       "type": "object",
@@ -212,17 +212,17 @@ Serialization to/from GTS JSON flattens the `base` fields into the top-level obj
 
 ### Lambda Runtime Limits
 
-**GTS ID:** `gts.x.core.sless.limits.v1~x.core.sless.runtime.lambda.limits.v1~`
+**GTS ID:** `gts.cf.core.sless.limits.v1~cf.core.sless.runtime.lambda.limits.v1~`
 
 ```json
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "gts://gts.x.core.sless.limits.v1~x.core.sless.runtime.lambda.limits.v1~",
+  "$id": "gts://gts.cf.core.sless.limits.v1~cf.core.sless.runtime.lambda.limits.v1~",
   "title": "Lambda Runtime Limits",
   "description": "Limits for AWS Lambda runtime. CPU is derived from memory tier.",
   "allOf": [
     {
-      "$ref": "gts://gts.x.core.sless.limits.v1~"
+      "$ref": "gts://gts.cf.core.sless.limits.v1~"
     },
     {
       "type": "object",
@@ -249,12 +249,12 @@ Serialization to/from GTS JSON flattens the `base` fields into the top-level obj
 
 ### RetryPolicy
 
-**GTS ID:** `gts.x.core.sless.retry_policy.v1~`
+**GTS ID:** `gts.cf.core.sless.retry_policy.v1~`
 
 ```json
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "gts://gts.x.core.sless.retry_policy.v1~",
+  "$id": "gts://gts.cf.core.sless.retry_policy.v1~",
   "title": "Retry Policy",
   "description": "Retry configuration for failed invocations.",
   "type": "object",
@@ -295,12 +295,12 @@ Serialization to/from GTS JSON flattens the `base` fields into the top-level obj
 
 ### RateLimit (Base)
 
-**GTS ID:** `gts.x.core.sless.rate_limit.v1~`
+**GTS ID:** `gts.cf.core.sless.rate_limit.v1~`
 
 ```json
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "gts://gts.x.core.sless.rate_limit.v1~",
+  "$id": "gts://gts.cf.core.sless.rate_limit.v1~",
   "title": "Rate Limit (Base)",
   "description": "Base rate limiting type. Empty marker — strategy-specific configuration is defined by derived types. Use the 'metadata' property for strategy-specific extension points.",
   "type": "object",
@@ -317,12 +317,12 @@ Serialization to/from GTS JSON flattens the `base` fields into the top-level obj
 
 ### Token Bucket Rate Limit Config
 
-**GTS ID:** `gts.x.core.sless.rate_limit.v1~x.core.sless.rate_limit.token_bucket.v1~`
+**GTS ID:** `gts.cf.core.sless.rate_limit.v1~cf.core.sless.rate_limit.token_bucket.v1~`
 
 ```json
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "gts://gts.x.core.sless.rate_limit.v1~x.core.sless.rate_limit.token_bucket.v1~",
+  "$id": "gts://gts.cf.core.sless.rate_limit.v1~cf.core.sless.rate_limit.token_bucket.v1~",
   "title": "Token Bucket Rate Limit Config",
   "description": "Config schema for the system-default token bucket rate limiter. Per-second and per-minute limits enforced independently.",
   "type": "object",
@@ -353,20 +353,20 @@ Serialization to/from GTS JSON flattens the `base` fields into the top-level obj
 
 ### Implementation
 
-**GTS ID:** `gts.x.core.sless.implementation.v1~`
+**GTS ID:** `gts.cf.core.sless.implementation.v1~`
 
 ```json
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "gts://gts.x.core.sless.implementation.v1~",
+  "$id": "gts://gts.cf.core.sless.implementation.v1~",
   "title": "Function Implementation",
   "description": "Implementation definition with explicit runtime for limits validation.",
   "type": "object",
   "properties": {
     "adapter": {
       "type": "string",
-      "x-gts-ref": "gts.x.core.sless.runtime.*",
-      "description": "GTS type ID of the runtime (e.g., gts.x.core.sless.runtime.starlark.v1~)."
+      "x-gts-ref": "gts.cf.core.sless.runtime.*",
+      "description": "GTS type ID of the runtime (e.g., gts.cf.core.sless.runtime.starlark.v1~)."
     }
   },
   "required": [
@@ -460,25 +460,25 @@ Serialization to/from GTS JSON flattens the `base` fields into the top-level obj
 
 ### WorkflowTraits
 
-**GTS ID:** `gts.x.core.sless.workflow_traits.v1~`
+**GTS ID:** `gts.cf.core.sless.workflow_traits.v1~`
 
 ```json
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "gts://gts.x.core.sless.workflow_traits.v1~",
+  "$id": "gts://gts.cf.core.sless.workflow_traits.v1~",
   "title": "Workflow Traits",
   "description": "Workflow-specific execution traits: compensation, checkpointing, suspension.",
   "type": "object",
   "properties": {
     "compensation": {
       "type": "object",
-      "description": "Compensation handlers for saga pattern. Each handler is a function reference or null. Referenced functions receive a CompensationContext (gts.x.core.sless.compensation_context.v1~) as their input.",
+      "description": "Compensation handlers for saga pattern. Each handler is a function reference or null. Referenced functions receive a CompensationContext (gts.cf.core.sless.compensation_context.v1~) as their input.",
       "properties": {
         "on_failure": {
           "oneOf": [
             {
               "type": "string",
-              "x-gts-ref": "gts.x.core.sless.function.v1~*",
+              "x-gts-ref": "gts.cf.core.sless.function.v1~*",
               "description": "GTS ID of function to invoke on workflow failure. Receives CompensationContext as input."
             },
             {
@@ -492,7 +492,7 @@ Serialization to/from GTS JSON flattens the `base` fields into the top-level obj
           "oneOf": [
             {
               "type": "string",
-              "x-gts-ref": "gts.x.core.sless.function.v1~*",
+              "x-gts-ref": "gts.cf.core.sless.function.v1~*",
               "description": "GTS ID of function to invoke on workflow cancellation. Receives CompensationContext as input."
             },
             {
@@ -533,12 +533,12 @@ Serialization to/from GTS JSON flattens the `base` fields into the top-level obj
 
 ### CompensationContext
 
-**GTS ID:** `gts.x.core.sless.compensation_context.v1~`
+**GTS ID:** `gts.cf.core.sless.compensation_context.v1~`
 
 ```json
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "gts://gts.x.core.sless.compensation_context.v1~",
+  "$id": "gts://gts.cf.core.sless.compensation_context.v1~",
   "title": "Compensation Context",
   "description": "Input envelope passed to compensation functions. Delivered as the single JSON body (params) when the runtime invokes an on_failure or on_cancel handler.",
   "type": "object",
@@ -625,7 +625,7 @@ Serialization to/from GTS JSON flattens the `base` fields into the top-level obj
       "properties": {
         "function_id": {
           "type": "string",
-          "x-gts-ref": "gts.x.core.sless.workflow.v1~*",
+          "x-gts-ref": "gts.cf.core.sless.workflow.v1~*",
           "description": "GTS ID of the workflow that failed."
         },
         "original_input": {
@@ -655,12 +655,12 @@ Serialization to/from GTS JSON flattens the `base` fields into the top-level obj
 
 ### InvocationStatus
 
-**GTS ID:** `gts.x.core.sless.status.v1~`
+**GTS ID:** `gts.cf.core.sless.status.v1~`
 
 ```json
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "gts://gts.x.core.sless.status.v1~",
+  "$id": "gts://gts.cf.core.sless.status.v1~",
   "title": "Invocation Status",
   "description": "Base type for invocation status. Concrete statuses are derived types.",
   "type": "string",
@@ -680,12 +680,12 @@ Serialization to/from GTS JSON flattens the `base` fields into the top-level obj
 
 ### Error
 
-**GTS ID:** `gts.x.core.sless.err.v1~`
+**GTS ID:** `gts.cf.core.sless.err.v1~`
 
 ```json
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "gts://gts.x.core.sless.err.v1~",
+  "$id": "gts://gts.cf.core.sless.err.v1~",
   "title": "Serverless Error",
   "description": "Base error type. Concrete errors are derived types.",
   "type": "object",
@@ -719,17 +719,17 @@ Serialization to/from GTS JSON flattens the `base` fields into the top-level obj
 
 ### ValidationError
 
-**GTS ID:** `gts.x.core.sless.err.v1~x.core.sless.err.validation.v1~`
+**GTS ID:** `gts.cf.core.sless.err.v1~cf.core.sless.err.validation.v1~`
 
 ```json
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "gts://gts.x.core.sless.err.v1~x.core.sless.err.validation.v1~",
+  "$id": "gts://gts.cf.core.sless.err.v1~cf.core.sless.err.validation.v1~",
   "title": "Validation Error",
   "description": "Validation error with multiple issues, each with error type and location.",
   "allOf": [
     {
-      "$ref": "gts://gts.x.core.sless.err.v1~"
+      "$ref": "gts://gts.cf.core.sless.err.v1~"
     },
     {
       "type": "object",
@@ -803,12 +803,12 @@ Serialization to/from GTS JSON flattens the `base` fields into the top-level obj
 
 ### InvocationTimelineEvent
 
-**GTS ID:** `gts.x.core.sless.timeline_event.v1~`
+**GTS ID:** `gts.cf.core.sless.timeline_event.v1~`
 
 ```json
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "gts://gts.x.core.sless.timeline_event.v1~",
+  "$id": "gts://gts.cf.core.sless.timeline_event.v1~",
   "title": "Invocation Timeline Event",
   "description": "A single event in the execution timeline.",
   "type": "object",
@@ -841,7 +841,7 @@ Serialization to/from GTS JSON flattens the `base` fields into the top-level obj
       "description": "Type of timeline event."
     },
     "status": {
-      "$ref": "gts://gts.x.core.sless.status.v1~",
+      "$ref": "gts://gts.cf.core.sless.status.v1~",
       "description": "Invocation status after this event (short enum value, e.g. 'running')."
     },
     "step_name": {
@@ -884,14 +884,14 @@ Serialization to/from GTS JSON flattens the `base` fields into the top-level obj
 
 ### Lifecycle Status Types
 
-**GTS ID (base):** `gts.x.core.sless.func_lifecycle_status.v1~`
+**GTS ID (base):** `gts.cf.core.sless.func_lifecycle_status.v1~`
 
-The lifecycle status field references concrete GTS instances rather than a raw string enum. Each status value is a GTS instance of the base type `gts.x.core.sless.func_lifecycle_status.v1~`.
+The lifecycle status field references concrete GTS instances rather than a raw string enum. Each status value is a GTS instance of the base type `gts.cf.core.sless.func_lifecycle_status.v1~`.
 
 ```json
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "gts://gts.x.core.sless.func_lifecycle_status.v1~",
+  "$id": "gts://gts.cf.core.sless.func_lifecycle_status.v1~",
   "title": "Function Lifecycle Status (Base)",
   "description": "Base type for function/workflow lifecycle statuses. Concrete statuses are GTS instances of this type.",
   "type": "object",
@@ -906,7 +906,7 @@ The lifecycle status field references concrete GTS instances rather than a raw s
     },
     "replaced_by": {
       "type": ["string", "null"],
-      "x-gts-ref": "gts.x.core.sless.func_lifecycle_status.v1~*",
+      "x-gts-ref": "gts.cf.core.sless.func_lifecycle_status.v1~*",
       "description": "Optional GTS instance ID of the status that supersedes this one (used for deprecated/archived statuses).",
       "default": null
     }
@@ -919,21 +919,21 @@ The lifecycle status field references concrete GTS instances rather than a raw s
 
 | Instance ID | Description | replaced_by |
 |---|---|---|
-| `gts.x.core.sless.func_lifecycle_status.v1~x.core.sless.func_lifecycle_status.draft.v1~` | Function is being authored and has not been published. Not externally invocable. | — |
-| `gts.x.core.sless.func_lifecycle_status.v1~x.core.sless.func_lifecycle_status.active.v1~` | Function is published and accepting invocations. | — |
-| `gts.x.core.sless.func_lifecycle_status.v1~x.core.sless.func_lifecycle_status.deprecated.v1~` | Function is still invocable but discouraged. Callers should migrate to a replacement. | active |
-| `gts.x.core.sless.func_lifecycle_status.v1~x.core.sless.func_lifecycle_status.disabled.v1~` | Function is temporarily suspended. No new invocations are accepted; existing in-flight invocations complete normally. | — |
-| `gts.x.core.sless.func_lifecycle_status.v1~x.core.sless.func_lifecycle_status.archived.v1~` | Function is read-only. No invocations accepted. Definition is retained for audit and lineage purposes. | — |
-| `gts.x.core.sless.func_lifecycle_status.v1~x.core.sless.func_lifecycle_status.deleted.v1~` | Function has been logically deleted. Retained only for audit trail; no operations permitted. | archived |
+| `gts.cf.core.sless.func_lifecycle_status.v1~cf.core.sless.func_lifecycle_status.draft.v1~` | Function is being authored and has not been published. Not externally invocable. | — |
+| `gts.cf.core.sless.func_lifecycle_status.v1~cf.core.sless.func_lifecycle_status.active.v1~` | Function is published and accepting invocations. | — |
+| `gts.cf.core.sless.func_lifecycle_status.v1~cf.core.sless.func_lifecycle_status.deprecated.v1~` | Function is still invocable but discouraged. Callers should migrate to a replacement. | active |
+| `gts.cf.core.sless.func_lifecycle_status.v1~cf.core.sless.func_lifecycle_status.disabled.v1~` | Function is temporarily suspended. No new invocations are accepted; existing in-flight invocations complete normally. | — |
+| `gts.cf.core.sless.func_lifecycle_status.v1~cf.core.sless.func_lifecycle_status.archived.v1~` | Function is read-only. No invocations accepted. Definition is retained for audit and lineage purposes. | — |
+| `gts.cf.core.sless.func_lifecycle_status.v1~cf.core.sless.func_lifecycle_status.deleted.v1~` | Function has been logically deleted. Retained only for audit trail; no operations permitted. | archived |
 
 ### Function (Base Type)
 
-**GTS ID:** `gts.x.core.sless.function.v1~`
+**GTS ID:** `gts.cf.core.sless.function.v1~`
 
 ```json
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "gts://gts.x.core.sless.function.v1~",
+  "$id": "gts://gts.cf.core.sless.function.v1~",
   "title": "Serverless Function",
   "description": "Base schema for serverless functions. Identity is the GTS instance address.",
   "type": "object",
@@ -946,13 +946,13 @@ The lifecycle status field references concrete GTS instances rather than a raw s
       "type": "string"
     },
     "owner": {
-      "$ref": "gts://gts.x.core.sless.owner_ref.v1~"
+      "$ref": "gts://gts.cf.core.sless.owner_ref.v1~"
     },
     "status": {
       "type": "string",
-      "x-gts-ref": "gts.x.core.sless.func_lifecycle_status.v1~*",
-      "description": "Lifecycle status. References a concrete GTS instance of gts.x.core.sless.func_lifecycle_status.v1~.",
-      "default": "gts.x.core.sless.func_lifecycle_status.v1~x.core.sless.func_lifecycle_status.draft.v1~"
+      "x-gts-ref": "gts.cf.core.sless.func_lifecycle_status.v1~*",
+      "description": "Lifecycle status. References a concrete GTS instance of gts.cf.core.sless.func_lifecycle_status.v1~.",
+      "default": "gts.cf.core.sless.func_lifecycle_status.v1~cf.core.sless.func_lifecycle_status.draft.v1~"
     },
     "tags": {
       "type": "array",
@@ -968,7 +968,7 @@ The lifecycle status field references concrete GTS instances rather than a raw s
       "type": "string"
     },
     "schema": {
-      "$ref": "gts://gts.x.core.sless.io_schema.v1~"
+      "$ref": "gts://gts.cf.core.sless.io_schema.v1~"
     },
     "traits": {
       "type": "object",
@@ -1027,7 +1027,7 @@ The lifecycle status field references concrete GTS instances rather than a raw s
               "properties": {
                 "strategy": {
                   "type": "string",
-                  "description": "GTS type ID of the rate limiter plugin (derived from gts.x.core.sless.rate_limit.v1~)."
+                  "description": "GTS type ID of the rate limiter plugin (derived from gts.cf.core.sless.rate_limit.v1~)."
                 },
                 "config": {
                   "type": "object",
@@ -1049,10 +1049,10 @@ The lifecycle status field references concrete GTS instances rather than a raw s
           "default": null
         },
         "limits": {
-          "$ref": "gts://gts.x.core.sless.limits.v1~"
+          "$ref": "gts://gts.cf.core.sless.limits.v1~"
         },
         "retry": {
-          "$ref": "gts://gts.x.core.sless.retry_policy.v1~"
+          "$ref": "gts://gts.cf.core.sless.retry_policy.v1~"
         }
       },
       "required": [
@@ -1062,7 +1062,7 @@ The lifecycle status field references concrete GTS instances rather than a raw s
       ]
     },
     "implementation": {
-      "$ref": "gts://gts.x.core.sless.implementation.v1~"
+      "$ref": "gts://gts.cf.core.sless.implementation.v1~"
     },
     "created_at": {
       "type": "string",
@@ -1089,16 +1089,16 @@ The lifecycle status field references concrete GTS instances rather than a raw s
 
 ### Workflow (Sibling Base Type)
 
-**GTS ID:** `gts.x.core.sless.workflow.v1~`
+**GTS ID:** `gts.cf.core.sless.workflow.v1~`
 
 Workflow is a sibling peer of Function — an independent base type, not derived from Function. Both share the same base fields (params, returns, limits, retry_policy, rate_limit, implementation, lifecycle_status). Workflow adds `workflow_traits` for durable execution capabilities.
 
 ```json
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "gts://gts.x.core.sless.workflow.v1~",
+  "$id": "gts://gts.cf.core.sless.workflow.v1~",
   "title": "Serverless Workflow",
-  "description": "Standalone base schema for durable, multi-step orchestrations with state persistence. Sibling peer of gts.x.core.sless.function.v1~ — not derived from it.",
+  "description": "Standalone base schema for durable, multi-step orchestrations with state persistence. Sibling peer of gts.cf.core.sless.function.v1~ — not derived from it.",
   "type": "object",
   "properties": {
     "version": {
@@ -1109,13 +1109,13 @@ Workflow is a sibling peer of Function — an independent base type, not derived
       "type": "string"
     },
     "owner": {
-      "$ref": "gts://gts.x.core.sless.owner_ref.v1~"
+      "$ref": "gts://gts.cf.core.sless.owner_ref.v1~"
     },
     "status": {
       "type": "string",
-      "x-gts-ref": "gts.x.core.sless.func_lifecycle_status.v1~*",
-      "description": "Lifecycle status. References a concrete GTS instance of gts.x.core.sless.func_lifecycle_status.v1~.",
-      "default": "gts.x.core.sless.func_lifecycle_status.v1~x.core.sless.func_lifecycle_status.draft.v1~"
+      "x-gts-ref": "gts.cf.core.sless.func_lifecycle_status.v1~*",
+      "description": "Lifecycle status. References a concrete GTS instance of gts.cf.core.sless.func_lifecycle_status.v1~.",
+      "default": "gts.cf.core.sless.func_lifecycle_status.v1~cf.core.sless.func_lifecycle_status.draft.v1~"
     },
     "tags": {
       "type": "array",
@@ -1131,7 +1131,7 @@ Workflow is a sibling peer of Function — an independent base type, not derived
       "type": "string"
     },
     "schema": {
-      "$ref": "gts://gts.x.core.sless.io_schema.v1~"
+      "$ref": "gts://gts.cf.core.sless.io_schema.v1~"
     },
     "traits": {
       "type": "object",
@@ -1190,7 +1190,7 @@ Workflow is a sibling peer of Function — an independent base type, not derived
               "properties": {
                 "strategy": {
                   "type": "string",
-                  "description": "GTS type ID of the rate limiter plugin (derived from gts.x.core.sless.rate_limit.v1~)."
+                  "description": "GTS type ID of the rate limiter plugin (derived from gts.cf.core.sless.rate_limit.v1~)."
                 },
                 "config": {
                   "type": "object",
@@ -1212,13 +1212,13 @@ Workflow is a sibling peer of Function — an independent base type, not derived
           "default": null
         },
         "limits": {
-          "$ref": "gts://gts.x.core.sless.limits.v1~"
+          "$ref": "gts://gts.cf.core.sless.limits.v1~"
         },
         "retry": {
-          "$ref": "gts://gts.x.core.sless.retry_policy.v1~"
+          "$ref": "gts://gts.cf.core.sless.retry_policy.v1~"
         },
         "workflow": {
-          "$ref": "gts://gts.x.core.sless.workflow_traits.v1~"
+          "$ref": "gts://gts.cf.core.sless.workflow_traits.v1~"
         }
       },
       "required": [
@@ -1229,7 +1229,7 @@ Workflow is a sibling peer of Function — an independent base type, not derived
       ]
     },
     "implementation": {
-      "$ref": "gts://gts.x.core.sless.implementation.v1~"
+      "$ref": "gts://gts.cf.core.sless.implementation.v1~"
     },
     "created_at": {
       "type": "string",
@@ -1256,12 +1256,12 @@ Workflow is a sibling peer of Function — an independent base type, not derived
 
 ### InvocationRecord
 
-**GTS ID:** `gts.x.core.sless.invocation.v1~`
+**GTS ID:** `gts.cf.core.sless.invocation.v1~`
 
 ```json
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "gts://gts.x.core.sless.invocation.v1~",
+  "$id": "gts://gts.cf.core.sless.invocation.v1~",
   "title": "Invocation Record",
   "description": "Tracks lifecycle of a single function or workflow execution.",
   "type": "object",
@@ -1277,7 +1277,7 @@ Workflow is a sibling peer of Function — an independent base type, not derived
     },
     "function_id": {
       "type": "string",
-      "description": "GTS ID of the invoked function or workflow. Must match gts.x.core.sless.function.v1~* when callable_type is 'function', or gts.x.core.sless.workflow.v1~* when callable_type is 'workflow'."
+      "description": "GTS ID of the invoked function or workflow. Must match gts.cf.core.sless.function.v1~* when callable_type is 'function', or gts.cf.core.sless.workflow.v1~* when callable_type is 'workflow'."
     },
     "function_version": {
       "type": "string",
@@ -1300,7 +1300,7 @@ Workflow is a sibling peer of Function — an independent base type, not derived
       "description": "Category of the invoking actor. Required for audit purposes (BR-024, BR-034). 'user' = human user, 'service' = service account or API client, 'system' = platform-initiated (scheduler, trigger, etc.)."
     },
     "status": {
-      "$ref": "gts://gts.x.core.sless.status.v1~",
+      "$ref": "gts://gts.cf.core.sless.status.v1~",
       "description": "Invocation status (short enum value, e.g. 'running')."
     },
     "mode": {
@@ -1475,12 +1475,12 @@ Workflow is a sibling peer of Function — an independent base type, not derived
 
 ### Schedule
 
-**GTS ID:** `gts.x.core.sless.schedule.v1~`
+**GTS ID:** `gts.cf.core.sless.schedule.v1~`
 
 ```json
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "gts://gts.x.core.sless.schedule.v1~",
+  "$id": "gts://gts.cf.core.sless.schedule.v1~",
   "title": "Schedule",
   "description": "Recurring trigger for a function or workflow.",
   "type": "object",
@@ -1496,11 +1496,11 @@ Workflow is a sibling peer of Function — an independent base type, not derived
       "type": "string",
       "enum": ["function", "workflow"],
       "default": "function",
-      "description": "Type of the referenced callable. Determines which GTS type family function_id belongs to: 'function' requires gts.x.core.sless.function.v1~*, 'workflow' requires gts.x.core.sless.workflow.v1~*. If absent, inferred from the GTS type prefix of function_id."
+      "description": "Type of the referenced callable. Determines which GTS type family function_id belongs to: 'function' requires gts.cf.core.sless.function.v1~*, 'workflow' requires gts.cf.core.sless.workflow.v1~*. If absent, inferred from the GTS type prefix of function_id."
     },
     "function_id": {
       "type": "string",
-      "description": "GTS ID of the function or workflow to invoke. Must match gts.x.core.sless.function.v1~* when callable_type is 'function', or gts.x.core.sless.workflow.v1~* when callable_type is 'workflow'."
+      "description": "GTS ID of the function or workflow to invoke. Must match gts.cf.core.sless.function.v1~* when callable_type is 'function', or gts.cf.core.sless.workflow.v1~* when callable_type is 'workflow'."
     },
     "name": {
       "type": "string",
@@ -1620,12 +1620,12 @@ Workflow is a sibling peer of Function — an independent base type, not derived
 
 ### Trigger
 
-**GTS ID:** `gts.x.core.sless.trigger.v1~`
+**GTS ID:** `gts.cf.core.sless.trigger.v1~`
 
 ```json
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "gts://gts.x.core.sless.trigger.v1~",
+  "$id": "gts://gts.cf.core.sless.trigger.v1~",
   "title": "Trigger",
   "description": "Binds an event type to a function or workflow for event-driven invocation.",
   "type": "object",
@@ -1639,7 +1639,7 @@ Workflow is a sibling peer of Function — an independent base type, not derived
     },
     "event_type_id": {
       "type": "string",
-      "x-gts-ref": "gts.x.core.events.*",
+      "x-gts-ref": "gts.cf.core.events.*",
       "description": "GTS ID of the event type to listen for."
     },
     "event_filter_query": {
@@ -1656,14 +1656,14 @@ Workflow is a sibling peer of Function — an independent base type, not derived
           "description": "Whether failed events should be moved to DLQ after retry exhaustion."
         },
         "retry_policy": {
-          "$ref": "gts://gts.x.core.sless.retry_policy.v1~",
+          "$ref": "gts://gts.cf.core.sless.retry_policy.v1~",
           "description": "Retry policy before moving to DLQ. Uses exponential backoff with configurable attempts."
         },
         "dlq_topic": {
           "oneOf": [
             {
               "type": "string",
-              "x-gts-ref": "gts.x.core.*",
+              "x-gts-ref": "gts.cf.core.*",
               "description": "GTS type ID of the topic to publish dead-lettered events to."
             },
             {
@@ -1679,11 +1679,11 @@ Workflow is a sibling peer of Function — an independent base type, not derived
       "type": "string",
       "enum": ["function", "workflow"],
       "default": "function",
-      "description": "Type of the referenced callable. Determines which GTS type family function_id belongs to: 'function' requires gts.x.core.sless.function.v1~*, 'workflow' requires gts.x.core.sless.workflow.v1~*. If absent, inferred from the GTS type prefix of function_id."
+      "description": "Type of the referenced callable. Determines which GTS type family function_id belongs to: 'function' requires gts.cf.core.sless.function.v1~*, 'workflow' requires gts.cf.core.sless.workflow.v1~*. If absent, inferred from the GTS type prefix of function_id."
     },
     "function_id": {
       "type": "string",
-      "description": "GTS ID of the function or workflow to invoke. Must match gts.x.core.sless.function.v1~* when callable_type is 'function', or gts.x.core.sless.workflow.v1~* when callable_type is 'workflow'."
+      "description": "GTS ID of the function or workflow to invoke. Must match gts.cf.core.sless.function.v1~* when callable_type is 'function', or gts.cf.core.sless.workflow.v1~* when callable_type is 'workflow'."
     },
     "batch": {
       "type": "object",
@@ -1725,12 +1725,12 @@ Workflow is a sibling peer of Function — an independent base type, not derived
 
 ### Webhook Trigger
 
-**GTS ID:** `gts.x.core.sless.webhook_trigger.v1~`
+**GTS ID:** `gts.cf.core.sless.webhook_trigger.v1~`
 
 ```json
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "gts://gts.x.core.sless.webhook_trigger.v1~",
+  "$id": "gts://gts.cf.core.sless.webhook_trigger.v1~",
   "title": "Webhook Trigger",
   "description": "Exposes an HTTP endpoint for external systems to trigger function executions.",
   "type": "object",
@@ -1746,11 +1746,11 @@ Workflow is a sibling peer of Function — an independent base type, not derived
       "type": "string",
       "enum": ["function", "workflow"],
       "default": "function",
-      "description": "Type of the referenced callable. Determines which GTS type family function_id belongs to: 'function' requires gts.x.core.sless.function.v1~*, 'workflow' requires gts.x.core.sless.workflow.v1~*. If absent, inferred from the GTS type prefix of function_id."
+      "description": "Type of the referenced callable. Determines which GTS type family function_id belongs to: 'function' requires gts.cf.core.sless.function.v1~*, 'workflow' requires gts.cf.core.sless.workflow.v1~*. If absent, inferred from the GTS type prefix of function_id."
     },
     "function_id": {
       "type": "string",
-      "description": "GTS ID of the function or workflow to invoke. Must match gts.x.core.sless.function.v1~* when callable_type is 'function', or gts.x.core.sless.workflow.v1~* when callable_type is 'workflow'."
+      "description": "GTS ID of the function or workflow to invoke. Must match gts.cf.core.sless.function.v1~* when callable_type is 'function', or gts.cf.core.sless.workflow.v1~* when callable_type is 'workflow'."
     },
     "authentication": {
       "type": "object",
@@ -1798,12 +1798,12 @@ Workflow is a sibling peer of Function — an independent base type, not derived
 
 ### TenantRuntimePolicy
 
-**GTS ID:** `gts.x.core.sless.tenant_policy.v1~`
+**GTS ID:** `gts.cf.core.sless.tenant_policy.v1~`
 
 ```json
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "gts://gts.x.core.sless.tenant_policy.v1~",
+  "$id": "gts://gts.cf.core.sless.tenant_policy.v1~",
   "title": "Tenant Runtime Policy",
   "description": "Tenant-level governance settings for the serverless runtime.",
   "type": "object",
@@ -1879,9 +1879,9 @@ Workflow is a sibling peer of Function — an independent base type, not derived
           "type": "array",
           "items": {
             "type": "string",
-            "x-gts-ref": "gts.x.core.sless.runtime.*"
+            "x-gts-ref": "gts.cf.core.sless.runtime.*"
           },
-          "description": "List of allowed runtime GTS type IDs (e.g., gts.x.core.sless.runtime.starlark.v1~). Validated against implementation.adapter at registration time."
+          "description": "List of allowed runtime GTS type IDs (e.g., gts.cf.core.sless.runtime.starlark.v1~). Validated against implementation.adapter at registration time."
         },
         "require_approval_for_publish": {
           "type": "boolean",

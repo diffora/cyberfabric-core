@@ -145,7 +145,7 @@ graph TB
 
 - [ ] `p1` - **ID**: `cpt-cf-srr-rdb-component-plugin`
 
-  - **Plugin Entry Point**: Implements `ResourceStoragePluginClient`. Registers as a scoped client in ClientHub with GTS instance ID `gts.x.core.modkit.plugin.v1~x.cf.simple_resource_registry.plugin.v1~x.core._.relational_db.v1`. Declares `PluginCapabilities { odata_support: true, search_support: false }`.
+  - **Plugin Entry Point**: Implements `ResourceStoragePluginClient`. Registers as a scoped client in ClientHub with GTS instance ID `gts.cf.core.modkit.plugin.v1~x.cf.simple_resource_registry.plugin.v1~cf.core._.relational_db.v1`. Declares `PluginCapabilities { odata_support: true, search_support: false }`.
 
 - [ ] `p1` - **ID**: `cpt-cf-srr-rdb-component-odata-translator`
 
@@ -264,8 +264,8 @@ sequenceDiagram
 
 | id | type | tenant_id | owner_id | created_at | updated_at | deleted_at | payload |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| 550e8400-... | gts.x.core.srr.resource.v1~acme.crm.\_.contact.v1~ | a1b2c3d4-... | NULL | 2026-02-16T10:00:00Z | 2026-02-16T10:00:00Z | NULL | {"name": "Jane", "email": "jane@example.com"} |
-| 660f9500-... | gts.x.core.srr.resource.v1~acme.crm.\_.note.v1~ | a1b2c3d4-... | b5c6d7e8-... | 2026-02-16T09:30:00Z | 2026-02-16T11:00:00Z | NULL | {"text": "Follow up on meeting"} |
+| 550e8400-... | gts.cf.core.srr.resource.v1~acme.crm.\_.contact.v1~ | a1b2c3d4-... | NULL | 2026-02-16T10:00:00Z | 2026-02-16T10:00:00Z | NULL | {"name": "Jane", "email": "jane@example.com"} |
+| 660f9500-... | gts.cf.core.srr.resource.v1~acme.crm.\_.note.v1~ | a1b2c3d4-... | b5c6d7e8-... | 2026-02-16T09:30:00Z | 2026-02-16T11:00:00Z | NULL | {"text": "Follow up on meeting"} |
 
 #### Table: simple_resource_group_memberships (`cpt-cf-srr-rdb-fr-group-memberships`)
 

@@ -102,7 +102,7 @@ Adheres to `cpt-cf-oagw-principle-plugin-immutable` (plugins immutable after cre
 **Steps**:
 1. [ ] - `p1` - Actor sends POST /api/oagw/v1/plugins with name, plugin_type, config_schema, source_code - `inst-create-1`
 2. [ ] - `p1` - API: Extract SecurityContext (tenant_id, permissions) - `inst-create-2`
-3. [ ] - `p1` - API: Validate permission `gts.x.core.oagw.{type}_plugin.v1~:create` - `inst-create-3`
+3. [ ] - `p1` - API: Validate permission `gts.cf.core.oagw.{type}_plugin.v1~:create` - `inst-create-3`
 4. [ ] - `p1` - Validate plugin_type is one of `auth`, `guard`, `transform` - `inst-create-4`
 5. [ ] - `p1` - Validate config_schema is valid JSON Schema - `inst-create-5`
 6. [ ] - `p1` - Validate Starlark source via sandbox (syntax check, no network/file I/O imports) - `inst-create-6`
@@ -111,7 +111,7 @@ Adheres to `cpt-cf-oagw-principle-plugin-immutable` (plugins immutable after cre
    1. [ ] - `p1` - **RETURN** 409 Conflict - `inst-create-8a`
 9. [ ] - `p1` - **ELSE** - `inst-create-9`
    1. [ ] - `p1` - DB: INSERT INTO oagw_plugin (id, tenant_id, plugin_type, name, config_schema, source_code, created_at, updated_at) - `inst-create-9a`
-   2. [ ] - `p1` - Generate GTS identifier: `gts.x.core.oagw.{type}_plugin.v1~{uuid}` - `inst-create-9b`
+   2. [ ] - `p1` - Generate GTS identifier: `gts.cf.core.oagw.{type}_plugin.v1~{uuid}` - `inst-create-9b`
    3. [ ] - `p1` - **RETURN** 201 Created with plugin resource - `inst-create-9c`
 
 ### List and Get Plugin Flow
@@ -132,7 +132,7 @@ Adheres to `cpt-cf-oagw-principle-plugin-immutable` (plugins immutable after cre
 **Steps**:
 1. [ ] - `p1` - Actor sends GET /api/oagw/v1/plugins (list) or GET /api/oagw/v1/plugins/{id} (get) or GET /api/oagw/v1/plugins/{id}/source (get source) - `inst-read-1`
 2. [ ] - `p1` - API: Extract SecurityContext (tenant_id, permissions) - `inst-read-2`
-3. [ ] - `p1` - API: Validate permission `gts.x.core.oagw.{type}_plugin.v1~:read` - `inst-read-3`
+3. [ ] - `p1` - API: Validate permission `gts.cf.core.oagw.{type}_plugin.v1~:read` - `inst-read-3`
 4. [ ] - `p1` - **IF** list request - `inst-read-4`
    1. [ ] - `p1` - DB: SELECT FROM oagw_plugin WHERE tenant_id = :tenant_id with OData filters ($filter, $select, $top, $skip) - `inst-read-4a`
    2. [ ] - `p1` - **RETURN** 200 OK with plugin collection - `inst-read-4b`
@@ -164,14 +164,14 @@ Adheres to `cpt-cf-oagw-principle-plugin-immutable` (plugins immutable after cre
 **Steps**:
 1. [ ] - `p1` - Actor sends DELETE /api/oagw/v1/plugins/{id} - `inst-delete-1`
 2. [ ] - `p1` - API: Extract SecurityContext (tenant_id, permissions) - `inst-delete-2`
-3. [ ] - `p1` - API: Validate permission `gts.x.core.oagw.{type}_plugin.v1~:delete` - `inst-delete-3`
+3. [ ] - `p1` - API: Validate permission `gts.cf.core.oagw.{type}_plugin.v1~:delete` - `inst-delete-3`
 4. [ ] - `p1` - Parse GTS identifier to extract UUID - `inst-delete-4`
 5. [ ] - `p1` - DB: SELECT FROM oagw_plugin WHERE id = :uuid AND tenant_id = :tenant_id - `inst-delete-5`
 6. [ ] - `p1` - **IF** not found - `inst-delete-6`
    1. [ ] - `p1` - **RETURN** 404 Not Found - `inst-delete-6a`
 7. [ ] - `p1` - Execute plugin in-use check (`cpt-cf-oagw-algo-plugin-in-use-check`) - `inst-delete-7`
 8. [ ] - `p1` - **IF** plugin in use - `inst-delete-8`
-   1. [ ] - `p1` - **RETURN** 409 PluginInUse (RFC 9457, `gts.x.core.errors.err.v1~x.oagw.plugin.in_use.v1`) - `inst-delete-8a`
+   1. [ ] - `p1` - **RETURN** 409 PluginInUse (RFC 9457, `gts.cf.core.errors.err.v1~cf.oagw.plugin.in_use.v1`) - `inst-delete-8a`
 9. [ ] - `p1` - **ELSE** - `inst-delete-9`
    1. [ ] - `p1` - DB: DELETE FROM oagw_plugin WHERE id = :uuid AND tenant_id = :tenant_id - `inst-delete-9a`
    2. [ ] - `p1` - **RETURN** 204 No Content - `inst-delete-9b`
@@ -215,7 +215,7 @@ Adheres to `cpt-cf-oagw-principle-plugin-immutable` (plugins immutable after cre
 
 - [ ] `p1` - **ID**: `cpt-cf-oagw-algo-plugin-ref-resolution`
 
-**Input**: GTS plugin identifier string (e.g., `gts.x.core.oagw.auth_plugin.v1~x.core.oagw.apikey.v1` or `gts.x.core.oagw.guard_plugin.v1~550e8400-...`)
+**Input**: GTS plugin identifier string (e.g., `gts.cf.core.oagw.auth_plugin.v1~cf.core.oagw.apikey.v1` or `gts.cf.core.oagw.guard_plugin.v1~550e8400-...`)
 
 **Output**: Resolved plugin (named registry entry or custom plugin row) or error
 

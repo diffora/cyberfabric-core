@@ -1,10 +1,10 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "gts://gts.x.llmgw.streaming.event.v1~x.llmgw.streaming.output_text_annotation_added.v1~",
+  "$id": "gts://gts.cf.llmgw.streaming.event.v1~x.llmgw.streaming.output_text_annotation_added.v1~",
   "title": "Response output text annotation added event",
   "description": "A streaming event indicating an output text annotation was added.",
   "allOf": [
-    { "$ref": "gts://gts.x.llmgw.streaming.event.v1~" },
+    { "$ref": "gts://gts.cf.llmgw.streaming.event.v1~" },
     {
       "properties": {
         "type": {
@@ -29,7 +29,7 @@
         },
         "annotation": {
           "oneOf": [
-            { "$ref": "gts://gts.x.llmgw.content.url_citation.v1~" },
+            { "$ref": "gts://gts.cf.llmgw.content.url_citation.v1~" },
             { "type": "null" }
           ],
           "description": "The annotation that was added."

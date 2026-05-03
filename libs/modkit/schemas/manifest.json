@@ -4,8 +4,8 @@
   "description": "Core ModKit GTS schemas",
   "schemas": [
     {
-      "file": "gts.x.core.modkit.plugin.v1~.schema.json",
-      "schema_id": "gts.x.core.modkit.plugin.v1~",
+      "file": "gts.cf.core.modkit.plugin.v1~.schema.json",
+      "schema_id": "gts.cf.core.modkit.plugin.v1~",
       "priority": 1,
       "description": "Base modkit plugin schema"
     }

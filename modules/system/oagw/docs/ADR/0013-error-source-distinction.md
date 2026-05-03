@@ -190,7 +190,7 @@ Content-Type: application/problem+json
 Retry-After: 15
 
 {
-  "type": "gts.x.core.errors.err.v1~x.oagw.rate_limit.exceeded.v1",
+  "type": "gts.cf.core.errors.err.v1~cf.oagw.rate_limit.exceeded.v1",
   "title": "Rate Limit Exceeded",
   "status": 429,
   "detail": "Rate limit exceeded for upstream api.openai.com",
@@ -236,12 +236,12 @@ X-OAGW-Error-Source: gateway
 Content-Type: application/problem+json
 
 {
-  "type": "gts.x.core.errors.err.v1~x.oagw.routing.missing_target_host.v1",
+  "type": "gts.cf.core.errors.err.v1~cf.oagw.routing.missing_target_host.v1",
   "title": "Missing Target Host Header",
   "status": 400,
   "detail": "X-OAGW-Target-Host header required for multi-endpoint upstream with common suffix alias. Valid hosts: [us.vendor.com, eu.vendor.com]",
   "instance": "/api/oagw/v1/proxy/vendor.com/v1/api/resource",
-  "upstream_id": "gts.x.core.oagw.upstream.v1~7c9e6679-7425-40de-944b-e07fc1f90ae7",
+  "upstream_id": "gts.cf.core.oagw.upstream.v1~7c9e6679-7425-40de-944b-e07fc1f90ae7",
   "alias": "vendor.com",
   "valid_hosts": ["us.vendor.com", "eu.vendor.com"],
   "trace_id": "01J..."
@@ -256,12 +256,12 @@ X-OAGW-Error-Source: gateway
 Content-Type: application/problem+json
 
 {
-  "type": "gts.x.core.errors.err.v1~x.oagw.routing.invalid_target_host.v1",
+  "type": "gts.cf.core.errors.err.v1~cf.oagw.routing.invalid_target_host.v1",
   "title": "Invalid Target Host Format",
   "status": 400,
   "detail": "X-OAGW-Target-Host must be a valid hostname or IP address (no port, path, or special characters)",
   "instance": "/api/oagw/v1/proxy/vendor.com/v1/api/resource",
-  "upstream_id": "gts.x.core.oagw.upstream.v1~7c9e6679-7425-40de-944b-e07fc1f90ae7",
+  "upstream_id": "gts.cf.core.oagw.upstream.v1~7c9e6679-7425-40de-944b-e07fc1f90ae7",
   "invalid_value": "us.vendor.com:8443",
   "trace_id": "01J..."
 }
@@ -275,12 +275,12 @@ X-OAGW-Error-Source: gateway
 Content-Type: application/problem+json
 
 {
-  "type": "gts.x.core.errors.err.v1~x.oagw.routing.unknown_target_host.v1",
+  "type": "gts.cf.core.errors.err.v1~cf.oagw.routing.unknown_target_host.v1",
   "title": "Unknown Target Host",
   "status": 400,
   "detail": "X-OAGW-Target-Host 'apac.vendor.com' does not match any configured endpoint. Valid hosts: [us.vendor.com, eu.vendor.com]",
   "instance": "/api/oagw/v1/proxy/vendor.com/v1/api/resource",
-  "upstream_id": "gts.x.core.oagw.upstream.v1~7c9e6679-7425-40de-944b-e07fc1f90ae7",
+  "upstream_id": "gts.cf.core.oagw.upstream.v1~7c9e6679-7425-40de-944b-e07fc1f90ae7",
   "invalid_value": "apac.vendor.com",
   "valid_hosts": ["us.vendor.com", "eu.vendor.com"],
   "trace_id": "01J..."

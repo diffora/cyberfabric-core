@@ -28,12 +28,12 @@ X-OAGW-Error-Source: gateway
 Content-Type: application/problem+json
 
 {
-  "type": "gts.x.core.errors.err.v1~x.oagw.routing.missing_target_host.v1",
+  "type": "gts.cf.core.errors.err.v1~cf.oagw.routing.missing_target_host.v1",
   "title": "Missing Target Host Header",
   "status": 400,
   "detail": "X-OAGW-Target-Host header required for multi-endpoint upstream with common suffix alias. Valid hosts: [us.vendor.com, eu.vendor.com]",
   "instance": "/api/oagw/v1/proxy/vendor.com/v1/api/resource",
-  "upstream_id": "gts.x.core.oagw.upstream.v1~...",
+  "upstream_id": "gts.cf.core.oagw.upstream.v1~...",
   "alias": "vendor.com",
   "valid_hosts": ["us.vendor.com", "eu.vendor.com"]
 }

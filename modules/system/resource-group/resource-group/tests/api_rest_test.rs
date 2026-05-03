@@ -1163,7 +1163,7 @@ async fn input_create_type_non_rg_prefix_returns_400() {
         "POST",
         "/types-registry/v1/types",
         Some(serde_json::json!({
-            "code": "gts.x.other.prefix.v1~test.v1~",
+            "code": "gts.cf.other.prefix.v1~test.v1~",
             "can_be_root": true,
             "allowed_parent_types": [],
             "allowed_membership_types": []
@@ -1226,7 +1226,7 @@ async fn input_create_group_non_rg_type_returns_400() {
         "POST",
         "/resource-group/v1/groups",
         Some(serde_json::json!({
-            "type": "gts.x.other.prefix.v1~test.v1~",
+            "type": "gts.cf.other.prefix.v1~test.v1~",
             "name": "BadGroup"
         })),
         tenant_id,

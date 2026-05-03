@@ -104,7 +104,7 @@ The plugin architecture follows the standard ModKit plugin pattern documented in
 
 - Each plugin registers a GTS instance in Types Registry and a scoped client in ClientHub via `ClientScope::gts_id(&instance_id)`
 - The main module discovers plugins via GTS-based lookup and resolves the correct plugin per resource type through a routing configuration
-- Plugin GTS instance ID pattern: `gts.x.core.modkit.plugin.v1~x.cf.simple_resource_registry.plugin.v1~<vendor>.<plugin_name>._.plugin.v1`
+- Plugin GTS instance ID pattern: `gts.cf.core.modkit.plugin.v1~x.cf.simple_resource_registry.plugin.v1~<vendor>.<plugin_name>._.plugin.v1`
 
 ## Traceability
 

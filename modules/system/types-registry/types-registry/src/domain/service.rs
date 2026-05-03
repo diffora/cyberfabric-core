@@ -355,7 +355,7 @@ mod tests {
             Arc::new(MockRepo::new()),
             crate::config::TypesRegistryConfig::default(),
         );
-        let result = service.get("gts.notfound.pkg.ns.type.v1~");
+        let result = service.get("gts.vendor.pkg.ns.notfound.v1~");
         assert!(result.is_err());
     }
 

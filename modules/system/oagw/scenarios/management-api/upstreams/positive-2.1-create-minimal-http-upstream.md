@@ -14,7 +14,7 @@ Content-Type: application/json
       { "scheme": "https", "host": "httpbin.org", "port": 443 }
     ]
   },
-  "protocol": "gts.x.core.oagw.protocol.v1~x.core.oagw.http.v1"
+  "protocol": "gts.cf.core.oagw.protocol.v1~cf.core.oagw.http.v1"
 }
 ```
 
@@ -27,7 +27,7 @@ Content-Type: application/json
 
 ```json
 {
-  "id": "gts.x.core.oagw.upstream.v1~<uuid>",
+  "id": "gts.cf.core.oagw.upstream.v1~<uuid>",
   "enabled": true,
   "alias": "httpbin.org",
   "server": {
@@ -35,6 +35,6 @@ Content-Type: application/json
       { "scheme": "https", "host": "httpbin.org", "port": 443 }
     ]
   },
-  "protocol": "gts.x.core.oagw.protocol.v1~x.core.oagw.http.v1"
+  "protocol": "gts.cf.core.oagw.protocol.v1~cf.core.oagw.http.v1"
 }
 ```

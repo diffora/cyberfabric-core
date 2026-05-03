@@ -565,7 +565,7 @@ Key streaming semantics:
 
 **Technology**: ModKit SDK trait (`LlmGatewayHookPluginClient`), resolved via ClientHub scoped clients following CyberFabric plugin architecture (see `docs/MODKIT_PLUGINS.md`)
 
-**GTS Schema ID**: `gts.x.core.modkit.plugin.v1~x.llmgw.hook_plugin.v1~`
+**GTS Schema ID**: `gts.cf.core.modkit.plugin.v1~x.llmgw.hook_plugin.v1~`
 
 The Hook Plugin interface is defined in `llm-gateway-sdk` as a plugin client trait. The LLM Gateway registers the plugin schema in the types-registry; each hook plugin implementation registers its own instance and scoped client. The gateway resolves the active plugin via `choose_plugin_instance` using the configured vendor and lowest priority value.
 
@@ -573,23 +573,23 @@ The Hook Plugin interface is defined in `llm-gateway-sdk` as a plugin client tra
 
 | Method | Invoked | Inputs | Output |
 |--------|---------|--------|--------|
-| `pre_request` | Before provider adapter, on every `/responses` request | `SecurityContext`, `gts.x.llmgw.core.create_response_body.v1~` | `Ok(gts.x.llmgw.core.create_response_body.v1~)` — allow, request unchanged or modified; or `Err(HookRejection)` — block, returns `request_blocked` to consumer |
-| `post_response` | After full response assembled — after stream closes; after async/batch job completes | `SecurityContext`, `gts.x.llmgw.core.create_response_body.v1~`, `gts.x.llmgw.core.response_resource.v1~` | `()` — observe-only; plugin errors are logged but do not affect response delivery |
+| `pre_request` | Before provider adapter, on every `/responses` request | `SecurityContext`, `gts.cf.llmgw.core.create_response_body.v1~` | `Ok(gts.cf.llmgw.core.create_response_body.v1~)` — allow, request unchanged or modified; or `Err(HookRejection)` — block, returns `request_blocked` to consumer |
+| `post_response` | After full response assembled — after stream closes; after async/batch job completes | `SecurityContext`, `gts.cf.llmgw.core.create_response_body.v1~`, `gts.cf.llmgw.core.response_resource.v1~` | `()` — observe-only; plugin errors are logged but do not affect response delivery |
 
 **`HookRejection`**: `{ reason: String }` — returned by `pre_request` to block a request. Maps to the `request_blocked` error code in the API error response.
 
 **Semantics**:
 
-- `pre_request` receives the normalized `gts.x.llmgw.core.create_response_body.v1~` before the provider adapter formats it for the specific provider. The returned value (possibly modified) is what the provider adapter receives.
-- `post_response` receives both the original request and the fully assembled `gts.x.llmgw.core.response_resource.v1~` (including `status: failed` responses — error state is carried in the response object, so no separate error hook is needed).
+- `pre_request` receives the normalized `gts.cf.llmgw.core.create_response_body.v1~` before the provider adapter formats it for the specific provider. The returned value (possibly modified) is what the provider adapter receives.
+- `post_response` receives both the original request and the fully assembled `gts.cf.llmgw.core.response_resource.v1~` (including `status: failed` responses — error state is carried in the response object, so no separate error hook is needed).
 - For streaming responses, `post_response` is invoked after the stream closes and the full response is assembled from chunks. The response has already been delivered to the consumer by this point.
 - Batch requests are treated as individual calls: `pre_request` and `post_response` are invoked once per individual request within the batch.
 - Hook plugin scope: applies to `/responses` endpoint requests (chat completion, streaming, image generation, async background jobs). The `/embeddings` endpoint is out of scope for hook interception in this version.
 
 **Plugin discovery and selection**:
 
-- LLM Gateway registers the GTS plugin schema (`gts.x.core.modkit.plugin.v1~x.llmgw.hook_plugin.v1~`) during module `init()`.
-- Each hook plugin registers a GTS instance and scoped client under a stable instance ID of the form `gts.x.core.modkit.plugin.v1~x.llmgw.hook_plugin.v1~<vendor>.<pkg>.hook_plugin.v1`.
+- LLM Gateway registers the GTS plugin schema (`gts.cf.core.modkit.plugin.v1~x.llmgw.hook_plugin.v1~`) during module `init()`.
+- Each hook plugin registers a GTS instance and scoped client under a stable instance ID of the form `gts.cf.core.modkit.plugin.v1~x.llmgw.hook_plugin.v1~<vendor>.<pkg>.hook_plugin.v1`.
 - Gateway uses `choose_plugin_instance` to select the plugin matching the configured vendor with the lowest priority value.
 - Plugin unavailability (client not found after resolution) causes the request to fail with a `hook_unavailable` error — hooks are not bypassed silently.
 

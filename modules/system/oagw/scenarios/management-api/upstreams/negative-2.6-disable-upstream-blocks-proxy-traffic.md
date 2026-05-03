@@ -7,13 +7,13 @@ Create upstream `alias=httpbin.org`, then route `POST /post`.
 ## Step 2: Disable upstream
 
 ```http
-PUT /api/oagw/v1/upstreams/gts.x.core.oagw.upstream.v1~<uuid> HTTP/1.1
+PUT /api/oagw/v1/upstreams/gts.cf.core.oagw.upstream.v1~<uuid> HTTP/1.1
 Host: oagw.example.com
 Authorization: Bearer <tenant-token>
 Content-Type: application/json
 
 {
-  "id": "gts.x.core.oagw.upstream.v1~<uuid>",
+  "id": "gts.cf.core.oagw.upstream.v1~<uuid>",
   "enabled": false,
   "alias": "httpbin.org",
   "server": {
@@ -21,7 +21,7 @@ Content-Type: application/json
       { "scheme": "https", "host": "httpbin.org", "port": 443 }
     ]
   },
-  "protocol": "gts.x.core.oagw.protocol.v1~x.core.oagw.http.v1"
+  "protocol": "gts.cf.core.oagw.protocol.v1~cf.core.oagw.http.v1"
 }
 ```
 

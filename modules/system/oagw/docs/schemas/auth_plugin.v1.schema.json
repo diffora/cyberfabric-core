@@ -7,16 +7,16 @@
       "type": "string",
       "format": "gts-identifier",
       "examples": [
-        "gts.x.core.oagw.auth_plugin.v1~x.core.oagw.apikey.v1",
-        "gts.x.core.oagw.auth_plugin.v1~acme.billing.oagw.custom_auth.v1"
+        "gts.cf.core.oagw.auth_plugin.v1~cf.core.oagw.apikey.v1",
+        "gts.cf.core.oagw.auth_plugin.v1~acme.billing.oagw.custom_auth.v1"
       ]
     },
     "type": {
       "type": "string",
       "format": "gts-identifier",
       "enum": [
-        "gts.x.core.oagw.plugin_type.v1~x.core.oagw.builtin.v1",
-        "gts.x.core.oagw.plugin_type.v1~x.core.oagw.starlark.v1"
+        "gts.cf.core.oagw.plugin_type.v1~cf.core.oagw.builtin.v1",
+        "gts.cf.core.oagw.plugin_type.v1~cf.core.oagw.starlark.v1"
       ]
     },
     "config_schema": {

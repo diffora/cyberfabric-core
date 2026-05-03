@@ -170,8 +170,8 @@ impl GtsTypeSchema {
     /// Derives the GTS parent's `type_id` by stripping the last `~`-segment.
     ///
     /// Mirrors gts-rust's chain semantics: for a chained type id like
-    /// `gts.x.core.events.type.v1~x.commerce.orders.order.v1.0~`, the parent
-    /// is `gts.x.core.events.type.v1~`. Returns `None` for root (single-segment)
+    /// `gts.cf.core.events.type.v1~x.commerce.orders.order.v1.0~`, the parent
+    /// is `gts.cf.core.events.type.v1~`. Returns `None` for root (single-segment)
     /// type-schemas or for ids that don't end with `~`.
     #[must_use]
     pub fn derive_parent_type_id(type_id: &str) -> Option<GtsTypeId> {

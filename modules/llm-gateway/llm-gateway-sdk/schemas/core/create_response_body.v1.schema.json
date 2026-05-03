@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "gts://gts.x.llmgw.core.create_response_body.v1~",
+  "$id": "gts://gts.cf.llmgw.core.create_response_body.v1~",
   "title": "CreateResponseBody",
   "description": "Open Responses protocol request body for creating a response",
   "type": "object",
@@ -15,7 +15,7 @@
         {
           "type": "array",
           "items": {
-            "$ref": "gts://gts.x.llmgw.items.item.v1~"
+            "$ref": "gts://gts.cf.llmgw.items.item.v1~"
           }
         },
         { "type": "null" }
@@ -41,7 +41,7 @@
     "tools": {
       "type": ["array", "null"],
       "items": {
-        "$ref": "gts://gts.x.llmgw.tools.tool.v1~"
+        "$ref": "gts://gts.cf.llmgw.tools.tool.v1~"
       },
       "description": "Available tools for the model"
     },
@@ -64,11 +64,11 @@
       "description": "Whether model can issue multiple tool calls in parallel"
     },
     "text": {
-      "$ref": "gts://gts.x.llmgw.core.text_format.v1~",
+      "$ref": "gts://gts.cf.llmgw.core.text_format.v1~",
       "description": "Response text format configuration"
     },
     "reasoning": {
-      "$ref": "gts://gts.x.llmgw.core.reasoning_config.v1~",
+      "$ref": "gts://gts.cf.llmgw.core.reasoning_config.v1~",
       "description": "Reasoning configuration"
     },
     "temperature": {
@@ -112,7 +112,7 @@
     "stream": {
       "type": "boolean",
       "default": false,
-      "description": "Enable streaming response via SSE. When true, the response is a stream of events conforming to gts.x.llmgw.streaming.event.v1~ (and its derived types) instead of a single ResponseResource."
+      "description": "Enable streaming response via SSE. When true, the response is a stream of events conforming to gts.cf.llmgw.streaming.event.v1~ (and its derived types) instead of a single ResponseResource."
     },
     "stream_options": {
       "oneOf": [

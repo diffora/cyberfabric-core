@@ -325,11 +325,11 @@ mod tests {
 
     #[test]
     fn test_gts_entity_dto_segments_serialization() {
-        let segment1 = GtsIdSegment::new(0, 0, "vendor_a.pkg1.ns1.type1.v1~").unwrap();
-        let segment2 = GtsIdSegment::new(1, 28, "vendor_b.pkg2.ns2.inst1.v2").unwrap();
+        let segment1 = GtsIdSegment::new(0, 0, "fabrikam.pkg1.ns1.type1.v1~").unwrap();
+        let segment2 = GtsIdSegment::new(1, 28, "contoso.pkg2.ns2.inst1.v2").unwrap();
         let entity = GtsEntity::new(
             Uuid::nil(),
-            "gts.vendor_a.pkg1.ns1.type1.v1~vendor_b.pkg2.ns2.inst1.v2",
+            "gts.fabrikam.pkg1.ns1.type1.v1~contoso.pkg2.ns2.inst1.v2",
             vec![segment1, segment2],
             false, // is_schema
             serde_json::json!({}),
@@ -341,8 +341,8 @@ mod tests {
 
         let json_segments = json["segments"].as_array().unwrap();
         assert_eq!(json_segments.len(), 2);
-        assert_eq!(json_segments[0]["vendor"], "vendor_a");
-        assert_eq!(json_segments[1]["vendor"], "vendor_b");
+        assert_eq!(json_segments[0]["vendor"], "fabrikam");
+        assert_eq!(json_segments[1]["vendor"], "contoso");
     }
 
     #[test]

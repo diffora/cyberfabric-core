@@ -29,12 +29,12 @@ X-OAGW-Error-Source: gateway
 Content-Type: application/problem+json
 
 {
-  "type": "gts.x.core.errors.err.v1~x.oagw.routing.invalid_target_host.v1",
+  "type": "gts.cf.core.errors.err.v1~cf.oagw.routing.invalid_target_host.v1",
   "title": "Invalid Target Host Format",
   "status": 400,
   "detail": "X-OAGW-Target-Host must be a valid hostname or IP address (no port, path, or special characters)",
   "instance": "/api/oagw/v1/proxy/vendor.com/v1/api/resource",
-  "upstream_id": "gts.x.core.oagw.upstream.v1~...",
+  "upstream_id": "gts.cf.core.oagw.upstream.v1~...",
   "invalid_value": "us.vendor.com/api"
 }
 ```

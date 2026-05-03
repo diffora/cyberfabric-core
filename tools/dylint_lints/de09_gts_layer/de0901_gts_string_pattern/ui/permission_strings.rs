@@ -5,11 +5,11 @@
 fn main() {
     // Test 1: Permission string with GTS type schema (ending with ~)
     // Should NOT trigger DE0901 - type schemas are allowed in permission strings
-    let _perm1 = "550e8400-e29b-41d4-a716-446655440000:gts.htx.core.events.topic.v1~:*:publish";
+    let _perm1 = "550e8400-e29b-41d4-a716-446655440000:gts.cf.core.events.topic.v1~:*:publish";
 
     // Test 2: Permission string with GTS instance segment (not ending with ~)
     // Should NOT trigger DE0901 - instance segments are allowed in permission strings
-    let _perm2 = "550e8400-e29b-41d4-a716-446655440000:gts.htx.core.events.tenant.v1~a.b.c.d.v1:660e8400-e29b-41d4-a716-446655440002:edit";
+    let _perm2 = "550e8400-e29b-41d4-a716-446655440000:gts.cf.core.events.tenant.v1~cf.core.example.tenant.v1:660e8400-e29b-41d4-a716-446655440002:edit";
 
     // Test 3: Permission string with GTS wildcard pattern
     // Should trigger DE0901 - invalid GTS
@@ -21,35 +21,39 @@ fn main() {
 
     // Test 5: Invalid GTS instance segment
     // Should trigger DE0901 - invalid GTS
-    let _perm2 = "550e8400-e29b-41d4-a716-446655440000:gts.htx.events.tenant.v1:660e8400-e29b-41d4-a716-446655440002:edit";
+    let _perm2 = "550e8400-e29b-41d4-a716-446655440000:gts.cf.events.tenant.v1:660e8400-e29b-41d4-a716-446655440002:edit";
 
     // Test 6: Invalid GTS identifier (not leading type segment)
     // Should trigger DE0901 - invalid GTS
     let _perm5 = "uuid:gts.vendor.pkg.ns.type.v1:action";
 
-    let _perm2 = MockPermissionBuilder::default()
+    // Test 7: Disallowed vendor in permission string
+    // Should trigger DE0901 - invalid GTS vendor
+    let _perm6 = "uuid:gts.badvendor.pkg.ns.type.v1~cf.pkg.ns.derived.v1~:action";
+
+    let _perm7 = MockPermissionBuilder::default()
         // Should trigger DE0901 - invalid GTS
-        .resource_pattern("gts.x.core.events.type.v*")
+        .resource_pattern("gts.cf.core.events.type.v*")
         .build();
 
     // Additional valid cases
 
     // Should NOT trigger DE0901 - typical permission string
-    let _perm4 = "uuid:gts.vendor.pkg.ns.type.v1~:action";
+    let _perm4 = "uuid:gts.cf.pkg.ns.type.v1~:action";
 
     // Should NOT trigger DE0901 - wildcards are allowed in resource_pattern() calls
     let _perm = MockPermissionBuilder::default()
-        .resource_pattern("gts.x.core.events.topic.v1~vendor.*")
+        .resource_pattern("gts.cf.core.events.topic.v1~example.*")
         .build();
 
     // Should NOT trigger DE0901 - wildcards are allowed in resource_pattern() calls
-    let _perm2 = MockPermissionBuilder::default()
-        .resource_pattern("gts.x.core.events.type.v1~*")
+    let _perm8 = MockPermissionBuilder::default()
+        .resource_pattern("gts.cf.core.events.type.v1~*")
         .build();
 
     // Should NOT trigger DE0901 - wildcards are allowed in resolve_to_uuids() calls
     let _resolver = MockResolver::default();
-    _resolver.resolve_to_uuids(&["gts.acme.core.events.*".to_owned()]);
+    _resolver.resolve_to_uuids(&["gts.example.core.events.*".to_owned()]);
 }
 
 #[derive(Default)]

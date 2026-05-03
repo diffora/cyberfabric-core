@@ -22,7 +22,7 @@ use crate::domain::repo::{GroupRepositoryTrait, MembershipRepositoryTrait, TypeR
 
 /// `AuthZ` resource type descriptor for group memberships.
 pub const RG_MEMBERSHIP_RESOURCE: ResourceType = ResourceType {
-    name: "gts.x.core.rg.group_membership.v1~",
+    name: "gts.cf.core.rg.group_membership.v1~",
     supported_properties: &[pep_properties::OWNER_TENANT_ID],
 };
 

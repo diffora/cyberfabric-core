@@ -150,7 +150,7 @@ Retry-After: 1
 X-OAGW-Error-Source: gateway
 
 {
-  "type": "gts.x.core.errors.err.v1~x.oagw.concurrency_limit.exceeded.v1",
+  "type": "gts.cf.core.errors.err.v1~cf.oagw.concurrency_limit.exceeded.v1",
   "title": "Concurrency Limit Exceeded",
   "status": 503,
   "detail": "Upstream api.openai.com at max concurrent requests (100/100)",
@@ -182,7 +182,7 @@ Retry-After: 2
 X-OAGW-Error-Source: gateway
 
 {
-  "type": "gts.x.core.errors.err.v1~x.oagw.queue.timeout.v1",
+  "type": "gts.cf.core.errors.err.v1~cf.oagw.queue.timeout.v1",
   "title": "Queue Timeout",
   "status": 503,
   "detail": "Request queued for 5s, no capacity available",
@@ -373,7 +373,7 @@ oagw_retry_after_seconds{host} histogram
 
 ```json
 {
-  "type": "gts.x.core.errors.err.v1~x.oagw.queue.timeout.v1",
+  "type": "gts.cf.core.errors.err.v1~cf.oagw.queue.timeout.v1",
   "title": "Queue Timeout",
   "status": 503,
   "detail": "Request queued for 5s, no capacity available",
@@ -384,7 +384,7 @@ oagw_retry_after_seconds{host} histogram
 
 ```json
 {
-  "type": "gts.x.core.errors.err.v1~x.oagw.queue.full.v1",
+  "type": "gts.cf.core.errors.err.v1~cf.oagw.queue.full.v1",
   "title": "Queue Full",
   "status": 503,
   "detail": "Request queue full (500/500), try again later",
@@ -396,7 +396,7 @@ oagw_retry_after_seconds{host} histogram
 
 ```json
 {
-  "type": "gts.x.core.errors.err.v1~x.oagw.request.payload_too_large.v1",
+  "type": "gts.cf.core.errors.err.v1~cf.oagw.request.payload_too_large.v1",
   "title": "Payload Too Large",
   "status": 413,
   "detail": "Request body (12MB) exceeds queue memory_limit (10MB); not enqueued",
@@ -407,7 +407,7 @@ oagw_retry_after_seconds{host} histogram
 
 ```json
 {
-  "type": "gts.x.core.errors.err.v1~x.oagw.queue.memory_limit.v1",
+  "type": "gts.cf.core.errors.err.v1~cf.oagw.queue.memory_limit.v1",
   "title": "Queue Memory Limit Exceeded",
   "status": 503,
   "detail": "Aggregate queue memory reached (10MB/10MB); cannot enqueue",

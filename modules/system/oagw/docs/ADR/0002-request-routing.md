@@ -188,7 +188,7 @@ Upstream configuration: Common suffix alias `vendor.com` with endpoints `us.vend
 Plugin deletion fails with `409 Conflict` when the plugin is referenced by any upstream or route:
 
 ```http
-DELETE /api/oagw/v1/plugins/gts.x.core.oagw.guard_plugin.v1~550e8400-e29b-41d4-a716-446655440000
+DELETE /api/oagw/v1/plugins/gts.cf.core.oagw.guard_plugin.v1~550e8400-e29b-41d4-a716-446655440000
 ```
 
 **Success** (plugin not in use):
@@ -204,14 +204,14 @@ HTTP/1.1 409 Conflict
 Content-Type: application/problem+json
 
 {
-  "type": "gts.x.core.errors.err.v1~x.oagw.plugin.in_use.v1",
+  "type": "gts.cf.core.errors.err.v1~cf.oagw.plugin.in_use.v1",
   "title": "Plugin In Use",
   "status": 409,
   "detail": "Plugin is referenced by 3 upstream(s) and 2 route(s)",
-  "plugin_id": "gts.x.core.oagw.guard_plugin.v1~550e8400-e29b-41d4-a716-446655440000",
+  "plugin_id": "gts.cf.core.oagw.guard_plugin.v1~550e8400-e29b-41d4-a716-446655440000",
   "referenced_by": {
-    "upstreams": ["gts.x.core.oagw.upstream.v1~..."],
-    "routes": ["gts.x.core.oagw.route.v1~..."]
+    "upstreams": ["gts.cf.core.oagw.upstream.v1~..."],
+    "routes": ["gts.cf.core.oagw.route.v1~..."]
   }
 }
 ```

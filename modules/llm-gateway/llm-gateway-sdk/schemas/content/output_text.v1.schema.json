@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "gts://gts.x.llmgw.content.output_text.v1~",
+  "$id": "gts://gts.cf.llmgw.content.output_text.v1~",
   "title": "OutputText",
   "description": "Output text content part with annotations and optional logprobs",
   "type": "object",
@@ -18,7 +18,7 @@
     "annotations": {
       "type": "array",
       "items": {
-        "$ref": "gts://gts.x.llmgw.content.url_citation.v1~"
+        "$ref": "gts://gts.cf.llmgw.content.url_citation.v1~"
       },
       "description": "Text annotations (citations, links)"
     },

@@ -16,8 +16,8 @@ Current built-in auth plugins (`ApiKeyAuthPlugin`, `NoopAuthPlugin`) handle stat
 - `CredStoreClientV1` in `credstore-sdk` — resolves `cred://` references to secret values
 - `modkit_auth::oauth2::fetch_token` in `libs/modkit-auth` — one-shot token exchange returning bearer + `expires_in`, OIDC Discovery, `Basic`/`Form` client auth (no background watcher)
 - GTS identifiers already reserved in `gts_helpers.rs`:
-  - `gts.x.core.oagw.auth_plugin.v1~x.core.oagw.oauth2_client_cred.v1` (Form)
-  - `gts.x.core.oagw.auth_plugin.v1~x.core.oagw.oauth2_client_cred_basic.v1` (Basic)
+  - `gts.cf.core.oagw.auth_plugin.v1~cf.core.oagw.oauth2_client_cred.v1` (Form)
+  - `gts.cf.core.oagw.auth_plugin.v1~cf.core.oagw.oauth2_client_cred_basic.v1` (Basic)
 
 ### Why `fetch_token()` over `Token`
 
@@ -43,8 +43,8 @@ Caching is an internal concern of the OAuth2 CC plugin — not a generic decorat
 
 | GTS Plugin ID | Client Auth Method |
 |---|---|
-| `gts.x.core.oagw.auth_plugin.v1~x.core.oagw.oauth2_client_cred.v1` | `Form` (credentials in request body) |
-| `gts.x.core.oagw.auth_plugin.v1~x.core.oagw.oauth2_client_cred_basic.v1` | `Basic` (credentials in `Authorization` header) |
+| `gts.cf.core.oagw.auth_plugin.v1~cf.core.oagw.oauth2_client_cred.v1` | `Form` (credentials in request body) |
+| `gts.cf.core.oagw.auth_plugin.v1~cf.core.oagw.oauth2_client_cred_basic.v1` | `Basic` (credentials in `Authorization` header) |
 
 Both registered in `AuthPluginRegistry::with_builtins`. Only `auth_method` differs; both share the same cache configuration.
 
@@ -191,9 +191,9 @@ impl AuthPluginRegistry {
       { "scheme": "https", "host": "graph.microsoft.com", "port": 443 }
     ]
   },
-  "protocol": "gts.x.core.oagw.protocol.v1~x.core.oagw.http.v1",
+  "protocol": "gts.cf.core.oagw.protocol.v1~cf.core.oagw.http.v1",
   "auth": {
-    "type": "gts.x.core.oagw.auth_plugin.v1~x.core.oagw.oauth2_client_cred.v1",
+    "type": "gts.cf.core.oagw.auth_plugin.v1~cf.core.oagw.oauth2_client_cred.v1",
     "config": {
       "token_endpoint": "https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token",
       "client_id_ref": "cred://ms-graph-client-id",
@@ -209,7 +209,7 @@ OIDC Discovery variant (endpoint resolved automatically):
 ```json
 {
   "auth": {
-    "type": "gts.x.core.oagw.auth_plugin.v1~x.core.oagw.oauth2_client_cred_basic.v1",
+    "type": "gts.cf.core.oagw.auth_plugin.v1~cf.core.oagw.oauth2_client_cred_basic.v1",
     "config": {
       "issuer_url": "https://accounts.google.com",
       "client_id_ref": "cred://google-client-id",

@@ -51,16 +51,16 @@ Response to Client
 {
   "alias": "openai",
   "auth": {
-    "plugin": "gts.x.core.oagw.auth_plugin.v1~x.core.oagw.bearer.v1",
-    "config": { "secret_ref": "gts.x.core.cred.v1~abc123..." }
+    "plugin": "gts.cf.core.oagw.auth_plugin.v1~cf.core.oagw.bearer.v1",
+    "config": { "secret_ref": "gts.cf.core.cred.v1~abc123..." }
   },
   "plugins": {
     "guards": [
-      "gts.x.core.oagw.guard_plugin.v1~x.core.oagw.timeout.v1"
+      "gts.cf.core.oagw.guard_plugin.v1~cf.core.oagw.timeout.v1"
     ],
     "transforms": [
-      "gts.x.core.oagw.transform_plugin.v1~x.core.oagw.request_id.v1",
-      "gts.x.core.oagw.transform_plugin.v1~x.core.oagw.logging.v1"
+      "gts.cf.core.oagw.transform_plugin.v1~cf.core.oagw.request_id.v1",
+      "gts.cf.core.oagw.transform_plugin.v1~cf.core.oagw.logging.v1"
     ]
   }
 }
@@ -77,7 +77,7 @@ Response to Client
   },
   "plugins": {
     "guards": [
-      "gts.x.core.oagw.guard_plugin.v1~x.core.oagw.cors.v1"
+      "gts.cf.core.oagw.guard_plugin.v1~cf.core.oagw.cors.v1"
     ]
   },
   "rate_limit": {
@@ -289,7 +289,7 @@ X-OAGW-Error-Source: gateway
 Content-Type: application/problem+json
 
 {
-  "type": "gts.x.core.errors.err.v1~x.oagw.guard.timeout.v1",
+  "type": "gts.cf.core.errors.err.v1~cf.oagw.guard.timeout.v1",
   "title": "Request Timeout",
   "status": 408,
   "detail": "Request timeout budget exceeded (30s)",
@@ -324,7 +324,7 @@ Retry-After: 15
 Content-Type: application/problem+json
 
 {
-  "type": "gts.x.core.errors.err.v1~x.oagw.guard.rate_limit.v1",
+  "type": "gts.cf.core.errors.err.v1~cf.oagw.guard.rate_limit.v1",
   "title": "Rate Limit Exceeded",
   "status": 429,
   "detail": "Rate limit exceeded: 100 requests per minute",

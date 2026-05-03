@@ -164,7 +164,7 @@ impl AccessRequest {
 /// serve multiple resource types within one service.
 #[derive(Debug, Clone, Copy)]
 pub struct ResourceType {
-    /// Dotted resource type name (e.g. `"gts.x.core.users.user.v1~"`).
+    /// Dotted resource type name (e.g. `"gts.cf.core.users.user.v1~"`).
     pub name: &'static str,
     /// Properties the PEP can compile from PDP constraints.
     pub supported_properties: &'static [&'static str],
@@ -184,7 +184,7 @@ pub struct ResourceType {
 /// use modkit_security::pep_properties;
 ///
 /// const USER: ResourceType = ResourceType {
-///     name: "gts.x.core.users.user.v1~",
+///     name: "gts.cf.core.users.user.v1~",
 ///     supported_properties: &[pep_properties::OWNER_TENANT_ID, pep_properties::RESOURCE_ID],
 /// };
 ///

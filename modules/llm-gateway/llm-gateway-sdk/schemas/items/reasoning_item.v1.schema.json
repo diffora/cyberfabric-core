@@ -1,10 +1,10 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "gts://gts.x.llmgw.items.item.v1~x.llmgw.items.reasoning_item.v1~",
+  "$id": "gts://gts.cf.llmgw.items.item.v1~x.llmgw.items.reasoning_item.v1~",
   "title": "ReasoningItem",
   "description": "Input item providing reasoning context from a previous response.",
   "allOf": [
-    { "$ref": "gts://gts.x.llmgw.items.item.v1~" },
+    { "$ref": "gts://gts.cf.llmgw.items.item.v1~" },
     {
       "properties": {
         "id": {

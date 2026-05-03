@@ -77,7 +77,7 @@ These are framework-level types that other modules depend on:
 
 | GTS ID | Description |
 |--------|-------------|
-| `gts.x.core.modkit.plugin.v1~` | Base plugin schema for all plugin systems |
+| `gts.cf.core.modkit.plugin.v1~` | Base plugin schema for all plugin systems |
 
 This ensures that when modules register their derived schemas (e.g., plugin-specific types),
 the base types are already available for validation.

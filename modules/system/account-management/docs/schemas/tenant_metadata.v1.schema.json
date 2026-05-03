@@ -1,5 +1,5 @@
 {
-  "$id": "gts://gts.x.core.am.tenant_metadata.v1~",
+  "$id": "gts://gts.cf.core.am.tenant_metadata.v1~",
   "$schema": "http://json-schema.org/draft-07/schema#",
   "description": "Base tenant metadata schema for Account Management. Derived metadata schemas resolve behavioral traits via x-gts-traits. Traits configure how MetadataService treats entries of each schema — they are not part of the metadata payload.",
   "type": "object",

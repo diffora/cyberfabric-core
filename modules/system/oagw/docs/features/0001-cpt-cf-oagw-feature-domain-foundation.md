@@ -115,13 +115,13 @@ Foundation layer that all other OAGW features depend on. Provides the shared dom
 
 **Steps**:
 1. [x] - `p1` - OAGW module calls types_registry client to register schemas - `inst-gts-1`
-2. [x] - `p1` - Register upstream schema: `gts.x.core.oagw.upstream.v1~` - `inst-gts-2`
-3. [x] - `p1` - Register route schema: `gts.x.core.oagw.route.v1~` - `inst-gts-3`
-4. [x] - `p1` - Register auth plugin schema: `gts.x.core.oagw.auth_plugin.v1~` - `inst-gts-4`
-5. [x] - `p1` - Register guard plugin schema: `gts.x.core.oagw.guard_plugin.v1~` - `inst-gts-5`
-6. [x] - `p1` - Register transform plugin schema: `gts.x.core.oagw.transform_plugin.v1~` - `inst-gts-6`
-7. [x] - `p1` - Register error type schema: `gts.x.core.errors.err.v1~` (OAGW error instances) - `inst-gts-7`
-8. [x] - `p1` - Register proxy permission: `gts.x.core.oagw.proxy.v1~` - `inst-gts-8`
+2. [x] - `p1` - Register upstream schema: `gts.cf.core.oagw.upstream.v1~` - `inst-gts-2`
+3. [x] - `p1` - Register route schema: `gts.cf.core.oagw.route.v1~` - `inst-gts-3`
+4. [x] - `p1` - Register auth plugin schema: `gts.cf.core.oagw.auth_plugin.v1~` - `inst-gts-4`
+5. [x] - `p1` - Register guard plugin schema: `gts.cf.core.oagw.guard_plugin.v1~` - `inst-gts-5`
+6. [x] - `p1` - Register transform plugin schema: `gts.cf.core.oagw.transform_plugin.v1~` - `inst-gts-6`
+7. [x] - `p1` - Register error type schema: `gts.cf.core.errors.err.v1~` (OAGW error instances) - `inst-gts-7`
+8. [x] - `p1` - Register proxy permission: `gts.cf.core.oagw.proxy.v1~` - `inst-gts-8`
 9. [x] - `p1` - **FOR EACH** built-in plugin in auth/guard/transform registries - `inst-gts-9`
    1. [x] - `p1` - Register instance with full GTS identifier - `inst-gts-9a`
 10. [x] - `p1` - **IF** any registration fails - `inst-gts-10`

@@ -209,7 +209,7 @@ When descendant tenant binds to ancestor's upstream:
 
 ```json
 {
-  "type": "gts.x.core.errors.err.v1~x.oagw.concurrency_limit.exceeded.v1",
+  "type": "gts.cf.core.errors.err.v1~cf.oagw.concurrency_limit.exceeded.v1",
   "title": "Concurrency Limit Exceeded",
   "status": 503,
   "detail": "Upstream api.openai.com has reached max concurrent requests (100/100)",

@@ -98,7 +98,7 @@ Adheres to `cpt-cf-oagw-principle-tenant-scope` (all operations tenant-scoped vi
 **Steps**:
 1. [x] - `p1` - Actor sends POST /api/oagw/v1/upstreams with server endpoints, protocol, auth config, headers, rate limit config, tags - `inst-create-us-1`
 2. [x] - `p1` - API: Extract SecurityContext (tenant_id, principal_id, permissions) - `inst-create-us-2`
-3. [x] - `p1` - API: Validate actor has `gts.x.core.oagw.upstream.v1~:create` permission - `inst-create-us-3`
+3. [x] - `p1` - API: Validate actor has `gts.cf.core.oagw.upstream.v1~:create` permission - `inst-create-us-3`
 4. [x] - `p1` - API: Deserialize and validate DTO structure - `inst-create-us-4`
 5. [x] - `p1` - Domain: Execute upstream validation algorithm (`cpt-cf-oagw-algo-mgmt-validate-upstream`) - `inst-create-us-5`
 6. [x] - `p1` - **IF** validation fails - `inst-create-us-6`
@@ -111,7 +111,7 @@ Adheres to `cpt-cf-oagw-principle-tenant-scope` (all operations tenant-scoped vi
     1. [x] - `p1` - DB: ROLLBACK - `inst-create-us-11a`
     2. [x] - `p1` - **RETURN** 409 Conflict - `inst-create-us-11b`
 12. [x] - `p1` - DB: COMMIT - `inst-create-us-12`
-13. [x] - `p1` - **RETURN** 201 Created with upstream resource (GTS ID: `gts.x.core.oagw.upstream.v1~{uuid}`) - `inst-create-us-13`
+13. [x] - `p1` - **RETURN** 201 Created with upstream resource (GTS ID: `gts.cf.core.oagw.upstream.v1~{uuid}`) - `inst-create-us-13`
 
 ### Update Upstream Flow
 
@@ -133,7 +133,7 @@ Adheres to `cpt-cf-oagw-principle-tenant-scope` (all operations tenant-scoped vi
 
 **Steps**:
 1. [x] - `p1` - Actor sends PUT /api/oagw/v1/upstreams/{id} with updated configuration - `inst-update-us-1`
-2. [x] - `p1` - API: Extract SecurityContext and validate `gts.x.core.oagw.upstream.v1~:override` permission - `inst-update-us-2`
+2. [x] - `p1` - API: Extract SecurityContext and validate `gts.cf.core.oagw.upstream.v1~:override` permission - `inst-update-us-2`
 3. [x] - `p1` - API: Parse GTS anonymous identifier from path to extract UUID - `inst-update-us-3`
 4. [x] - `p1` - DB: SELECT oagw_upstream WHERE id = :uuid AND tenant_id = :tenant_id - `inst-update-us-4`
 5. [x] - `p1` - **IF** upstream not found - `inst-update-us-5`
@@ -167,7 +167,7 @@ Adheres to `cpt-cf-oagw-principle-tenant-scope` (all operations tenant-scoped vi
 
 **Steps**:
 1. [x] - `p1` - Actor sends DELETE /api/oagw/v1/upstreams/{id} - `inst-delete-us-1`
-2. [x] - `p1` - API: Extract SecurityContext and validate `gts.x.core.oagw.upstream.v1~:delete` permission - `inst-delete-us-2`
+2. [x] - `p1` - API: Extract SecurityContext and validate `gts.cf.core.oagw.upstream.v1~:delete` permission - `inst-delete-us-2`
 3. [x] - `p1` - API: Parse GTS anonymous identifier from path to extract UUID - `inst-delete-us-3`
 4. [x] - `p1` - DB: SELECT oagw_upstream WHERE id = :uuid AND tenant_id = :tenant_id - `inst-delete-us-4`
 5. [x] - `p1` - **IF** upstream not found - `inst-delete-us-5`
@@ -191,7 +191,7 @@ Adheres to `cpt-cf-oagw-principle-tenant-scope` (all operations tenant-scoped vi
 
 **Steps**:
 1. [x] - `p1` - Actor sends GET /api/oagw/v1/upstreams[?$filter=...&$select=...&$orderby=...&$top=...&$skip=...] or GET /api/oagw/v1/upstreams/{id} - `inst-list-us-1`
-2. [x] - `p1` - API: Extract SecurityContext and validate `gts.x.core.oagw.upstream.v1~:read` permission - `inst-list-us-2`
+2. [x] - `p1` - API: Extract SecurityContext and validate `gts.cf.core.oagw.upstream.v1~:read` permission - `inst-list-us-2`
 3. [x] - `p1` - **IF** list request - `inst-list-us-3`
    1. [ ] - `p1` - API: Parse OData query parameters ($filter, $select, $orderby, $top with default 50 / max 100, $skip) - `inst-list-us-3a`
    2. [ ] - `p1` - **IF** OData parse error - `inst-list-us-3b`
@@ -221,7 +221,7 @@ Adheres to `cpt-cf-oagw-principle-tenant-scope` (all operations tenant-scoped vi
 
 **Steps**:
 1. [x] - `p1` - Actor sends POST /api/oagw/v1/routes with upstream_id, match rules (type, path, methods, query allowlist), priority, enabled, rate limit, cors, plugins, tags - `inst-create-rt-1`
-2. [x] - `p1` - API: Extract SecurityContext and validate `gts.x.core.oagw.route.v1~:create` permission - `inst-create-rt-2`
+2. [x] - `p1` - API: Extract SecurityContext and validate `gts.cf.core.oagw.route.v1~:create` permission - `inst-create-rt-2`
 3. [x] - `p1` - API: Deserialize and validate DTO structure - `inst-create-rt-3`
 4. [x] - `p1` - Domain: Execute route validation algorithm (`cpt-cf-oagw-algo-mgmt-validate-route`) - `inst-create-rt-4`
 5. [x] - `p1` - **IF** validation fails - `inst-create-rt-5`
@@ -232,7 +232,7 @@ Adheres to `cpt-cf-oagw-principle-tenant-scope` (all operations tenant-scoped vi
 9. [x] - `p1` - DB: INSERT oagw_route_method for each allowed method - `inst-create-rt-9`
 10. [x] - `p1` - DB: INSERT oagw_route_tag for each tag - `inst-create-rt-10`
 11. [x] - `p1` - DB: COMMIT - `inst-create-rt-11`
-12. [x] - `p1` - **RETURN** 201 Created with route resource (GTS ID: `gts.x.core.oagw.route.v1~{uuid}`) - `inst-create-rt-12`
+12. [x] - `p1` - **RETURN** 201 Created with route resource (GTS ID: `gts.cf.core.oagw.route.v1~{uuid}`) - `inst-create-rt-12`
 
 ### Route Update, Delete, List, and Get Flow
 
@@ -253,20 +253,20 @@ Adheres to `cpt-cf-oagw-principle-tenant-scope` (all operations tenant-scoped vi
 
 **Steps**:
 1. [x] - `p1` - **IF** PUT /api/oagw/v1/routes/{id} - `inst-route-crud-1`
-   1. [x] - `p1` - API: Extract SecurityContext and validate `gts.x.core.oagw.route.v1~:override` permission - `inst-route-crud-1a`
+   1. [x] - `p1` - API: Extract SecurityContext and validate `gts.cf.core.oagw.route.v1~:override` permission - `inst-route-crud-1a`
    2. [x] - `p1` - DB: SELECT oagw_route WHERE id = :uuid AND tenant_id = :tenant_id - `inst-route-crud-1b`
    3. [x] - `p1` - **IF** not found, **RETURN** 404 Not Found - `inst-route-crud-1c`
    4. [x] - `p1` - Domain: Execute route validation algorithm (`cpt-cf-oagw-algo-mgmt-validate-route`) - `inst-route-crud-1d`
    5. [x] - `p1` - DB: BEGIN transaction; UPDATE oagw_route; DELETE + re-INSERT match/method/tag rows; COMMIT - `inst-route-crud-1e`
    6. [x] - `p1` - **RETURN** 200 OK with updated route - `inst-route-crud-1f`
 2. [x] - `p1` - **IF** DELETE /api/oagw/v1/routes/{id} - `inst-route-crud-2`
-   1. [x] - `p1` - API: Validate `gts.x.core.oagw.route.v1~:delete` permission - `inst-route-crud-2a`
+   1. [x] - `p1` - API: Validate `gts.cf.core.oagw.route.v1~:delete` permission - `inst-route-crud-2a`
    2. [x] - `p1` - DB: SELECT oagw_route WHERE id = :uuid AND tenant_id = :tenant_id - `inst-route-crud-2b`
    3. [x] - `p1` - **IF** not found, **RETURN** 404 Not Found - `inst-route-crud-2c`
    4. [x] - `p1` - DB: DELETE oagw_route WHERE id = :uuid (cascades to match/method/tag/plugin rows) - `inst-route-crud-2d`
    5. [x] - `p1` - **RETURN** 204 No Content - `inst-route-crud-2e`
 3. [x] - `p1` - **IF** GET /api/oagw/v1/routes or GET /api/oagw/v1/routes/{id} - `inst-route-crud-3`
-   1. [x] - `p1` - API: Validate `gts.x.core.oagw.route.v1~:read` permission - `inst-route-crud-3a`
+   1. [x] - `p1` - API: Validate `gts.cf.core.oagw.route.v1~:read` permission - `inst-route-crud-3a`
    2. [x] - `p1` - **IF** list: Parse OData params; DB: SELECT with filters; **RETURN** 200 paginated list - `inst-route-crud-3b`
    3. [x] - `p1` - **IF** get-by-ID: Parse GTS identifier; DB: SELECT by id+tenant; **RETURN** 200 or 404 - `inst-route-crud-3c`
 
@@ -409,7 +409,7 @@ Not applicable. Upstreams and routes use a boolean `enabled` flag (true/false) r
 
 - [x] `p1` - **ID**: `cpt-cf-oagw-dod-mgmt-upstream-crud`
 
-The system **MUST** provide REST handlers for POST, GET (list + by-ID), PUT (full replacement), and DELETE operations on `/api/oagw/v1/upstreams` with tenant-scoped data access via secure ORM. DTOs **MUST** use serde and utoipa annotations. Path parameters **MUST** accept GTS anonymous identifiers (`gts.x.core.oagw.upstream.v1~{uuid}`).
+The system **MUST** provide REST handlers for POST, GET (list + by-ID), PUT (full replacement), and DELETE operations on `/api/oagw/v1/upstreams` with tenant-scoped data access via secure ORM. DTOs **MUST** use serde and utoipa annotations. Path parameters **MUST** accept GTS anonymous identifiers (`gts.cf.core.oagw.upstream.v1~{uuid}`).
 
 **Implements**:
 - `cpt-cf-oagw-flow-mgmt-create-upstream`
@@ -427,7 +427,7 @@ The system **MUST** provide REST handlers for POST, GET (list + by-ID), PUT (ful
 
 - [x] `p1` - **ID**: `cpt-cf-oagw-dod-mgmt-route-crud`
 
-The system **MUST** provide REST handlers for POST, GET (list + by-ID), PUT (full replacement), and DELETE operations on `/api/oagw/v1/routes` with tenant-scoped data access via secure ORM. Route creation **MUST** validate upstream_id existence. DTOs **MUST** use serde and utoipa annotations. Path parameters **MUST** accept GTS anonymous identifiers (`gts.x.core.oagw.route.v1~{uuid}`).
+The system **MUST** provide REST handlers for POST, GET (list + by-ID), PUT (full replacement), and DELETE operations on `/api/oagw/v1/routes` with tenant-scoped data access via secure ORM. Route creation **MUST** validate upstream_id existence. DTOs **MUST** use serde and utoipa annotations. Path parameters **MUST** accept GTS anonymous identifiers (`gts.cf.core.oagw.route.v1~{uuid}`).
 
 **Implements**:
 - `cpt-cf-oagw-flow-mgmt-create-route`
@@ -503,7 +503,7 @@ The system **MUST** return all management API errors in RFC 9457 Problem Details
 - [ ] Enable/disable: disabled upstream causes proxy requests to be rejected (503); disabled route excluded from matching; ancestor-disabled upstream cannot be re-enabled by descendant
 - [x] All error responses use RFC 9457 Problem Details with GTS type identifiers
 - [x] All operations require appropriate GTS permissions and return 403 on unauthorized access
-- [x] Path parameters accept GTS anonymous identifiers (`gts.x.core.oagw.{type}.v1~{uuid}`)
+- [x] Path parameters accept GTS anonymous identifiers (`gts.cf.core.oagw.{type}.v1~{uuid}`)
 - [x] DTOs annotated with serde (serialization) and utoipa (OpenAPI schema generation)
 
 ## 7. Additional Context

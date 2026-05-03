@@ -46,7 +46,7 @@ impl Module for StaticCredStorePlugin {
 
         // Generate plugin instance ID
         let instance_id =
-            CredStorePluginSpecV1::gts_make_instance_id("x.core._.static_credstore.v1");
+            CredStorePluginSpecV1::gts_make_instance_id("cf.core._.static_credstore.v1");
 
         // Create service from config (validate early, before registration)
         let service = Arc::new(Service::from_config(&cfg)?);

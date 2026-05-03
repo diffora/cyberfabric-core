@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "gts://gts.x.llmgw.content.url_citation.v1~",
+  "$id": "gts://gts.cf.llmgw.content.url_citation.v1~",
   "title": "UrlCitation",
   "description": "URL citation annotation within output text",
   "type": "object",

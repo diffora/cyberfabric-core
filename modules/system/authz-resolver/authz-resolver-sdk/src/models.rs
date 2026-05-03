@@ -108,7 +108,7 @@ pub struct Action {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[allow(clippy::struct_field_names)] // field names follow AuthZEN spec
 pub struct Resource {
-    /// Resource type identifier (e.g., "`gts.x.core.users.user.v1~`").
+    /// Resource type identifier (e.g., "`gts.cf.core.users.user.v1~`").
     #[serde(rename = "type")]
     pub resource_type: String,
     /// Specific resource ID (for GET/UPDATE/DELETE on a single resource).

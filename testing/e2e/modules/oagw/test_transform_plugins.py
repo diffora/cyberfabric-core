@@ -132,7 +132,7 @@ async def test_unknown_transform_does_not_block_pipeline(
     """An unresolvable transform plugin is logged and skipped — the request succeeds."""
     _ = mock_upstream
     alias = unique_alias("xform-unknown")
-    fake_plugin = "gts.x.core.oagw.transform_plugin.v1~x.core.oagw.nonexistent.v1"
+    fake_plugin = "gts.cf.core.oagw.transform_plugin.v1~cf.core.oagw.nonexistent.v1"
     async with httpx.AsyncClient(timeout=10.0) as client:
         upstream = await create_upstream(
             client, oagw_base_url, oagw_headers, mock_upstream_url,

@@ -42,7 +42,7 @@ Retry-After: 1
 X-OAGW-Error-Source: gateway
 
 {
-  "type": "gts.x.core.errors.err.v1~x.oagw.concurrency_limit.exceeded.v1",
+  "type": "gts.cf.core.errors.err.v1~cf.oagw.concurrency_limit.exceeded.v1",
   "title": "Concurrency Limit Exceeded",
   "status": 503,
   "detail": "Upstream api.openai.com at max concurrent requests (100/100)",
@@ -197,7 +197,7 @@ Retry-After: 2
 X-OAGW-Error-Source: gateway
 
 {
-  "type": "gts.x.core.errors.err.v1~x.oagw.queue.timeout.v1",
+  "type": "gts.cf.core.errors.err.v1~cf.oagw.queue.timeout.v1",
   "title": "Queue Timeout",
   "status": 503,
   "detail": "Request queued for 5s, no capacity available",
@@ -247,7 +247,7 @@ X-OAGW-Priority: 10
 Queue tracks estimated memory per request:
 
 ```
-memory_estimate = 
+memory_estimate =
     headers_size +
     body_size (if buffered) +
     metadata_overhead (∼200 bytes)
@@ -271,15 +271,15 @@ struct RequestQueue {
 impl RequestQueue {
     fn try_enqueue(&mut self, req: QueuedRequest) -> Result<(), QueueError> {
         let new_total = self.total_memory.load() + req.estimated_size;
-        
+
         if new_total > self.config.memory_limit {
             return Err(QueueError::MemoryLimitExceeded);
         }
-        
+
         if self.items.len() >= self.config.max_depth {
             return Err(QueueError::QueueFull);
         }
-        
+
         self.items.push_back(req);
         self.total_memory.fetch_add(req.estimated_size, Ordering::Relaxed);
         Ok(())
@@ -332,7 +332,7 @@ backoff_seconds = min(
 async fn handle_request(req: Request) -> Response {
     // 1. Check rate limit
     rate_limiter.check().await?;
-    
+
     // 2. Try acquire concurrency permit
     let permit = match concurrency_limiter.try_acquire() {
         Ok(p) => p,
@@ -344,10 +344,10 @@ async fn handle_request(req: Request) -> Response {
             queue.enqueue(req).await?
         }
     };
-    
+
     // 3. Execute request
     let response = upstream_client.send(req).await?;
-    
+
     // 4. Permit auto-released via Drop
     Ok(response)
 }
@@ -362,7 +362,7 @@ async fn queue_consumer(queue: RequestQueue, limiter: ConcurrencyLimiter) {
     loop {
         // Wait for permit
         let permit = limiter.acquire().await;
-        
+
         // Dequeue next request
         let req = match queue.dequeue().await {
             Some(req) if !req.is_expired() => req,
@@ -376,7 +376,7 @@ async fn queue_consumer(queue: RequestQueue, limiter: ConcurrencyLimiter) {
                 continue;
             }
         };
-        
+
         // Execute request
         tokio::spawn(async move {
             let response = execute_request(req).await;
@@ -440,7 +440,7 @@ oagw_retry_after_seconds{host} histogram
 
 ```json
 {
-  "type": "gts.x.core.errors.err.v1~x.oagw.queue.timeout.v1",
+  "type": "gts.cf.core.errors.err.v1~cf.oagw.queue.timeout.v1",
   "title": "Queue Timeout",
   "status": 503,
   "detail": "Request queued for 5s, no capacity available",
@@ -451,7 +451,7 @@ oagw_retry_after_seconds{host} histogram
 
 ```json
 {
-  "type": "gts.x.core.errors.err.v1~x.oagw.queue.full.v1",
+  "type": "gts.cf.core.errors.err.v1~cf.oagw.queue.full.v1",
   "title": "Queue Full",
   "status": 503,
   "detail": "Request queue full (500/500), try again later",
@@ -463,7 +463,7 @@ oagw_retry_after_seconds{host} histogram
 
 ```json
 {
-  "type": "gts.x.core.errors.err.v1~x.oagw.queue.memory_limit.v1",
+  "type": "gts.cf.core.errors.err.v1~cf.oagw.queue.memory_limit.v1",
   "title": "Queue Memory Limit Exceeded",
   "status": 503,
   "detail": "Request queue memory limit reached (10MB/10MB)",

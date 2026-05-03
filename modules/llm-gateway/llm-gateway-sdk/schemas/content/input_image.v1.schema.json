@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "gts://gts.x.llmgw.content.input_image.v1~",
+  "$id": "gts://gts.cf.llmgw.content.input_image.v1~",
   "title": "InputImage",
   "description": "Input image content part. At least one of image_url or file_id must be provided.",
   "type": "object",

@@ -684,7 +684,7 @@ impl RoutePayload {
 
 /// Extract the instance UUID from a GTS identifier string.
 ///
-/// Given `gts.x.core.oagw.upstream.v1~<hex-uuid>`, returns `Some(<Uuid>)`.
+/// Given `gts.cf.core.oagw.upstream.v1~<hex-uuid>`, returns `Some(<Uuid>)`.
 fn extract_gts_instance_uuid(gts_id: &str) -> Option<Uuid> {
     let instance = gts_id.rsplit('~').next()?;
     Uuid::parse_str(instance).ok()
@@ -697,7 +697,7 @@ fn require_gts_instance_uuid(gts_id: &str) -> Result<Uuid, DomainError> {
         DomainError::validation(format!(
             "GTS entity '{gts_id}' has a non-UUID instance segment; \
              OAGW requires upstream and route $id values to end with a UUID \
-             (e.g. gts.x.core.oagw.upstream.v1~<uuid>)"
+             (e.g. gts.cf.core.oagw.upstream.v1~<uuid>)"
         ))
     })
 }
@@ -795,7 +795,7 @@ mod tests {
             "server": {
                 "endpoints": [{"host": "127.0.0.1", "port": 8080, "scheme": "http"}]
             },
-            "protocol": "gts.x.core.oagw.protocol.v1~x.core.oagw.http.v1",
+            "protocol": "gts.cf.core.oagw.protocol.v1~cf.core.oagw.http.v1",
             "enabled": true,
             "tags": []
         })
@@ -822,7 +822,7 @@ mod tests {
         let tenant = Uuid::new_v4();
         let instance_id = Uuid::new_v4();
         let content = upstream_content(tenant);
-        let gts_id = format!("gts.x.core.oagw.upstream.v1~{instance_id}");
+        let gts_id = format!("gts.cf.core.oagw.upstream.v1~{instance_id}");
 
         let registry = Arc::new(
             MockTypesRegistryClient::new()
@@ -842,7 +842,7 @@ mod tests {
         let registry =
             Arc::new(
                 MockTypesRegistryClient::new().with_instances([make_upstream_instance(
-                    "gts.x.core.oagw.upstream.v1~x.core.oagw.test.v1",
+                    "gts.cf.core.oagw.upstream.v1~cf.core.oagw.test.v1",
                     upstream_content(Uuid::new_v4()),
                 )]),
             );
@@ -859,7 +859,7 @@ mod tests {
     #[tokio::test]
     async fn list_upstreams_rejects_invalid_content() {
         let instance_id = Uuid::new_v4();
-        let gts_id = format!("gts.x.core.oagw.upstream.v1~{instance_id}");
+        let gts_id = format!("gts.cf.core.oagw.upstream.v1~{instance_id}");
         let registry =
             Arc::new(
                 MockTypesRegistryClient::new().with_instances([make_upstream_instance(
@@ -904,7 +904,7 @@ mod tests {
         let upstream_id = Uuid::new_v4();
         let route_instance_id = Uuid::new_v4();
         let content = route_content(tenant, upstream_id);
-        let gts_id = format!("gts.x.core.oagw.route.v1~{route_instance_id}");
+        let gts_id = format!("gts.cf.core.oagw.route.v1~{route_instance_id}");
 
         let registry = Arc::new(
             MockTypesRegistryClient::new().with_instances([make_route_instance(&gts_id, content)]),
@@ -924,7 +924,7 @@ mod tests {
         let registry =
             Arc::new(
                 MockTypesRegistryClient::new().with_instances([make_route_instance(
-                    "gts.x.core.oagw.route.v1~x.core.oagw.test.v1",
+                    "gts.cf.core.oagw.route.v1~cf.core.oagw.test.v1",
                     route_content(Uuid::new_v4(), Uuid::new_v4()),
                 )]),
             );
@@ -941,7 +941,7 @@ mod tests {
     #[tokio::test]
     async fn list_routes_rejects_invalid_content() {
         let instance_id = Uuid::new_v4();
-        let gts_id = format!("gts.x.core.oagw.route.v1~{instance_id}");
+        let gts_id = format!("gts.cf.core.oagw.route.v1~{instance_id}");
         let registry =
             Arc::new(
                 MockTypesRegistryClient::new().with_instances([make_route_instance(
@@ -980,7 +980,7 @@ mod tests {
         assert_eq!(queries.len(), 1);
         assert_eq!(
             queries[0].pattern.as_deref(),
-            Some("gts.x.core.oagw.upstream.v1~*")
+            Some("gts.cf.core.oagw.upstream.v1~*")
         );
     }
 
@@ -994,7 +994,7 @@ mod tests {
         assert_eq!(queries.len(), 1);
         assert_eq!(
             queries[0].pattern.as_deref(),
-            Some("gts.x.core.oagw.route.v1~*")
+            Some("gts.cf.core.oagw.route.v1~*")
         );
     }
 
@@ -1013,7 +1013,7 @@ mod tests {
                     {"scheme": "http", "host": "fallback.local", "port": 8080}
                 ]
             },
-            "protocol": "gts.x.core.oagw.protocol.v1~x.core.oagw.http.v1",
+            "protocol": "gts.cf.core.oagw.protocol.v1~cf.core.oagw.http.v1",
             "alias": "openai",
             "auth": {
                 "type": "apikey",
@@ -1042,7 +1042,7 @@ mod tests {
         assert_eq!(req.server.endpoints[1].scheme, domain::Scheme::Http);
         assert_eq!(
             req.protocol,
-            "gts.x.core.oagw.protocol.v1~x.core.oagw.http.v1"
+            "gts.cf.core.oagw.protocol.v1~cf.core.oagw.http.v1"
         );
         assert_eq!(req.alias.as_deref(), Some("openai"));
         assert!(req.enabled);
@@ -1095,7 +1095,7 @@ mod tests {
         let payload: RoutePayload = serde_json::from_value(json).unwrap();
         let route_uuid = Uuid::new_v4();
         let provisioned = payload
-            .into_provisioned("gts.x.core.oagw.route.v1~x.core.oagw.test.v1", route_uuid)
+            .into_provisioned("gts.cf.core.oagw.route.v1~cf.core.oagw.test.v1", route_uuid)
             .expect("upstream_id should parse");
 
         assert_eq!(provisioned.tenant_id, tenant);

@@ -9,42 +9,45 @@ use oagw_sdk::api::ErrorSource;
 // GTS error type constants
 // ---------------------------------------------------------------------------
 
-pub(crate) const ERR_VALIDATION: &str = "gts.x.core.errors.err.v1~x.oagw.validation.error.v1";
-pub(crate) const ERR_CONFLICT: &str = "gts.x.core.errors.err.v1~x.oagw.resource.conflict.v1";
+pub(crate) const ERR_VALIDATION: &str = "gts.cf.core.errors.err.v1~cf.oagw.validation.error.v1";
+pub(crate) const ERR_CONFLICT: &str = "gts.cf.core.errors.err.v1~cf.oagw.resource.conflict.v1";
 pub(crate) const ERR_MISSING_TARGET_HOST: &str =
-    "gts.x.core.errors.err.v1~x.oagw.routing.missing_target_host.v1";
+    "gts.cf.core.errors.err.v1~cf.oagw.routing.missing_target_host.v1";
 pub(crate) const ERR_INVALID_TARGET_HOST: &str =
-    "gts.x.core.errors.err.v1~x.oagw.routing.invalid_target_host.v1";
+    "gts.cf.core.errors.err.v1~cf.oagw.routing.invalid_target_host.v1";
 pub(crate) const ERR_UNKNOWN_TARGET_HOST: &str =
-    "gts.x.core.errors.err.v1~x.oagw.routing.unknown_target_host.v1";
-pub(crate) const ERR_AUTH_FAILED: &str = "gts.x.core.errors.err.v1~x.oagw.auth.failed.v1";
-pub(crate) const ERR_NOT_FOUND: &str = "gts.x.core.errors.err.v1~x.oagw.resource.not_found.v1";
-pub(crate) const ERR_ROUTE_NOT_FOUND: &str = "gts.x.core.errors.err.v1~x.oagw.route.not_found.v1";
+    "gts.cf.core.errors.err.v1~cf.oagw.routing.unknown_target_host.v1";
+pub(crate) const ERR_AUTH_FAILED: &str = "gts.cf.core.errors.err.v1~cf.oagw.auth.failed.v1";
+pub(crate) const ERR_NOT_FOUND: &str = "gts.cf.core.errors.err.v1~cf.oagw.resource.not_found.v1";
+pub(crate) const ERR_ROUTE_NOT_FOUND: &str = "gts.cf.core.errors.err.v1~cf.oagw.route.not_found.v1";
 pub(crate) const ERR_PAYLOAD_TOO_LARGE: &str =
-    "gts.x.core.errors.err.v1~x.oagw.payload.too_large.v1";
+    "gts.cf.core.errors.err.v1~cf.oagw.payload.too_large.v1";
 pub(crate) const ERR_RATE_LIMIT_EXCEEDED: &str =
-    "gts.x.core.errors.err.v1~x.oagw.rate_limit.exceeded.v1";
-pub(crate) const ERR_SECRET_NOT_FOUND: &str = "gts.x.core.errors.err.v1~x.oagw.secret.not_found.v1";
-pub(crate) const ERR_DOWNSTREAM: &str = "gts.x.core.errors.err.v1~x.oagw.downstream.error.v1";
-pub(crate) const ERR_PROTOCOL: &str = "gts.x.core.errors.err.v1~x.oagw.protocol.error.v1";
+    "gts.cf.core.errors.err.v1~cf.oagw.rate_limit.exceeded.v1";
+pub(crate) const ERR_SECRET_NOT_FOUND: &str =
+    "gts.cf.core.errors.err.v1~cf.oagw.secret.not_found.v1";
+pub(crate) const ERR_DOWNSTREAM: &str = "gts.cf.core.errors.err.v1~cf.oagw.downstream.error.v1";
+pub(crate) const ERR_PROTOCOL: &str = "gts.cf.core.errors.err.v1~cf.oagw.protocol.error.v1";
 pub(crate) const ERR_UPSTREAM_DISABLED: &str =
-    "gts.x.core.errors.err.v1~x.oagw.routing.upstream_disabled.v1";
+    "gts.cf.core.errors.err.v1~cf.oagw.routing.upstream_disabled.v1";
 pub(crate) const ERR_CONNECTION_TIMEOUT: &str =
-    "gts.x.core.errors.err.v1~x.oagw.timeout.connection.v1";
-pub(crate) const ERR_REQUEST_TIMEOUT: &str = "gts.x.core.errors.err.v1~x.oagw.timeout.request.v1";
-pub(crate) const ERR_GUARD_REJECTED: &str = "gts.x.core.errors.err.v1~x.oagw.guard.rejected.v1";
+    "gts.cf.core.errors.err.v1~cf.oagw.timeout.connection.v1";
+pub(crate) const ERR_REQUEST_TIMEOUT: &str = "gts.cf.core.errors.err.v1~cf.oagw.timeout.request.v1";
+pub(crate) const ERR_GUARD_REJECTED: &str = "gts.cf.core.errors.err.v1~cf.oagw.guard.rejected.v1";
 pub(crate) const ERR_CORS_ORIGIN_NOT_ALLOWED: &str =
-    "gts.x.core.errors.err.v1~x.oagw.cors.origin_not_allowed.v1";
+    "gts.cf.core.errors.err.v1~cf.oagw.cors.origin_not_allowed.v1";
 pub(crate) const ERR_CORS_METHOD_NOT_ALLOWED: &str =
-    "gts.x.core.errors.err.v1~x.oagw.cors.method_not_allowed.v1";
-pub(crate) const ERR_STREAM_ABORTED: &str = "gts.x.core.errors.err.v1~x.oagw.stream.aborted.v1";
-pub(crate) const ERR_LINK_UNAVAILABLE: &str = "gts.x.core.errors.err.v1~x.oagw.link.unavailable.v1";
+    "gts.cf.core.errors.err.v1~cf.oagw.cors.method_not_allowed.v1";
+pub(crate) const ERR_STREAM_ABORTED: &str = "gts.cf.core.errors.err.v1~cf.oagw.stream.aborted.v1";
+pub(crate) const ERR_LINK_UNAVAILABLE: &str =
+    "gts.cf.core.errors.err.v1~cf.oagw.link.unavailable.v1";
 pub(crate) const ERR_CIRCUIT_BREAKER_OPEN: &str =
-    "gts.x.core.errors.err.v1~x.oagw.circuit_breaker.open.v1";
-pub(crate) const ERR_IDLE_TIMEOUT: &str = "gts.x.core.errors.err.v1~x.oagw.timeout.idle.v1";
-pub(crate) const ERR_PLUGIN_NOT_FOUND: &str = "gts.x.core.errors.err.v1~x.oagw.plugin.not_found.v1";
-pub(crate) const ERR_PLUGIN_IN_USE: &str = "gts.x.core.errors.err.v1~x.oagw.plugin.in_use.v1";
-pub(crate) const ERR_FORBIDDEN: &str = "gts.x.core.errors.err.v1~x.oagw.authz.forbidden.v1";
+    "gts.cf.core.errors.err.v1~cf.oagw.circuit_breaker.open.v1";
+pub(crate) const ERR_IDLE_TIMEOUT: &str = "gts.cf.core.errors.err.v1~cf.oagw.timeout.idle.v1";
+pub(crate) const ERR_PLUGIN_NOT_FOUND: &str =
+    "gts.cf.core.errors.err.v1~cf.oagw.plugin.not_found.v1";
+pub(crate) const ERR_PLUGIN_IN_USE: &str = "gts.cf.core.errors.err.v1~cf.oagw.plugin.in_use.v1";
+pub(crate) const ERR_FORBIDDEN: &str = "gts.cf.core.errors.err.v1~cf.oagw.authz.forbidden.v1";
 
 // ---------------------------------------------------------------------------
 // DomainError → Problem helpers

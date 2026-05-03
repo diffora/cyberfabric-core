@@ -222,7 +222,7 @@ mod tests {
             .get_or_init(|| async move {
                 calls_a.fetch_add(1, Ordering::SeqCst);
                 Ok::<_, std::convert::Infallible>(
-                    "gts.x.core.modkit.plugin.v1~x.core.test.plugin.v1~a.test._.plugin.v1"
+                    "gts.cf.core.modkit.plugin.v1~cf.core.test.plugin.v1~vendor.a.test.plugin.v1"
                         .to_owned(),
                 )
             })
@@ -234,7 +234,7 @@ mod tests {
             .get_or_init(|| async move {
                 calls_b.fetch_add(1, Ordering::SeqCst);
                 Ok::<_, std::convert::Infallible>(
-                    "gts.x.core.modkit.plugin.v1~x.core.test.plugin.v1~b.test._.plugin.v1"
+                    "gts.cf.core.modkit.plugin.v1~cf.core.test.plugin.v1~vendor.b.test.plugin.v1"
                         .to_owned(),
                 )
             })
@@ -255,14 +255,14 @@ mod tests {
             .get_or_init(|| async move {
                 calls_a.fetch_add(1, Ordering::SeqCst);
                 Ok::<_, std::convert::Infallible>(
-                    "gts.x.core.modkit.plugin.v1~x.core.test.plugin.v1~a.test._.plugin.v1"
+                    "gts.cf.core.modkit.plugin.v1~cf.core.test.plugin.v1~vendor.a.test.plugin.v1"
                         .to_owned(),
                 )
             })
             .await;
         assert_eq!(
             &*id_a.unwrap(),
-            "gts.x.core.modkit.plugin.v1~x.core.test.plugin.v1~a.test._.plugin.v1"
+            "gts.cf.core.modkit.plugin.v1~cf.core.test.plugin.v1~vendor.a.test.plugin.v1"
         );
         assert_eq!(calls.load(Ordering::SeqCst), 1);
         assert!(selector.reset().await);
@@ -272,14 +272,14 @@ mod tests {
             .get_or_init(|| async move {
                 calls_b.fetch_add(1, Ordering::SeqCst);
                 Ok::<_, std::convert::Infallible>(
-                    "gts.x.core.modkit.plugin.v1~x.core.test.plugin.v1~b.test._.plugin.v1"
+                    "gts.cf.core.modkit.plugin.v1~cf.core.test.plugin.v1~vendor.b.test.plugin.v1"
                         .to_owned(),
                 )
             })
             .await;
         assert_eq!(
             &*id_b.unwrap(),
-            "gts.x.core.modkit.plugin.v1~x.core.test.plugin.v1~b.test._.plugin.v1"
+            "gts.cf.core.modkit.plugin.v1~cf.core.test.plugin.v1~vendor.b.test.plugin.v1"
         );
         assert_eq!(calls.load(Ordering::SeqCst), 2);
     }
@@ -300,7 +300,7 @@ mod tests {
                         tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
                         calls.fetch_add(1, Ordering::SeqCst);
                         Ok::<_, std::convert::Infallible>(
-                            "gts.x.core.modkit.plugin.v1~x.core.test.plugin.v1~concurrent.test._.plugin.v1"
+                            "gts.cf.core.modkit.plugin.v1~cf.core.test.plugin.v1~vendor.concurrent.test.plugin.v1"
                                 .to_owned(),
                         )
                     })
@@ -318,7 +318,7 @@ mod tests {
         for id in &results {
             assert_eq!(
                 &**id,
-                "gts.x.core.modkit.plugin.v1~x.core.test.plugin.v1~concurrent.test._.plugin.v1"
+                "gts.cf.core.modkit.plugin.v1~cf.core.test.plugin.v1~vendor.concurrent.test.plugin.v1"
             );
         }
 

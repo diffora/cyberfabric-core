@@ -10,7 +10,7 @@
   "plugins": {
     "sharing": "inherit",
     "items": [
-      "gts.x.core.oagw.transform_plugin.v1~x.core.oagw.logging.v1"
+      "gts.cf.core.oagw.transform_plugin.v1~cf.core.oagw.logging.v1"
     ]
   }
 }
@@ -22,7 +22,7 @@
 {
   "plugins": {
     "items": [
-      "gts.x.core.oagw.transform_plugin.v1~x.core.oagw.metrics.v1"
+      "gts.cf.core.oagw.transform_plugin.v1~cf.core.oagw.metrics.v1"
     ]
   }
 }

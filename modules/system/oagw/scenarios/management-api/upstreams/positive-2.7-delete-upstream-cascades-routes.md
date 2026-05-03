@@ -8,7 +8,7 @@
 ## Delete upstream
 
 ```http
-DELETE /api/oagw/v1/upstreams/gts.x.core.oagw.upstream.v1~<uuid> HTTP/1.1
+DELETE /api/oagw/v1/upstreams/gts.cf.core.oagw.upstream.v1~<uuid> HTTP/1.1
 Host: oagw.example.com
 Authorization: Bearer <tenant-token>
 ```

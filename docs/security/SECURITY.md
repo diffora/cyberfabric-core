@@ -191,9 +191,9 @@ gts.<vendor>.<package>.<namespace>.<type>.v<MAJOR>[.<MINOR>]~
 
 **How GTS enables ABAC:**
 
-- **Token claims** — authenticated user tokens carry GTS type patterns in `token_scopes`, defining the capability ceiling for the subject (e.g., `["gts.x.core.srr.resource.v1~*"]` grants access to all SRR resource types under that schema).
+- **Token claims** — authenticated user tokens carry GTS type patterns in `token_scopes`, defining the capability ceiling for the subject (e.g., `["gts.cf.core.srr.resource.v1~*"]` grants access to all SRR resource types under that schema).
 - **Wildcard matching** — GTS supports segment-wise wildcard patterns (`*`), chain-aware evaluation, and attribute predicates for fine-grained policy expressions.
-- **Authorization resources** — PDP evaluations reference GTS-typed resources (e.g., `gts.x.core.oagw.proxy.v1~:invoke` for outbound gateway proxy access).
+- **Authorization resources** — PDP evaluations reference GTS-typed resources (e.g., `gts.cf.core.oagw.proxy.v1~:invoke` for outbound gateway proxy access).
 - **Secure ORM integration** *(under development)* — the `ScopableEntity` trait supports a `type_col` dimension. The planned flow: AuthZ Resolver (PDP) evaluates GTS type constraints → compiles them into `AccessScope` → Secure ORM translates to SQL `WHERE` clauses, automatically filtering rows by type at the database level.
 
 **Current implementation status:**
@@ -263,7 +263,7 @@ Every proxy request is authorized via `PolicyEnforcer` before routing:
 self.policy_enforcer
     .access_scope_with(
         &ctx,
-        &resources::PROXY,                      // gts.x.core.oagw.proxy.v1~
+        &resources::PROXY,                      // gts.cf.core.oagw.proxy.v1~
         actions::INVOKE,
         None,
         &AccessRequest::new()

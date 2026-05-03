@@ -149,7 +149,7 @@ modules:
           kind: openai_responses
           storage_kind: openai
           host: "api.openai.com"
-          auth_plugin_type: "gts.x.core.oagw.auth_plugin.v1~x.core.oagw.apikey.v1"
+          auth_plugin_type: "gts.cf.core.oagw.auth_plugin.v1~cf.core.oagw.apikey.v1"
           auth_config:
             header: "Authorization"
             prefix: "Bearer "
@@ -163,7 +163,7 @@ modules:
           api_version: "2025-03-01-preview"
           storage_backend: "azure"
           supports_file_search_filters: false
-          auth_plugin_type: "gts.x.core.oagw.auth_plugin.v1~x.core.oagw.apikey.v1"
+          auth_plugin_type: "gts.cf.core.oagw.auth_plugin.v1~cf.core.oagw.apikey.v1"
           auth_config:
             header: "api-key"
             prefix: ""

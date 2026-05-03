@@ -2060,7 +2060,7 @@ Pending and in-flight automatic summary work MUST be represented by the shared o
 | tenant_id | UUID | Owning tenant |
 | chat_id | UUID | Owning chat (one store per chat) |
 | vector_store_id | VARCHAR(128) | Provider vector store ID (OpenAI `vs_*` or Azure OpenAI equivalent) |
-| provider | VARCHAR(128) | Provider GTS identifier (e.g. `gts.x.genai.mini_chat.provider.v1~msft.azure.azure_ai.model_api.v1~`) |
+| provider | VARCHAR(128) | Provider GTS identifier (e.g. `gts.cf.genai.mini_chat.provider.v1~msft.azure.azure_ai.model_api.v1~`) |
 | file_count | INTEGER | Current number of indexed files (default 0) |
 | created_at | TIMESTAMPTZ | Creation time |
 
@@ -2347,7 +2347,7 @@ PEP -> PDP Request:
 ```jsonc
 {
   "subject": {
-    "type": "gts.x.core.security.subject_user.v1~",
+    "type": "gts.cf.core.security.subject_user.v1~",
     "id": "user-abc-123",
     "properties": { "tenant_id": "tenant-xyz-789" }
   },
@@ -2406,7 +2406,7 @@ PEP -> PDP Request:
 ```jsonc
 {
   "subject": {
-    "type": "gts.x.core.security.subject_user.v1~",
+    "type": "gts.cf.core.security.subject_user.v1~",
     "id": "user-abc-123",
     "properties": { "tenant_id": "tenant-xyz-789" }
   },
@@ -2470,7 +2470,7 @@ PEP -> PDP Request:
 ```jsonc
 {
   "subject": {
-    "type": "gts.x.core.security.subject_user.v1~",
+    "type": "gts.cf.core.security.subject_user.v1~",
     "id": "user-abc-123",
     "properties": { "tenant_id": "tenant-xyz-789" }
   },
@@ -3454,7 +3454,7 @@ Mini Chat MUST instrument Prometheus metrics on all critical paths so that suppo
 - Metrics MUST use the `mini_chat_` prefix.
 - Prometheus labels MUST NOT include high-cardinality identifiers such as `tenant_id`, `user_id`, `chat_id`, `request_id`, `provider_response_id`, filenames, or free-form error strings.
 - Allowed label sets MUST be limited to low-cardinality dimensions such as:
-  - `provider`: provider GTS identifier (low-cardinality — one value per configured provider, e.g. `gts.x.genai.mini_chat.provider.v1~msft.azure.azure_ai.model_api.v1~`)
+  - `provider`: provider GTS identifier (low-cardinality — one value per configured provider, e.g. `gts.cf.genai.mini_chat.provider.v1~msft.azure.azure_ai.model_api.v1~`)
   - `model`: limited set of pre-defined model identifiers from the model catalog (no auto-discovery)
   - `endpoint`: limited enumerated set
   - `decision`, `period` (`daily|monthly`), `trigger`, `tool`, `phase`, `result`, `status`
@@ -5098,8 +5098,8 @@ The authoritative source of actual token usage in P1 is the **provider-reported 
 
 These breakdown fields are captured and propagated through audit events and usage events for observability. **Credit computation in P1 uses only total `input_tokens` and `output_tokens`** — cached/reasoning token discounts are not applied. Future phases may introduce differentiated multipliers for cached tokens.
 
-**"Actual spend" in P1** refers strictly to **token-usage-based credits** computed via the canonical `credits_micro()` formula (section 5.3) applied to provider-reported token counts. No separate runtime billing signal is expected for tool execution, web search invocations, or RAG operations in P1. 
-Settlement in P1 is strictly based on provider-reported `input_tokens` and `output_tokens`. 
+**"Actual spend" in P1** refers strictly to **token-usage-based credits** computed via the canonical `credits_micro()` formula (section 5.3) applied to provider-reported token counts. No separate runtime billing signal is expected for tool execution, web search invocations, or RAG operations in P1.
+Settlement in P1 is strictly based on provider-reported `input_tokens` and `output_tokens`.
 Any internal provider overhead related to tool execution, web search, or retrieval that is not reflected
 in those token counts is not accounted for separately.
 This limitation is intentional and addressed by the deterministic fixed surcharges applied during reserve.

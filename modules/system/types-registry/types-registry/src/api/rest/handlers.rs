@@ -241,7 +241,7 @@ mod tests {
 
         let result = get_entity(
             Extension(service),
-            Path("gts.unknown.pkg.ns.type.v1~".to_owned()),
+            Path("gts.fabrikam.pkg.ns.type.v1~".to_owned()),
         )
         .await;
         assert!(result.is_err());

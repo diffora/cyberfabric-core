@@ -369,7 +369,7 @@ exceed the 5k rejection threshold during implementation.
 
 - **Data**:
 
-  - [ ] `p1` - `gts://gts.x.core.am.tenant_type.v1~`
+  - [ ] `p1` - `gts://gts.cf.core.am.tenant_type.v1~`
 
 ### 2.4 [Managed / Self-Managed Modes](./features/feature-managed-self-managed-modes.md) - HIGH
 
@@ -464,7 +464,7 @@ exceed the 5k rejection threshold during implementation.
   - Tenant-scoped user query: list users in a tenant and point-existence checks used by other features (e.g. callers combine this with Resource Group membership operations).
   - IdP unavailability contract: user operations fail with `idp_unavailable` rather than serving stale data — AM holds no local user table, projection, or membership cache.
   - Three REST user operations layered on top of the contract (listed under API below).
-  - User-identity schema reference (`gts://gts.x.core.am.user.v1~`) published for downstream consumers that need the user projection shape at tenant boundary.
+  - User-identity schema reference (`gts://gts.cf.core.am.user.v1~`) published for downstream consumers that need the user projection shape at tenant boundary.
 
 - **Out of scope**:
   - Conforming IdP plugin implementations (e.g. Keycloak adapter, Zitadel adapter, Dex adapter) — these live in separate crates and are delivered outside this feature and this module.
@@ -493,7 +493,7 @@ exceed the 5k rejection threshold during implementation.
   - [ ] `p1` - `cpt-cf-account-management-constraint-legacy-integration`
 
 - **Domain Model Entities**:
-  - `User` (IdP-owned projection referenced via the published `gts://gts.x.core.am.user.v1~` schema — AM never persists this entity locally)
+  - `User` (IdP-owned projection referenced via the published `gts://gts.cf.core.am.user.v1~` schema — AM never persists this entity locally)
   - `UserTenantBinding` (logical relationship owned by the IdP — AM stores no local binding table; the binding is verified via the contract at operation time)
   - `TenantId` (value object consumed at the contract boundary to scope every user operation to a tenant)
 
@@ -512,18 +512,18 @@ exceed the 5k rejection threshold during implementation.
 
 - **Data**:
 
-  - None. Per `cpt-cf-account-management-constraint-no-user-storage`, this feature owns no AM-side tables — user identity state lives in the IdP; the published user projection schema is `gts://gts.x.core.am.user.v1~`.
+  - None. Per `cpt-cf-account-management-constraint-no-user-storage`, this feature owns no AM-side tables — user identity state lives in the IdP; the published user projection schema is `gts://gts.cf.core.am.user.v1~`.
 
 ### 2.6 [User Groups (via Resource Group delegation)](./features/feature-user-groups.md) - HIGH
 
 - [ ] `p1` - **ID**: `cpt-cf-account-management-feature-user-groups`
 
-- **Purpose**: Orchestrate user groups entirely through delegation to the Resource Group module. Account Management registers the chained user-group type schema `gts.x.core.rg.type.v1~x.core.am.user_group.v1~` during module initialization, triggers cascade cleanup of user groups during tenant hard-deletion, and exposes AM's user-query surface so callers can combine user existence checks with Resource Group's membership operations. Account Management deliberately does not proxy CRUD or membership calls and owns no user-group tables — all group hierarchy, membership storage, cycle detection, and tenant-scoped isolation are performed by Resource Group.
+- **Purpose**: Orchestrate user groups entirely through delegation to the Resource Group module. Account Management registers the chained user-group type schema `gts.cf.core.rg.type.v1~cf.core.am.user_group.v1~` during module initialization, triggers cascade cleanup of user groups during tenant hard-deletion, and exposes AM's user-query surface so callers can combine user existence checks with Resource Group's membership operations. Account Management deliberately does not proxy CRUD or membership calls and owns no user-group tables — all group hierarchy, membership storage, cycle detection, and tenant-scoped isolation are performed by Resource Group.
 
 - **Depends On**: `cpt-cf-account-management-feature-tenant-hierarchy-management`, `cpt-cf-account-management-feature-idp-user-operations-contract`, `cpt-cf-account-management-feature-errors-observability`
 
 - **Scope**:
-  - Chained RG type-schema registration during AM module init for `gts.x.core.rg.type.v1~x.core.am.user_group.v1~`, with `allowed_memberships = [gts.x.core.am.user.v1~]` and `allowed_parents` permitting self-nesting for nested user groups.
+  - Chained RG type-schema registration during AM module init for `gts.cf.core.rg.type.v1~cf.core.am.user_group.v1~`, with `allowed_memberships = [gts.cf.core.am.user.v1~]` and `allowed_parents` permitting self-nesting for nested user groups.
   - Account-Management-side cascade cleanup trigger during tenant hard-deletion so Resource Group can remove the tenant's user-group subtree before the tenant row is deleted.
   - Exposure of AM's tenant-scoped user-query capability (from feature 5) as the valid user set that callers combine with Resource Group membership operations.
   - Documented delegation contract: consumers call `ResourceGroupClient` directly for group and membership operations; AM does not proxy.
@@ -553,7 +553,7 @@ exceed the 5k rejection threshold during implementation.
 - **Domain Model Entities**:
   - `UserGroup` (delegated view/adapter — delegated to Resource Group; not owned here)
   - `UserGroupMembership` (delegated adapter — delegated to Resource Group; not owned here)
-  - Chained type-schema reference `gts://gts.x.core.rg.type.v1~x.core.am.user_group.v1~` (registered by AM, schema body published for RG-side validation; AM stores no instance rows)
+  - Chained type-schema reference `gts://gts.cf.core.rg.type.v1~cf.core.am.user_group.v1~` (registered by AM, schema body published for RG-side validation; AM stores no instance rows)
 
 - **Design Components**:
 
@@ -638,7 +638,7 @@ exceed the 5k rejection threshold during implementation.
 - **Data**:
 
   - `cpt-cf-account-management-dbtable-tenant-metadata` (tenant-scoped metadata storage; the table stores only directly-written values, per ADR-0002).
-  - [ ] `p2` - `gts://gts.x.core.am.tenant_metadata.v1~` (base envelope schema with `x-gts-traits-schema.inheritance_policy`; derived metadata schemas are GTS-registered at runtime).
+  - [ ] `p2` - `gts://gts.cf.core.am.tenant_metadata.v1~` (base envelope schema with `x-gts-traits-schema.inheritance_policy`; derived metadata schemas are GTS-registered at runtime).
 
 ### 2.8 [Errors & Observability](./features/feature-errors-observability.md) - HIGH
 

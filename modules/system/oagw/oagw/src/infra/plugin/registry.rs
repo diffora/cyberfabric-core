@@ -203,7 +203,7 @@ mod tests {
     #[test]
     fn unknown_plugin_returns_error() {
         let registry = make_registry();
-        let err = registry.resolve("gts.x.core.oagw.auth_plugin.v1~x.core.oagw.unknown.v1");
+        let err = registry.resolve("gts.cf.core.oagw.auth_plugin.v1~cf.core.oagw.unknown.v1");
         assert!(err.is_err());
     }
 
@@ -216,7 +216,7 @@ mod tests {
     #[test]
     fn unknown_guard_plugin_returns_error() {
         let registry = GuardPluginRegistry::with_builtins();
-        let err = registry.resolve("gts.x.core.oagw.guard_plugin.v1~x.core.oagw.unknown.v1");
+        let err = registry.resolve("gts.cf.core.oagw.guard_plugin.v1~cf.core.oagw.unknown.v1");
         assert!(err.is_err());
     }
 
@@ -237,7 +237,7 @@ mod tests {
     #[test]
     fn unknown_transform_plugin_returns_error() {
         let registry = TransformPluginRegistry::with_builtins();
-        let err = registry.resolve("gts.x.core.oagw.transform_plugin.v1~x.core.oagw.unknown.v1");
+        let err = registry.resolve("gts.cf.core.oagw.transform_plugin.v1~cf.core.oagw.unknown.v1");
         assert!(err.is_err());
     }
 

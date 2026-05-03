@@ -94,7 +94,7 @@ s2s_oauth:
   #   subject_tenant_id: "tenant_id"
 
   # Fallback `subject_type` when the S2S token lacks the claim (common with client_credentials tokens).
-  default_subject_type: "gts.x.core.security.subject_user.v1~"
+  default_subject_type: "gts.cf.core.security.subject_user.v1~"
 
   token_cache:
     ttl: 300s                         # TTL is min(expires_in, this value)

@@ -37,7 +37,7 @@ pub enum InvocationMode {
 }
 
 /// Invocation lifecycle status. Matches the short enum values in the
-/// `gts.x.core.serverless.status.v1~` GTS schema.
+/// `gts.cf.core.serverless.status.v1~` GTS schema.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum InvocationStatus {
     Queued,
@@ -141,7 +141,7 @@ pub struct ResponseCachingPolicy {
 /// Applies to both sync and async invocation modes.
 ///
 /// `strategy` is the GTS type ID of the rate limiter plugin (derived from
-/// `gts.x.core.serverless.rate_limit.v1~`); `config` is the strategy-specific
+/// `gts.cf.core.serverless.rate_limit.v1~`); `config` is the strategy-specific
 /// settings as an opaque JSON object validated by the resolved plugin.
 #[derive(Clone, Debug)]
 pub struct RateLimit {
@@ -154,7 +154,7 @@ pub struct RateLimit {
 }
 
 /// System-default token bucket rate limiter configuration.
-/// GTS ID: gts.x.core.serverless.rate_limit.v1~x.core.serverless.rate_limit.token_bucket.v1~
+/// GTS ID: gts.cf.core.serverless.rate_limit.v1~cf.core.serverless.rate_limit.token_bucket.v1~
 ///
 /// Both per-second and per-minute limits are enforced independently.
 /// `burst_size` applies to the per-second bucket only.
@@ -246,7 +246,7 @@ pub struct RetryPolicy {
 /// Implementation with explicit adapter for limits validation.
 #[derive(Clone, Debug)]
 pub struct FunctionImplementation {
-    /// GTS type ID of the adapter (e.g., gts.x.core.serverless.adapter.starlark.v1~)
+    /// GTS type ID of the adapter (e.g., gts.cf.core.serverless.adapter.starlark.v1~)
     pub adapter: GtsId,
     pub kind: ImplementationKind,
     pub payload: ImplementationPayload,
@@ -432,7 +432,7 @@ pub struct TenantRetention {
 
 #[derive(Clone, Debug)]
 pub struct TenantPolicies {
-    /// Allowed adapter GTS type IDs (e.g., gts.x.core.serverless.adapter.starlark.v1~).
+    /// Allowed adapter GTS type IDs (e.g., gts.cf.core.serverless.adapter.starlark.v1~).
     /// Validated against `implementation.adapter` at function registration time.
     pub allowed_runtimes: Vec<GtsId>,
     /// When true, function publishing requires administrative approval.
@@ -469,7 +469,7 @@ pub enum RuntimeErrorCategory {
 
 #[derive(Clone, Debug)]
 pub struct RuntimeErrorPayload {
-    /// GTS error type ID (e.g., gts.x.core.serverless.err.v1~x.core.serverless.err.validation.v1~)
+    /// GTS error type ID (e.g., gts.cf.core.serverless.err.v1~cf.core.serverless.err.validation.v1~)
     pub error_type_id: GtsId,
     pub message: String,
     pub category: RuntimeErrorCategory,
@@ -722,7 +722,7 @@ pub trait ServerlessRuntime: Send + Sync {
 ##### Additional Rust Types
 
 ```rust
-/// GTS ID: gts.x.core.serverless.err.v1~x.core.serverless.err.validation.v1~
+/// GTS ID: gts.cf.core.serverless.err.v1~cf.core.serverless.err.validation.v1~
 /// Validation error extending base error, containing multiple issues.
 /// Returned only when validation fails; success returns the validated definition.
 #[derive(Clone, Debug)]
@@ -844,7 +844,7 @@ pub enum UsageGranularity {
     Weekly,
 }
 
-/// GTS ID: gts.x.core.serverless.timeline_event.v1~
+/// GTS ID: gts.cf.core.serverless.timeline_event.v1~
 #[derive(Clone, Debug)]
 pub struct InvocationTimelineEvent {
     pub at: OffsetDateTime,

@@ -464,8 +464,8 @@ Mixed named and UUID-backed plugin references in an upstream configuration:
   "upstream": {
     "plugins": {
       "items": [
-        "gts.x.core.oagw.transform_plugin.v1~x.core.oagw.logging.v1",
-        "gts.x.core.oagw.guard_plugin.v1~550e8400-e29b-41d4-a716-446655440000"
+        "gts.cf.core.oagw.transform_plugin.v1~cf.core.oagw.logging.v1",
+        "gts.cf.core.oagw.guard_plugin.v1~550e8400-e29b-41d4-a716-446655440000"
       ]
     }
   }
@@ -479,8 +479,8 @@ Named plugins have `plugin_uuid = NULL`; UUID-backed plugins have both `plugin_r
 ```sql
 -- oagw_upstream_plugin join table
 INSERT INTO oagw_upstream_plugin (upstream_id, position, plugin_ref, plugin_uuid, config) VALUES
-  ('upstream-uuid', 0, 'gts.x.core.oagw.transform_plugin.v1~x.core.oagw.logging.v1', NULL, '{"log_level":"debug"}'),
-  ('upstream-uuid', 1, 'gts.x.core.oagw.guard_plugin.v1~550e8400-e29b-41d4-a716-446655440000', '550e8400-e29b-41d4-a716-446655440000', '{"max_body_size":1048576}');
+  ('upstream-uuid', 0, 'gts.cf.core.oagw.transform_plugin.v1~cf.core.oagw.logging.v1', NULL, '{"log_level":"debug"}'),
+  ('upstream-uuid', 1, 'gts.cf.core.oagw.guard_plugin.v1~550e8400-e29b-41d4-a716-446655440000', '550e8400-e29b-41d4-a716-446655440000', '{"max_body_size":1048576}');
 ```
 
 ## More Information

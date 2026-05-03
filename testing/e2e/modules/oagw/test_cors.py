@@ -233,7 +233,7 @@ async def test_cors_credentials_with_wildcard_rejected(
                         {"host": "127.0.0.1", "port": 19876, "scheme": "http"},
                     ],
                 },
-                "protocol": "gts.x.core.oagw.protocol.v1~x.core.oagw.http.v1",
+                "protocol": "gts.cf.core.oagw.protocol.v1~cf.core.oagw.http.v1",
                 "alias": alias,
                 "enabled": True,
                 "cors": {

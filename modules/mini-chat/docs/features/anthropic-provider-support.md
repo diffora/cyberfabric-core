@@ -417,7 +417,7 @@ providers:
     host: "api.anthropic.com"
     api_path: "/v1/messages"
     rag_provider: "azure_openai"
-    auth_plugin_type: "gts.x.core.oagw.auth_plugin.v1~x.core.oagw.apikey.v1"
+    auth_plugin_type: "gts.cf.core.oagw.auth_plugin.v1~cf.core.oagw.apikey.v1"
     auth_config:
       header: "x-api-key"
       prefix: ""
@@ -433,7 +433,7 @@ providers:
     host: "${AZURE_FOUNDRY_HOST}"
     api_path: "/anthropic/v1/messages"
     rag_provider: "azure_openai"
-    auth_plugin_type: "gts.x.core.oagw.auth_plugin.v1~x.core.oagw.apikey.v1"
+    auth_plugin_type: "gts.cf.core.oagw.auth_plugin.v1~cf.core.oagw.apikey.v1"
     auth_config:
       header: "api-key"
       prefix: ""
@@ -449,7 +449,7 @@ providers:
     host: "myinstance.openai.azure.com"
     storage_kind: azure
     api_version: "2025-03-01-preview"
-    auth_plugin_type: "gts.x.core.oagw.auth_plugin.v1~x.core.oagw.apikey.v1"
+    auth_plugin_type: "gts.cf.core.oagw.auth_plugin.v1~cf.core.oagw.apikey.v1"
     auth_config:
       header: "api-key"
       prefix: ""

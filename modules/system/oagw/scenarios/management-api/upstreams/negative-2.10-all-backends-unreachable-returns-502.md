@@ -31,7 +31,7 @@ X-OAGW-Error-Source: gateway
 Content-Type: application/problem+json
 
 {
-  "type": "gts.x.core.errors.err.v1~x.oagw.proxy.downstream_error.v1",
+  "type": "gts.cf.core.errors.err.v1~cf.oagw.proxy.downstream_error.v1",
   "title": "Downstream Error",
   "status": 502,
   "detail": "Connection refused or timed out to all configured endpoints",
