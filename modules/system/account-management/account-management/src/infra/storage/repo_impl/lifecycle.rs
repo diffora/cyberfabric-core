@@ -79,6 +79,12 @@ pub(super) async fn insert_provisioning(
     // from the AlreadyExists/409 contract documented elsewhere.
     let model: tenants::Model = tenants::Entity::insert(am)
         .secure()
+        // TODO(InTenantSubtree): once the predicate lands and AM
+        // declares the `tenant_hierarchy` capability, INSERTs may
+        // start carrying meaningful scope (e.g. "caller may insert
+        // only under their own subtree"). Until then this bypass is
+        // explicit at the call site for greppability —
+        // `rg "TODO(InTenantSubtree)"` lists every bypass in one pass.
         .scope_unchecked(scope)
         .map_err(map_scope_err)?
         .exec_with_returning(&conn)
@@ -253,6 +259,10 @@ pub(super) async fn activate_tenant(
                     // trust the caller-supplied barriers.
                     let parent_closure_rows = tenant_closure::Entity::find()
                         .secure()
+                        // TODO(InTenantSubtree): closure traversal is
+                        // structural and intentionally bypasses caller
+                        // scope; revisit once the predicate lands so
+                        // `rg "TODO(InTenantSubtree)"` lists every bypass.
                         .scope_with(&AccessScope::allow_all())
                         .filter(
                             Condition::all()
@@ -506,6 +516,10 @@ pub(super) async fn compensate_provisioning(
             Box::pin(async move {
                 let existing = tenants::Entity::find()
                     .secure()
+                    // TODO(InTenantSubtree): system-actor compensation
+                    // path; safe under current trait contract. Revisit
+                    // when the predicate lands so the bypass is
+                    // greppable in one pass.
                     .scope_with(&AccessScope::allow_all())
                     .filter(id_eq(tenant_id))
                     .one(tx)
@@ -531,6 +545,8 @@ pub(super) async fn compensate_provisioning(
                                 ),
                             )
                             .secure()
+                            // TODO(InTenantSubtree): system-actor compensation
+                            // delete; same posture as the read above.
                             .scope_with(&AccessScope::allow_all())
                             .exec(tx)
                             .await
@@ -585,6 +601,9 @@ pub(super) async fn hard_delete_one(
                 // calls below match this rationale.
                 let existing = tenants::Entity::find()
                     .secure()
+                    // TODO(InTenantSubtree): hard-delete is the
+                    // retention-pipeline / system-actor path; bypass
+                    // intentional, kept greppable.
                     .scope_with(&AccessScope::allow_all())
                     .filter(id_eq(id))
                     .one(tx)
@@ -615,6 +634,8 @@ pub(super) async fn hard_delete_one(
                 // footgun for any future caller that doesn't.
                 let children = tenants::Entity::find()
                     .secure()
+                    // TODO(InTenantSubtree): structural child-existence
+                    // guard runs as system-actor.
                     .scope_with(&AccessScope::allow_all())
                     .filter(Condition::all().add(tenants::Column::ParentId.eq(id)))
                     .count(tx)
@@ -641,6 +662,7 @@ pub(super) async fn hard_delete_one(
                             .add(tenant_closure::Column::DescendantId.eq(id)),
                     )
                     .secure()
+                    // TODO(InTenantSubtree): closure cleanup; system-actor.
                     .scope_with(&AccessScope::allow_all())
                     .exec(tx)
                     .await
@@ -659,6 +681,7 @@ pub(super) async fn hard_delete_one(
                 tenant_metadata::Entity::delete_many()
                     .filter(Condition::all().add(tenant_metadata::Column::TenantId.eq(id)))
                     .secure()
+                    // TODO(InTenantSubtree): metadata cleanup; system-actor.
                     .scope_with(&AccessScope::allow_all())
                     .exec(tx)
                     .await
@@ -669,6 +692,7 @@ pub(super) async fn hard_delete_one(
                 tenants::Entity::delete_many()
                     .filter(id_eq(id))
                     .secure()
+                    // TODO(InTenantSubtree): tenant row delete; system-actor.
                     .scope_with(&AccessScope::allow_all())
                     .exec(tx)
                     .await

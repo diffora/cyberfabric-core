@@ -33,6 +33,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 
 async-trait = { workspace = true }
+fnv = { workspace = true }
 
 sea-orm = { workspace = true }
 sea-orm-migration = { workspace = true }

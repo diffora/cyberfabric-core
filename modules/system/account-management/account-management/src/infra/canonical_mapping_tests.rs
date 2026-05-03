@@ -7,7 +7,7 @@
 //! `From<DbError> for DomainError` produce the right typed
 //! `DomainError` variants for each SQLSTATE / outage signal.
 
-use modkit_canonical_errors::CanonicalError;
+use modkit_canonical_errors::{CanonicalError, Problem};
 
 use super::classify_db_err_to_domain;
 use crate::domain::error::DomainError;
@@ -129,5 +129,39 @@ fn dberror_other_routes_to_internal_with_redacted_diagnostic() {
     assert!(
         description.contains("redacted"),
         "description must come from redacted_db_diagnostic: {description}"
+    );
+}
+
+/// `DomainError::Internal { diagnostic, .. }` carries the diagnostic
+/// string as input to `CanonicalError::internal(...)`. The
+/// `feature-errors-observability` contract states the diagnostic
+/// **MUST NOT** reach the public `Problem` body — it is meant for
+/// audit-only consumption (the `Internal` variant's docstring on
+/// `domain::error::DomainError` says so explicitly).
+///
+/// Pin that contract here by constructing an `Internal` with a
+/// distinctive sentinel diagnostic, lifting it into a
+/// `CanonicalError`, and asserting the sentinel never appears in the
+/// JSON-serialized envelope. This guards against any future change to
+/// `modkit_canonical_errors::context::InternalV1` that would drop the
+/// `#[serde(skip)]` on `description` and start leaking diagnostics
+/// into HTTP responses.
+#[test]
+fn internal_diagnostic_is_not_serialized_into_canonical_envelope() {
+    let sentinel = "INTERNAL-DIAGNOSTIC-SENTINEL-7f3a2c";
+    let domain = DomainError::Internal {
+        diagnostic: sentinel.to_owned(),
+        cause: None,
+    };
+    let canonical = CanonicalError::from(domain);
+    // The public HTTP boundary serializes through `Problem` (RFC 9457
+    // envelope), not `CanonicalError` directly. Drive the conversion
+    // and serde-encode the resulting envelope to mirror what a REST
+    // consumer actually receives over the wire.
+    let problem = Problem::from(canonical);
+    let envelope = serde_json::to_string(&problem).expect("problem envelope must serialize");
+    assert!(
+        !envelope.contains(sentinel),
+        "Internal diagnostic leaked into the public Problem envelope: {envelope}"
     );
 }

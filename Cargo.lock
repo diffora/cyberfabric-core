@@ -1345,6 +1345,7 @@ dependencies = [
  "cf-modkit-db-macros",
  "cf-modkit-macros",
  "cf-modkit-security",
+ "fnv",
  "futures",
  "proptest",
  "sea-orm",

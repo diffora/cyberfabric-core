@@ -283,6 +283,13 @@ async-stream = { version = "0.3" }
 dashmap = "6.1"
 arc-swap = "1.7"
 
+# Stable, deterministic hasher for non-cryptographic correlation
+# digests (operator-log forensics). Unlike `std::hash::DefaultHasher`,
+# the FNV-1a output is pinned to a specification — digests stay stable
+# across Rust toolchain upgrades, so audit records emitted by older
+# binaries still correlate with newer ones.
+fnv = "1.0"
+
 # Security
 zeroize = { version = "1", features = ["derive"] }
 aliri_tokens = { version = "0.3", default-features = false, features = ["rand"] }

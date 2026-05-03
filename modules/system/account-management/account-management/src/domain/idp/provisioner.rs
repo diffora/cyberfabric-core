@@ -36,10 +36,10 @@
 //!   compensation rules match the `CleanFailure` path (nothing was ever
 //!   written provider-side).
 
-use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
 use async_trait::async_trait;
+use fnv::FnvHasher;
 use modkit_macros::domain_model;
 use serde_json::Value;
 use uuid::Uuid;
@@ -54,8 +54,19 @@ use crate::domain::error::DomainError;
 /// across `am.idp` log events and audit rows; the inverse mapping
 /// stays inside the audit-only `Internal::diagnostic` field where
 /// access is governed by the audit-storage policy.
+///
+/// FNV-1a is chosen over [`std::hash::DefaultHasher`] precisely because
+/// `DefaultHasher`'s output is **not guaranteed stable** between Rust
+/// versions (stdlib doc: "the algorithms used … are not specified").
+/// A toolchain upgrade would break correlation between audit records
+/// emitted by older binaries and newer ones — the inverse of what a
+/// forensic correlation handle is for. FNV-1a's spec is pinned, so
+/// `digest=0x{...}` matches across upgrades. Collision resistance is
+/// not a concern here: this is a non-cryptographic forensic handle,
+/// not a security primitive (the inverse mapping is held in the
+/// audit-only `diagnostic` field).
 fn redact_provider_detail(detail: &str) -> (u64, usize) {
-    let mut hasher = DefaultHasher::new();
+    let mut hasher = FnvHasher::default();
     detail.hash(&mut hasher);
     (hasher.finish(), detail.chars().count())
 }

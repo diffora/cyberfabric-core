@@ -65,15 +65,30 @@ pub fn is_due(now: OffsetDateTime, scheduled_at: OffsetDateTime, retention: Dura
 }
 
 /// Leaf-first stable ordering for the hard-delete batch:
-/// `depth DESC` (deepest first) then `id ASC` (tie-breaker).
+/// `(depth DESC, deletion_scheduled_at ASC, id ASC)`.
 ///
-/// Sorting the batch leaf-first is what lets `hard_delete_one` succeed
-/// under the `ON DELETE RESTRICT` parent-FK from Phase 1: children are
-/// reclaimed before their parents, so the parent's in-tx child-existence
-/// guard always finds the table empty when its turn arrives.
+/// `depth DESC` is what lets `hard_delete_one` succeed under the
+/// `ON DELETE RESTRICT` parent-FK from Phase 1: children are reclaimed
+/// before their parents, so the parent's in-tx child-existence guard
+/// always finds the table empty when its turn arrives.
+///
+/// `deletion_scheduled_at ASC` is the second key — it mirrors the
+/// scanner contract (`scan_retention_due` returns rows in
+/// `(depth DESC, deletion_scheduled_at ASC, id ASC)` order to prevent
+/// starvation: among siblings at the same depth, the tenant scheduled
+/// earliest goes first). Dropping it as a tiebreaker would make the
+/// hard-delete batch order siblings by `id` only — a tenant scheduled
+/// last could randomly beat one scheduled first if its UUID sorted
+/// earlier. `id ASC` is the final deterministic tiebreaker for rows
+/// scheduled at the exact same instant.
 #[must_use]
 pub fn order_batch_leaf_first(mut rows: Vec<TenantRetentionRow>) -> Vec<TenantRetentionRow> {
-    rows.sort_by(|a, b| b.depth.cmp(&a.depth).then_with(|| a.id.cmp(&b.id)));
+    rows.sort_by(|a, b| {
+        b.depth
+            .cmp(&a.depth)
+            .then_with(|| a.deletion_scheduled_at.cmp(&b.deletion_scheduled_at))
+            .then_with(|| a.id.cmp(&b.id))
+    });
     rows
 }
 
@@ -212,89 +227,5 @@ pub struct ReaperResult {
 
 #[cfg(test)]
 #[cfg_attr(coverage_nightly, coverage(off))]
-#[allow(
-    clippy::duration_suboptimal_units,
-    clippy::expect_used,
-    clippy::missing_panics_doc,
-    reason = "test helpers"
-)]
-mod tests {
-    use super::*;
-
-    fn ts(secs: i64) -> OffsetDateTime {
-        OffsetDateTime::from_unix_timestamp(secs).expect("valid epoch")
-    }
-
-    #[test]
-    fn is_due_crosses_boundary_inclusive() {
-        let scheduled = ts(1_000_000);
-        let win = Duration::from_secs(60);
-        // Before boundary — not due.
-        assert!(!is_due(ts(1_000_000 + 59), scheduled, win));
-        // On boundary — due (inclusive).
-        assert!(is_due(ts(1_000_000 + 60), scheduled, win));
-        // Past boundary — due.
-        assert!(is_due(ts(1_000_000 + 61), scheduled, win));
-    }
-
-    #[test]
-    fn is_due_rejects_invalid_retention_window() {
-        let scheduled = ts(1_000_000);
-        assert!(!is_due(ts(1_000_001), scheduled, Duration::MAX));
-    }
-
-    #[test]
-    fn order_batch_leaf_first_sorts_depth_desc() {
-        let a = TenantRetentionRow {
-            id: Uuid::from_u128(0x1),
-            depth: 1,
-            deletion_scheduled_at: ts(100),
-            retention_window: Duration::from_secs(60),
-            claimed_by: Uuid::nil(),
-        };
-        let b = TenantRetentionRow {
-            id: Uuid::from_u128(0x2),
-            depth: 3,
-            deletion_scheduled_at: ts(100),
-            retention_window: Duration::from_secs(60),
-            claimed_by: Uuid::nil(),
-        };
-        let c = TenantRetentionRow {
-            id: Uuid::from_u128(0x3),
-            depth: 2,
-            deletion_scheduled_at: ts(100),
-            retention_window: Duration::from_secs(60),
-            claimed_by: Uuid::nil(),
-        };
-        let d = TenantRetentionRow {
-            id: Uuid::from_u128(0x4),
-            // tie with `c` on depth=2; id order decides
-            depth: 2,
-            deletion_scheduled_at: ts(100),
-            retention_window: Duration::from_secs(60),
-            claimed_by: Uuid::nil(),
-        };
-        let ordered = order_batch_leaf_first(vec![a.clone(), b.clone(), c.clone(), d.clone()]);
-        assert_eq!(
-            ordered.iter().map(|r| r.id).collect::<Vec<_>>(),
-            vec![b.id, c.id, d.id, a.id]
-        );
-    }
-
-    #[test]
-    fn hard_delete_result_tally_counts_correctly() {
-        let mut r = HardDeleteResult::default();
-        r.tally(&HardDeleteOutcome::Cleaned);
-        r.tally(&HardDeleteOutcome::DeferredChildPresent);
-        r.tally(&HardDeleteOutcome::CascadeTerminal);
-        r.tally(&HardDeleteOutcome::NotEligible);
-        // `IdpUnsupported` reports a successful DB teardown with an
-        // `IdP` no-op; the contract folds it into `cleaned`. The
-        // distinct metric label preserves the observability axis.
-        r.tally(&HardDeleteOutcome::IdpUnsupported);
-        assert_eq!(r.processed, 5);
-        assert_eq!(r.cleaned, 2);
-        assert_eq!(r.deferred, 1);
-        assert_eq!(r.failed, 1);
-    }
-}
+#[path = "retention_tests.rs"]
+mod tests;
