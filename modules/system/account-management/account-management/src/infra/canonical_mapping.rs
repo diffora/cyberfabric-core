@@ -328,6 +328,42 @@ impl From<DomainError> for CanonicalError {
                 builder.create()
             }
 
+            // `IdpUnavailable` reuses the same AIP-193 `ServiceUnavailable`
+            // envelope as the generic variant — the dedicated domain
+            // variant exists solely so the bootstrap retry loop can
+            // pattern-match on the IdP-availability source without
+            // sniffing `detail` strings; at the boundary the public
+            // shape collapses back to a single 503 family.
+            //
+            // Provider-supplied `detail` text (the constructor copies
+            // `CheckAvailabilityFailure::detail()` and `ProvisionFailure::detail`
+            // through verbatim) can carry vendor SDK strings, internal
+            // endpoint names, or other operator-meaningful but
+            // not-public-contract content. Mirror the
+            // `UnsupportedOperation` redaction policy: emit a generic
+            // public message and route the provider detail through the
+            // structured `am.domain` log instead so operators correlate
+            // by trace-id without exposing it through the public
+            // Problem envelope.
+            DomainError::IdpUnavailable { detail } => {
+                // Log a redacted digest + length rather than the raw
+                // provider detail: hostname / token / vendor SDK
+                // strings can otherwise reach the `am.domain`
+                // logfile even though the public envelope is
+                // generic. Mirrors the redaction policy applied at
+                // the saga layer in `domain::idp::redact_provider_detail`.
+                let (digest, len) = crate::domain::idp::redact_provider_detail(&detail);
+                warn!(
+                    target: "am.domain",
+                    detail_digest = digest,
+                    detail_len_chars = len,
+                    "IdpUnavailable surfaced; provider detail redacted for log/envelope safety"
+                );
+                CanonicalError::service_unavailable()
+                    .with_detail("IdP plugin unavailable")
+                    .create()
+            }
+
             // ---- Unimplemented (HTTP 501) ----
             DomainError::UnsupportedOperation { detail } => {
                 // Provider-supplied `detail` text can carry vendor
@@ -351,11 +387,11 @@ impl From<DomainError> for CanonicalError {
             }
 
             // ---- ResourceExhausted (HTTP 429) ----
-            DomainError::AuditAlreadyRunning { scope } => {
-                TenantResource::resource_exhausted("integrity audit already running")
+            DomainError::IntegrityCheckInProgress { scope } => {
+                TenantResource::resource_exhausted("integrity check already in progress")
                     .with_quota_violation(
-                        format!("integrity_audit:{scope}"),
-                        "another integrity audit is already running for this scope",
+                        format!("integrity_check:{scope}"),
+                        "another integrity check is already in progress for this scope",
                     )
                     .create()
             }

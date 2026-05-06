@@ -41,6 +41,26 @@ fn make_service(repo: Arc<FakeTenantRepo>, outcome: FakeOutcome) -> TenantServic
     )
 }
 
+/// Variant of [`make_service`] with `integrity_check.repair.enabled
+/// = true` so the repair-side service tests can drive the
+/// `repair_hierarchy_integrity` path without being blocked by the
+/// staged-rollout feature switch (default-off).
+fn make_service_repair_enabled(
+    repo: Arc<FakeTenantRepo>,
+    outcome: FakeOutcome,
+) -> TenantService<FakeTenantRepo> {
+    let mut cfg = AccountManagementConfig::default();
+    cfg.integrity_check.repair.enabled = true;
+    TenantService::new(
+        repo,
+        Arc::new(FakeIdpProvisioner::new(outcome)),
+        Arc::new(InertResourceOwnershipChecker),
+        crate::domain::tenant_type::inert_tenant_type_checker(),
+        mock_enforcer(),
+        cfg,
+    )
+}
+
 fn child_input(child_id: Uuid, parent_id: Uuid) -> CreateChildInput {
     CreateChildInput {
         child_id,
@@ -664,7 +684,7 @@ async fn update_tenant_rejects_oversized_name() {
 
 #[tokio::test]
 async fn closure_invariants_are_preserved_across_self_managed_path() {
-    // Layout: root(d=0,sm=false) → mid(d=1,sm=true) → leaf(d=2,sm=false)
+    // Layout: root(d=0,sm=false) -> mid(d=1,sm=true) -> leaf(d=2,sm=false)
     let root = Uuid::from_u128(0x100);
     let mid = Uuid::from_u128(0x110);
     let leaf = Uuid::from_u128(0x111);
@@ -928,7 +948,7 @@ async fn scan_retention_does_not_starve_due_rows_behind_older_not_due_backlog() 
     }
 
     // The single due row: explicit retention_window_secs = 0,
-    // scheduled now → due immediately.
+    // scheduled now -> due immediately.
     let due_id = Uuid::from_u128(0xDEED);
     {
         let mut state = repo.state.lock().expect("lock");
@@ -1953,10 +1973,325 @@ async fn hard_delete_batch_idp_terminal_parks_row_via_terminal_failure_at() {
     );
 }
 
-// `check_hierarchy_integrity_returns_all_category_report` ships
-// alongside the classifier set in the diagnostics PR -- the report
-// shape (`IntegrityCategory`, `IntegrityReport`) and its repo
-// contract (`audit_integrity_for_scope`) are not on the trait yet.
+#[tokio::test]
+async fn check_hierarchy_integrity_returns_one_entry_per_category_in_fixed_order() {
+    use crate::domain::tenant::integrity::{IntegrityCategory, IntegrityScope};
+
+    let root = Uuid::from_u128(0x100);
+    let repo = Arc::new(FakeTenantRepo::with_root(root));
+    let svc = make_service(repo, FakeOutcome::Ok);
+
+    let report = svc
+        .check_hierarchy_integrity(IntegrityScope::Whole)
+        .await
+        .expect("clean fake repo must yield a violation-free report");
+
+    let categories: Vec<IntegrityCategory> = report
+        .violations_by_category
+        .iter()
+        .map(|(cat, _)| *cat)
+        .collect();
+    assert_eq!(
+        categories,
+        IntegrityCategory::all().to_vec(),
+        "report categories must follow IntegrityCategory::all() order"
+    );
+    assert_eq!(report.scope, IntegrityScope::Whole);
+    assert_eq!(report.total(), 0, "trivial fake repo has no violations");
+    for (_, viols) in &report.violations_by_category {
+        assert!(viols.is_empty(), "every category must be zero-valued");
+    }
+}
+
+#[tokio::test]
+async fn check_hierarchy_integrity_subtree_scope_is_propagated() {
+    use crate::domain::tenant::integrity::IntegrityScope;
+
+    let root = Uuid::from_u128(0x100);
+    let repo = Arc::new(FakeTenantRepo::with_root(root));
+    let svc = make_service(repo, FakeOutcome::Ok);
+
+    let report = svc
+        .check_hierarchy_integrity(IntegrityScope::Subtree(root))
+        .await
+        .expect("subtree-scoped audit must succeed on clean fake repo");
+
+    assert_eq!(report.scope, IntegrityScope::Subtree(root));
+}
+
+#[tokio::test]
+async fn check_hierarchy_integrity_buckets_violations_into_fixed_categories() {
+    // Repo returns a flat `Vec<(category, violation)>` in arbitrary
+    // order; the service rebuckets it into the fixed
+    // `IntegrityCategory::all()` order with empty Vec entries for
+    // categories the repo did not surface. The flat shape gives the
+    // service room to deduplicate / merge if it ever wants to —
+    // pinning the rebucketing here protects that contract.
+    use crate::domain::tenant::integrity::{IntegrityCategory, IntegrityScope, Violation};
+
+    let root = Uuid::from_u128(0x100);
+    let repo = Arc::new(FakeTenantRepo::with_root(root));
+    repo.set_audit_violations(vec![
+        // Two violations on Cycle (third category in the fixed order).
+        (
+            IntegrityCategory::Cycle,
+            Violation {
+                category: IntegrityCategory::Cycle,
+                tenant_id: Some(Uuid::from_u128(0x200)),
+                details: "cycle a->b->a".into(),
+            },
+        ),
+        (
+            IntegrityCategory::Cycle,
+            Violation {
+                category: IntegrityCategory::Cycle,
+                tenant_id: Some(Uuid::from_u128(0x201)),
+                details: "cycle b->c->b".into(),
+            },
+        ),
+        // One on the LAST category — observable proof of fixed-order
+        // preservation regardless of repo emission order.
+        (
+            IntegrityCategory::DescendantStatusDivergence,
+            Violation {
+                category: IntegrityCategory::DescendantStatusDivergence,
+                tenant_id: Some(Uuid::from_u128(0x202)),
+                details: "stale descendant_status".into(),
+            },
+        ),
+    ]);
+    let svc = make_service(repo, FakeOutcome::Ok);
+
+    let report = svc
+        .check_hierarchy_integrity(IntegrityScope::Whole)
+        .await
+        .expect("audit returning violations must still produce a report");
+
+    let categories: Vec<IntegrityCategory> = report
+        .violations_by_category
+        .iter()
+        .map(|(cat, _)| *cat)
+        .collect();
+    assert_eq!(
+        categories,
+        IntegrityCategory::all().to_vec(),
+        "rebucketing must preserve IntegrityCategory::all() order"
+    );
+
+    let counts: Vec<(IntegrityCategory, usize)> = report
+        .violations_by_category
+        .iter()
+        .map(|(cat, v)| (*cat, v.len()))
+        .collect();
+    assert_eq!(
+        counts
+            .iter()
+            .copied()
+            .find(|(c, _)| *c == IntegrityCategory::Cycle)
+            .map(|(_, n)| n),
+        Some(2),
+        "Cycle bucket must have both violations"
+    );
+    assert_eq!(
+        counts
+            .iter()
+            .copied()
+            .find(|(c, _)| *c == IntegrityCategory::DescendantStatusDivergence)
+            .map(|(_, n)| n),
+        Some(1),
+        "DescendantStatusDivergence bucket must have its single violation"
+    );
+    // Every other category — empty.
+    for (cat, n) in &counts {
+        if !matches!(
+            cat,
+            IntegrityCategory::Cycle | IntegrityCategory::DescendantStatusDivergence
+        ) {
+            assert_eq!(*n, 0, "category {cat:?} must be empty in this scenario");
+        }
+    }
+    assert_eq!(report.total(), 3);
+}
+
+#[tokio::test]
+async fn check_hierarchy_integrity_propagates_repo_error() {
+    // If the repo refuses the audit (e.g. another worker holds the
+    // single-flight gate, surfacing as `IntegrityCheckInProgress`) the
+    // service `?`-propagates the error untouched. The metric / log
+    // emission paths are bypassed because no report exists to
+    // categorise — pinning this is what tells callers
+    // `IntegrityCheckInProgress` is observable on the public surface.
+    use crate::domain::tenant::integrity::IntegrityScope;
+
+    let root = Uuid::from_u128(0x100);
+    let repo = Arc::new(FakeTenantRepo::with_root(root));
+    repo.set_audit_error(DomainError::IntegrityCheckInProgress {
+        scope: "whole".into(),
+    });
+    let svc = make_service(repo, FakeOutcome::Ok);
+
+    let err = svc
+        .check_hierarchy_integrity(IntegrityScope::Whole)
+        .await
+        .expect_err("repo error must propagate");
+
+    assert!(
+        matches!(err, DomainError::IntegrityCheckInProgress { ref scope } if scope == "whole"),
+        "expected IntegrityCheckInProgress {{ scope: \"whole\" }}, got {err:?}"
+    );
+}
+
+#[tokio::test]
+async fn repair_hierarchy_integrity_rejects_when_disabled() {
+    use crate::domain::tenant::integrity::IntegrityScope;
+
+    let root = Uuid::from_u128(0x100);
+    let repo = Arc::new(FakeTenantRepo::with_root(root));
+    // Default config has `integrity_check.repair.enabled = false` —
+    // the on-demand entry MUST surface `UnsupportedOperation` and
+    // MUST NOT mutate `tenant_closure`.
+    let closure_before = repo.snapshot_closure();
+    let svc = make_service(repo.clone(), FakeOutcome::Ok);
+
+    let err = svc
+        .repair_hierarchy_integrity(IntegrityScope::Whole)
+        .await
+        .expect_err("repair must be rejected when disabled");
+    assert!(
+        matches!(err, DomainError::UnsupportedOperation { ref detail } if detail.contains("disabled")),
+        "expected UnsupportedOperation with 'disabled' detail, got {err:?}"
+    );
+
+    // Defence-in-depth: assert closure is bit-for-bit unchanged.
+    // A future regression that called the repo *before* the gate
+    // check would still leave the error visible here, but the
+    // closure mutation would slip past — this assertion closes
+    // that gap.
+    let closure_after = repo.snapshot_closure();
+    assert_eq!(
+        closure_before, closure_after,
+        "disabled repair must NOT mutate tenant_closure"
+    );
+}
+
+#[tokio::test]
+async fn repair_hierarchy_integrity_clean_repo_returns_empty_report() {
+    use crate::domain::tenant::integrity::IntegrityScope;
+
+    let root = Uuid::from_u128(0x100);
+    let repo = Arc::new(FakeTenantRepo::with_root(root));
+    let svc = make_service_repair_enabled(repo, FakeOutcome::Ok);
+
+    let report = svc
+        .repair_hierarchy_integrity(IntegrityScope::Whole)
+        .await
+        .expect("clean repair must succeed");
+
+    assert_eq!(report.total_repaired(), 0);
+    assert_eq!(report.total_deferred(), 0);
+    assert_eq!(
+        report.repaired_per_category.len(),
+        5,
+        "all 5 derivable categories present"
+    );
+    assert_eq!(
+        report.deferred_per_category.len(),
+        5,
+        "all 5 deferred categories present"
+    );
+    for (_, count) in &report.repaired_per_category {
+        assert_eq!(*count, 0);
+    }
+    for (_, count) in &report.deferred_per_category {
+        assert_eq!(*count, 0);
+    }
+}
+
+#[tokio::test]
+async fn repair_hierarchy_integrity_buckets_derivable_vs_deferred() {
+    use crate::domain::tenant::integrity::{IntegrityCategory, IntegrityScope, Violation};
+
+    let root = Uuid::from_u128(0x100);
+    let repo = Arc::new(FakeTenantRepo::with_root(root));
+    // 2× MissingClosureSelfRow (derivable) + 1× OrphanedChild
+    // (operator triage). Use `set_repair_violations` because the
+    // fake exposes a dedicated repair-side script slot independent
+    // of the check-side `next_audit_outcome` (see
+    // `FakeTenantRepo::repair_derivable_closure_violations` doc).
+    repo.set_repair_violations(vec![
+        (
+            IntegrityCategory::MissingClosureSelfRow,
+            Violation {
+                category: IntegrityCategory::MissingClosureSelfRow,
+                tenant_id: Some(Uuid::from_u128(0xA1)),
+                details: String::new(),
+            },
+        ),
+        (
+            IntegrityCategory::MissingClosureSelfRow,
+            Violation {
+                category: IntegrityCategory::MissingClosureSelfRow,
+                tenant_id: Some(Uuid::from_u128(0xA2)),
+                details: String::new(),
+            },
+        ),
+        (
+            IntegrityCategory::OrphanedChild,
+            Violation {
+                category: IntegrityCategory::OrphanedChild,
+                tenant_id: Some(Uuid::from_u128(0xB1)),
+                details: String::new(),
+            },
+        ),
+    ]);
+    let svc = make_service_repair_enabled(repo, FakeOutcome::Ok);
+
+    let report = svc
+        .repair_hierarchy_integrity(IntegrityScope::Whole)
+        .await
+        .expect("repair succeeds");
+
+    let missing_self_row = report
+        .repaired_per_category
+        .iter()
+        .find(|(c, _)| *c == IntegrityCategory::MissingClosureSelfRow)
+        .map(|(_, n)| *n)
+        .expect("missing-self-row entry present");
+    assert_eq!(
+        missing_self_row, 2,
+        "two derivable violations bucketed as repaired"
+    );
+
+    let orphan = report
+        .deferred_per_category
+        .iter()
+        .find(|(c, _)| *c == IntegrityCategory::OrphanedChild)
+        .map(|(_, n)| *n)
+        .expect("orphan entry present");
+    assert_eq!(orphan, 1, "non-derivable violation bucketed as deferred");
+}
+
+#[tokio::test]
+async fn repair_hierarchy_integrity_propagates_repo_error() {
+    use crate::domain::tenant::integrity::IntegrityScope;
+
+    let root = Uuid::from_u128(0x100);
+    let repo = Arc::new(FakeTenantRepo::with_root(root));
+    repo.set_repair_error(DomainError::IntegrityCheckInProgress {
+        scope: "whole".into(),
+    });
+    let svc = make_service_repair_enabled(repo, FakeOutcome::Ok);
+
+    let err = svc
+        .repair_hierarchy_integrity(IntegrityScope::Whole)
+        .await
+        .expect_err("gate-conflict error must propagate");
+
+    assert!(
+        matches!(err, DomainError::IntegrityCheckInProgress { ref scope } if scope == "whole"),
+        "expected IntegrityCheckInProgress {{ scope: \"whole\" }}, got {err:?}"
+    );
+}
 
 #[tokio::test]
 async fn hard_delete_concurrency_processes_siblings_in_parallel() {
@@ -2202,7 +2537,7 @@ async fn create_child_rejects_when_parent_type_not_in_child_allowed_parents() {
     assert_eq!(repo.snapshot_closure().len(), closure_before);
 }
 
-/// Barrier admits → saga proceeds and the checker observed exactly
+/// Barrier admits -> saga proceeds and the checker observed exactly
 /// one `(parent_type, child_type)` call with the right shape.
 #[tokio::test]
 async fn create_child_succeeds_when_parent_child_compatible() {
@@ -2372,7 +2707,7 @@ async fn create_child_accepts_same_type_nesting_when_allowed() {
 // as the rest of the module.
 // =================================================================
 
-/// F1 -- `Suspended → Deleted` soft-delete transition.
+/// F1 -- `Suspended -> Deleted` soft-delete transition.
 ///
 /// `model::TenantUpdate::validate_status_transition` admits
 /// `Suspended` as a source status, and `service::soft_delete` does
@@ -3181,7 +3516,7 @@ async fn reaper_terminal_counter_does_not_bump_on_lost_claim_during_mark() {
 }
 
 /// Test-only `IdP` that returns `DeprovisionFailure::NotFound`
-/// (success-equivalent → drives the reaper's `Compensable` path)
+/// (success-equivalent -> drives the reaper's `Compensable` path)
 /// AND, as a side effect of the call, rotates the row's claim to a
 /// peer worker AND stamps `terminal_failure_at`. Reproduces the
 /// race where worker A's `deprovision_tenant` exceeded

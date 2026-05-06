@@ -77,6 +77,28 @@ impl FakeIdpProvisioner {
     pub fn fail_availability_times(&self, failures: u32) {
         *self.availability_failures.lock().expect("lock") = failures;
     }
+
+    /// Mutate the provision outcome between calls. Tests that need to
+    /// flip from `FakeOutcome::CleanFailure` to `FakeOutcome::Ok` on
+    /// the second saga attempt (retry-then-finalize coverage) call
+    /// this between awaits.
+    pub fn set_outcome(&self, oc: FakeOutcome) {
+        *self.outcome.lock().expect("lock") = oc;
+    }
+
+    /// Read the current count of `provision_tenant` calls observed by
+    /// this fake. Used by retry-loop tests to assert the saga actually
+    /// advanced past `CleanFailure` rather than short-circuiting.
+    pub fn provision_call_count(&self) -> usize {
+        self.calls.lock().expect("lock").len()
+    }
+
+    /// Read the current count of `check_availability` calls observed
+    /// by this fake. Used by `wait_for_idp_availability` tests to pin
+    /// the attempt-count contract.
+    pub fn availability_call_count(&self) -> u32 {
+        *self.availability_calls.lock().expect("lock")
+    }
 }
 
 #[async_trait]

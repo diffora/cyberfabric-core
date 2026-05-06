@@ -30,6 +30,7 @@ use account_management_sdk::{ListChildrenQuery, ProvisionMetadataEntry, TenantPa
 
 use crate::domain::error::DomainError;
 use crate::domain::tenant::closure::ClosureRow;
+use crate::domain::tenant::integrity::{IntegrityCategory, IntegrityScope, Violation};
 use crate::domain::tenant::model::{ChildCountFilter, NewTenant, TenantModel, TenantStatus};
 use crate::domain::tenant::retention::{
     HardDeleteEligibility, HardDeleteOutcome, TenantProvisioningRow, TenantRetentionRow,
@@ -405,6 +406,118 @@ pub trait TenantRepo: Send + Sync {
         ancestor: Uuid,
         descendant: Uuid,
     ) -> Result<bool, DomainError>;
+
+    // ---- Hierarchy-integrity check -----------------------------------
+
+    /// Run the Rust-side hierarchy-integrity check and return the flat
+    /// list of violations the classifier pipeline produced.
+    ///
+    /// The implementation runs a **three-transaction lifecycle** (see
+    /// `crate::infra::storage::integrity::lock`): a short committed
+    /// `acquire` transaction inserts the per-scope `integrity_check_runs`
+    /// gate row (so concurrent contenders see it immediately and
+    /// surface [`DomainError::IntegrityCheckInProgress`] instead of
+    /// queueing on an uncommitted PK); a separate `REPEATABLE READ`
+    /// snapshot transaction loads `tenants` + `tenant_closure` (no
+    /// writes — purely read-only); and a final committed `release`
+    /// transaction deletes the gate row. The snapshot tx is therefore
+    /// safe under concurrent SI conflicts because it never writes.
+    ///
+    /// `integrity_scope` controls subtree filtering: pass
+    /// [`IntegrityScope::Whole`] for whole-tree checks, or
+    /// [`IntegrityScope::Subtree(root)`] to constrain tenants-side
+    /// classifiers to the subtree rooted at `root`. Subtree
+    /// membership is derived from `tenants.parent_id` (the source of
+    /// truth) — not from `tenant_closure`, which is the audit
+    /// target — so missing closure edges remain visible to the
+    /// orphan / cycle / strict-ancestor classifiers.
+    ///
+    /// The returned `Vec<(IntegrityCategory, Violation)>` is the flat
+    /// shape pinned by this trait; the service layer rebuckets it into
+    /// an [`crate::domain::tenant::integrity::IntegrityReport`] before
+    /// emitting per-category metrics.
+    ///
+    /// # Errors
+    ///
+    /// * [`DomainError::IntegrityCheckInProgress`] when another worker
+    ///   holds the per-scope gate (PK conflict on
+    ///   `integrity_check_runs.scope_key`).
+    /// * Any DB error from the snapshot SELECTs or the gate INSERT/DELETE,
+    ///   funnelled through the canonical
+    ///   [`From<modkit_db::DbError> for DomainError`] ladder.
+    async fn run_integrity_check_for_scope(
+        &self,
+        scope: &AccessScope,
+        integrity_scope: IntegrityScope,
+    ) -> Result<Vec<(IntegrityCategory, Violation)>, DomainError>;
+
+    /// Repair the derivable closure violations observable for `scope`
+    /// and return per-category counts of rows touched.
+    ///
+    /// "Derivable" categories are those whose correct closure shape
+    /// is fully determined by `tenants` + the `parent_id` walk
+    /// (closure is the denormalisation, `tenants` is authoritative):
+    ///
+    /// * [`IntegrityCategory::MissingClosureSelfRow`] — INSERT
+    ///   `(id, id, 0, status)` for tenants whose self-row is absent.
+    /// * [`IntegrityCategory::ClosureCoverageGap`] — INSERT
+    ///   `(ancestor, descendant, derived_barrier, status)` for missing
+    ///   strict ancestors.
+    /// * [`IntegrityCategory::BarrierColumnDivergence`] — UPDATE
+    ///   `barrier` to the parent-walk-derived value.
+    /// * [`IntegrityCategory::DescendantStatusDivergence`] — UPDATE
+    ///   `descendant_status` to `tenants.status` for every row
+    ///   pointing at the affected tenant.
+    /// * [`IntegrityCategory::StaleClosureRow`] — DELETE rows whose
+    ///   ancestry is not derivable from any in-snapshot parent walk
+    ///   (missing endpoint OR ancestry not in walk).
+    ///
+    /// The remaining five categories (`OrphanedChild`,
+    /// `BrokenParentReference`, `DepthMismatch`, `Cycle`,
+    /// `RootCountAnomaly`) indicate corruption in `tenants` itself
+    /// and are surfaced through
+    /// [`crate::domain::tenant::integrity::RepairReport::deferred_per_category`]
+    /// for operator triage — this method does NOT touch them.
+    ///
+    /// **Closure-only invariant**: this method NEVER writes to the
+    /// `tenants` table. The pure-Rust planner in
+    /// `infra/storage/integrity/repair.rs` operates over a read-only
+    /// snapshot of `tenants` and emits writes targeted exclusively at
+    /// `tenant_closure`.
+    ///
+    /// **Single-flight gate sharing**: repair acquires the same
+    /// per-scope `integrity_check_runs.scope_key` PK as
+    /// [`Self::run_integrity_check_for_scope`]. Concurrent
+    /// check-and-repair on the same scope is meaningless (the repair
+    /// would invalidate any check report produced in parallel), so
+    /// they serialise on the same gate; a contender on either side
+    /// surfaces [`DomainError::IntegrityCheckInProgress`].
+    ///
+    /// **Idempotency**: a clean snapshot returns
+    /// [`RepairReport::empty`](crate::domain::tenant::integrity::RepairReport::empty)
+    /// for the supplied `integrity_scope` with every per-category
+    /// count zero. Re-running repair on the post-repair state is a
+    /// no-op — exercised by the planner-side
+    /// `repair_then_repair_is_noop` test.
+    ///
+    /// Runs in one `SERIALIZABLE` transaction with retry — the
+    /// post-snapshot apply pass MUST observe the same MVCC view the
+    /// planner derived its corrections from, so concurrent saga
+    /// writes that race the apply boundary surface as 40001 abort and
+    /// re-plan on retry rather than producing a stale-write conflict.
+    ///
+    /// # Errors
+    ///
+    /// * [`DomainError::IntegrityCheckInProgress`] when another
+    ///   worker holds the per-scope gate.
+    /// * Any DB error from the snapshot SELECTs or the apply DML,
+    ///   funnelled through the canonical
+    ///   [`From<modkit_db::DbError> for DomainError`] ladder.
+    async fn repair_derivable_closure_violations(
+        &self,
+        scope: &AccessScope,
+        integrity_scope: IntegrityScope,
+    ) -> Result<crate::domain::tenant::integrity::RepairReport, DomainError>;
 
     // ---- Convenience helpers used by the service ----------------------
 

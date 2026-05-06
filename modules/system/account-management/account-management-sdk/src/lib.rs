@@ -26,9 +26,10 @@
 //! | `NotFound` / `MetadataSchemaNotRegistered` / `MetadataEntryNotFound` | `NotFound` | 404 |
 //! | `TenantHasChildren` / `TenantHasResources` / `TypeNotAllowed` / `TenantDepthExceeded` / `PendingExists` / `InvalidActorForTransition` / `AlreadyResolved` / `Conflict` | `FailedPrecondition` | 400 |
 //! | `CrossTenantDenied` | `PermissionDenied` | 403 |
-//! | `ServiceUnavailable` (covers former `IdpUnavailable`) | `ServiceUnavailable` | 503 |
+//! | `ServiceUnavailable` (generic infra outage / `IdP` plugin failure) | `ServiceUnavailable` | 503 |
+//! | `IdpUnavailable` (bootstrap retry-loop sentinel; same wire envelope as `ServiceUnavailable`) | `ServiceUnavailable` | 503 |
 //! | `UnsupportedOperation` (former `IdpUnsupportedOperation`) | `Unimplemented` | 501 |
-//! | `AuditAlreadyRunning` | `ResourceExhausted` | 429 |
+//! | `IntegrityCheckInProgress` | `ResourceExhausted` | 429 |
 //! | `Internal` + retry-exhausted serialization conflict (`Aborted`) + unique violation (`AlreadyExists`) + DB unavailability (`ServiceUnavailable`) | as listed | 500 / 409 / 409 / 503 |
 //!
 //! `ServiceUnavailable` carries `retry_after_seconds`; `Aborted` carries

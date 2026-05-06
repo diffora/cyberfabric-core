@@ -7,11 +7,17 @@
 //!   column for provisioning-reaper terminal-failure handling
 //!   (operator-action-required state that keeps the row out of the
 //!   automatic reaper retry loop).
+//! * `m0003_create_integrity_check_runs` —
+//!   `integrity_check_runs` single-flight gate table for the
+//!   Rust-side hierarchy-integrity check (`scope_key` PK provides
+//!   per-scope mutual exclusion, lifecycle-bound to the integrity-check
+//!   transaction).
 
 use sea_orm_migration::prelude::*;
 
 pub mod m0001_initial_schema;
 pub mod m0002_add_terminal_failure_columns;
+pub mod m0003_create_integrity_check_runs;
 
 pub struct Migrator;
 
@@ -21,6 +27,7 @@ impl MigratorTrait for Migrator {
         vec![
             Box::new(m0001_initial_schema::Migration),
             Box::new(m0002_add_terminal_failure_columns::Migration),
+            Box::new(m0003_create_integrity_check_runs::Migration),
         ]
     }
 }

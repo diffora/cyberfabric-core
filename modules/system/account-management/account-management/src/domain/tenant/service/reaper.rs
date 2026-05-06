@@ -372,19 +372,27 @@ impl<R: TenantRepo> TenantService<R> {
     }
 
     /// Physically remove the `Provisioning` row via
-    /// `TenantRepo::compensate_provisioning` and emit the audit
-    /// event for a row whose `IdP`-side cleanup is classified as
-    /// success-equivalent. Provisioning rows never become
-    /// SDK-visible, so reconciling them through the soft-delete +
-    /// retention pipeline (the previous `schedule_deletion`
-    /// approach) would leak tombstones — operators would see
-    /// `Deleted` rows in the DB long after the `IdP` teardown finished
-    /// and the retention pipeline would have to re-claim and
-    /// re-process the same row on a later tick. Deleting directly
-    /// here keeps the outcome local to one reaper tick.
+    /// `TenantRepo::compensate_provisioning` and emit a structured
+    /// `am.events` log line plus an `am_tenant_retention` metric
+    /// sample for a row whose `IdP`-side cleanup is classified as
+    /// success-equivalent. The `actor=system` audit record required
+    /// by FEATURE/PRD/DESIGN is **deferred to a follow-up** until
+    /// the platform append-only audit sink (event-bus) lands — see
+    /// `TODO(events)` below; the log line on the `am.events` target
+    /// is the v1 stand-in observers can correlate against the metric
+    /// until that sink exists.
     ///
-    /// Releases the claim regardless of outcome (the row is gone on
-    /// success; on infra failure a peer should retry next tick).
+    /// Provisioning rows never become SDK-visible, so reconciling
+    /// them through the soft-delete + retention pipeline (the
+    /// previous `schedule_deletion` approach) would leak tombstones —
+    /// operators would see `Deleted` rows in the DB long after the
+    /// `IdP` teardown finished and the retention pipeline would have
+    /// to re-claim and re-process the same row on a later tick.
+    /// Deleting directly here keeps the outcome local to one reaper
+    /// tick.
+    ///
+    /// Releases the claim only on infra failure (the row is gone on
+    /// success, including the `claimed_by` column).
     async fn compensate_provisioning_row(
         &self,
         scope: &AccessScope,
@@ -583,12 +591,4 @@ impl<R: TenantRepo> TenantService<R> {
             );
         }
     }
-
-    // `check_hierarchy_integrity` (the FEATURE "Hierarchy Integrity
-    // Audit" admin diagnostic API) lands together with the classifier
-    // set, snapshot loader, and `running_audits` single-flight gate in
-    // a subsequent PR. Storing it here pre-emptively would require
-    // committing the `IntegrityCategory` / `IntegrityReport` shapes to
-    // the public surface before the classifiers that produce them are
-    // ready, so the method ships in one bundle with its dependencies.
 }

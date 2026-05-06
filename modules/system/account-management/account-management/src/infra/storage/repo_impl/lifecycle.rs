@@ -53,30 +53,53 @@ pub(super) async fn insert_provisioning(
             Box::pin(async move {
                 use sea_orm::ActiveValue;
 
-                let parent_id = parent_id.ok_or_else(|| DomainError::Validation {
-                    detail: format!("child tenant {tenant_id} provisioning requires parent_id"),
-                })?;
-                let parent = tenants::Entity::find()
-                    .secure()
-                    .scope_with(&AccessScope::allow_all())
-                    .filter(id_eq(parent_id))
-                    .one(tx)
-                    .await
-                    .map_err(map_scope_to_tx)?
-                    .ok_or_else(|| DomainError::Validation {
-                        detail: format!("parent tenant {parent_id} not found"),
-                    })?;
-                if parent.status != TenantStatus::Active.as_smallint() {
+                // Root insert (`parent_id = None`) skips the parent-active fence:
+                // platform-bootstrap's `insert_root_provisioning` is the only
+                // caller and the schema enforces single-root via
+                // `ck_tenants_root_depth (parent_id IS NULL AND depth = 0)` plus
+                // the `ux_tenants_single_root` partial unique index. Child inserts
+                // (`parent_id = Some`) re-read the parent in the same TX and reject
+                // unless still Active so a concurrent soft-delete cannot commit a
+                // deleted parent while a new child is being provisioned.
+                //
+                // Pre-insert depth fence on the root branch: a malformed root
+                // with `depth != 0` would otherwise fall through and surface
+                // as `ck_tenants_root_depth` violation classified by the
+                // canonical mapping as `Internal` rather than the typed
+                // `Validation` the contract promises for hierarchy-shape
+                // errors. Fence here so the call site fails loudly with the
+                // right category before the round trip.
+                if parent_id.is_none() && depth != 0 {
                     return Err(DomainError::Validation {
-                        detail: format!("parent tenant {parent_id} is not active"),
+                        detail: format!(
+                            "root tenant {tenant_id} must have depth 0 (got {depth})"
+                        ),
                     }
                     .into());
+                }
+                if let Some(parent_id) = parent_id {
+                    let parent = tenants::Entity::find()
+                        .secure()
+                        .scope_with(&AccessScope::allow_all())
+                        .filter(id_eq(parent_id))
+                        .one(tx)
+                        .await
+                        .map_err(map_scope_to_tx)?
+                        .ok_or_else(|| DomainError::Validation {
+                            detail: format!("parent tenant {parent_id} not found"),
+                        })?;
+                    if parent.status != TenantStatus::Active.as_smallint() {
+                        return Err(DomainError::Validation {
+                            detail: format!("parent tenant {parent_id} is not active"),
+                        }
+                        .into());
+                    }
                 }
 
                 let now = OffsetDateTime::now_utc();
                 let am = tenants::ActiveModel {
                     id: ActiveValue::Set(tenant_id),
-                    parent_id: ActiveValue::Set(Some(parent_id)),
+                    parent_id: ActiveValue::Set(parent_id),
                     name: ActiveValue::Set(name),
                     status: ActiveValue::Set(TenantStatus::Provisioning.as_smallint()),
                     self_managed: ActiveValue::Set(self_managed),
