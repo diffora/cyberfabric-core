@@ -32,6 +32,7 @@ use account_management_sdk::{ListChildrenQuery, ProvisionMetadataEntry, TenantPa
 
 use crate::domain::error::DomainError;
 use crate::domain::tenant::closure::ClosureRow;
+use crate::domain::tenant::integrity::{IntegrityCategory, RepairReport, Violation};
 use crate::domain::tenant::model::{ChildCountFilter, NewTenant, TenantModel, TenantStatus};
 use crate::domain::tenant::repo::TenantRepo;
 use crate::domain::tenant::retention::{
@@ -50,6 +51,27 @@ pub enum NextActivationOutcome {
     #[default]
     Ok,
     InternalErr(String),
+}
+
+/// Test injection for `run_integrity_check`. The default `Ok`
+/// arm returns an empty violation list (a clean snapshot trivially
+/// passes every classifier); `Violations` lets callers script a
+/// non-empty bucket to drive the service-layer rebucketing path; and
+/// `Err` exercises error propagation (e.g.
+/// [`DomainError::IntegrityCheckInProgress`] surfacing through the
+/// `TenantService::check_hierarchy_integrity` `?` operator).
+///
+/// One-shot semantics (consumed via `mem::take` and reset to default
+/// after firing) — matches the [`NextActivationOutcome`] pattern and
+/// avoids a `Clone` bound on [`DomainError`] (which carries
+/// non-clonable [`std::error::Error`] cause chains).
+#[domain_model]
+#[derive(Debug, Default)]
+pub enum NextAuditOutcome {
+    #[default]
+    Ok,
+    Violations(Vec<(IntegrityCategory, Violation)>),
+    Err(DomainError),
 }
 
 #[domain_model]
@@ -78,6 +100,22 @@ pub struct RepoState {
     /// this with [`NextActivationOutcome::InternalErr`] to drive saga
     /// step 3 down its error branch without touching the `IdP`.
     pub next_activation_outcome: NextActivationOutcome,
+    /// One-shot control over the next `run_integrity_check_for_scope`
+    /// call (consumed via `mem::take` and reset to the default `Ok`
+    /// arm). Tests that drive multiple audits within one assertion
+    /// re-arm before each call.
+    pub next_audit_outcome: NextAuditOutcome,
+    /// Independent one-shot control over the next
+    /// `repair_derivable_closure_violations` call. Separate from
+    /// [`Self::next_audit_outcome`] so a service-level test that
+    /// exercises the production `check → auto-repair` chain can
+    /// script the check tick to surface violations AND the repair
+    /// tick to bucket a (possibly different) outcome — using the
+    /// same slot for both would let `mem::take` drain the script
+    /// during the check, leaving the repair on the default empty
+    /// path and silently weakening combined-flow coverage.
+    /// Defaults to the same `Ok` arm as `next_audit_outcome`.
+    pub next_repair_outcome: NextAuditOutcome,
 }
 
 #[domain_model]
@@ -238,6 +276,38 @@ impl FakeTenantRepo {
     pub fn expect_next_activation_failure(&self, detail: impl Into<String>) {
         self.state.lock().expect("lock").next_activation_outcome =
             NextActivationOutcome::InternalErr(detail.into());
+    }
+
+    /// Script `run_integrity_check_for_scope` to return a non-empty
+    /// violation list. Drives the `TenantService::check_hierarchy_integrity`
+    /// rebucketing path that the trivial default cannot exercise.
+    pub fn set_audit_violations(&self, pairs: Vec<(IntegrityCategory, Violation)>) {
+        self.state.lock().expect("lock").next_audit_outcome = NextAuditOutcome::Violations(pairs);
+    }
+
+    /// Script `run_integrity_check_for_scope` to return a domain error.
+    /// Used to verify error propagation through
+    /// `TenantService::check_hierarchy_integrity`.
+    pub fn set_audit_error(&self, err: DomainError) {
+        self.state.lock().expect("lock").next_audit_outcome = NextAuditOutcome::Err(err);
+    }
+
+    /// Script `repair_derivable_closure_violations` to return a
+    /// non-empty violation list (the fake re-buckets it through the
+    /// production category-split contract). Independent slot from
+    /// [`Self::set_audit_violations`] so a combined check → repair
+    /// flow (e.g. service-level `auto_after_check` coverage) can
+    /// arm both ticks without one tick draining the other's script
+    /// via `mem::take`.
+    pub fn set_repair_violations(&self, pairs: Vec<(IntegrityCategory, Violation)>) {
+        self.state.lock().expect("lock").next_repair_outcome = NextAuditOutcome::Violations(pairs);
+    }
+
+    /// Script `repair_derivable_closure_violations` to surface a
+    /// domain error. Independent of [`Self::set_audit_error`] for
+    /// the same reason as [`Self::set_repair_violations`].
+    pub fn set_repair_error(&self, err: DomainError) {
+        self.state.lock().expect("lock").next_repair_outcome = NextAuditOutcome::Err(err);
     }
 
     /// Seed a soft-deleted child under `parent` with retention=0 so
@@ -427,19 +497,34 @@ impl TenantRepo for FakeTenantRepo {
                 detail: format!("tenant {} already exists", tenant.id),
             });
         }
-        let parent_id = tenant.parent_id.ok_or_else(|| DomainError::Validation {
-            detail: format!("child tenant {} provisioning requires parent_id", tenant.id),
-        })?;
-        let parent = state
-            .tenants
-            .get(&parent_id)
-            .ok_or_else(|| DomainError::Validation {
-                detail: format!("parent tenant {parent_id} not found"),
-            })?;
-        if !matches!(parent.status, TenantStatus::Active) {
-            return Err(DomainError::Validation {
-                detail: format!("parent tenant {parent_id} is not active"),
+        // Mirror the production `ux_tenants_single_root` partial
+        // unique index: at most one row may have `parent_id IS NULL`.
+        // Without this guard, bootstrap/idempotency tests can pass
+        // against a second-root state the real repo can never
+        // persist, and the configured-root-id-drift detection in
+        // `BootstrapService::run` (the consecutive `AlreadyExists`
+        // streak) would never trip in fake-backed tests.
+        if tenant.parent_id.is_none() && state.tenants.values().any(|t| t.parent_id.is_none()) {
+            return Err(DomainError::AlreadyExists {
+                detail: "root tenant already exists".to_owned(),
             });
+        }
+        // Root-tenant insert (`parent_id = None`) bypasses the parent
+        // existence + status check — it is the platform-bootstrap
+        // saga's `insert_root_provisioning` path. Child inserts go
+        // through the parent-active fence below.
+        if let Some(parent_id) = tenant.parent_id {
+            let parent = state
+                .tenants
+                .get(&parent_id)
+                .ok_or_else(|| DomainError::Validation {
+                    detail: format!("parent tenant {parent_id} not found"),
+                })?;
+            if !matches!(parent.status, TenantStatus::Active) {
+                return Err(DomainError::Validation {
+                    detail: format!("parent tenant {parent_id} is not active"),
+                });
+            }
         }
         state.tenants.insert(tenant.id, model.clone());
         Ok(model)
@@ -1003,6 +1088,122 @@ impl TenantRepo for FakeTenantRepo {
             .iter()
             .any(|r| r.ancestor_id == ancestor && r.descendant_id == descendant))
     }
+
+    /// Integrity-audit fake.
+    ///
+    /// Default (`NextAuditOutcome::Ok`): the in-memory state never
+    /// violates any invariant the classifier pipeline checks (closure
+    /// is rebuilt from `parent_id` walks on every write, status mirrors
+    /// the tenant row), so an empty violation list matches a clean
+    /// snapshot.
+    ///
+    /// Scripted (`Violations(_)` / `Err(_)`): set via
+    /// [`Self::set_audit_violations`] / [`Self::set_audit_error`] to
+    /// drive the service-layer rebucketing + error-propagation paths
+    /// that the trivial default cannot exercise. Tests that need to
+    /// drive the production classifier directly construct an
+    /// `infra::storage::integrity::Snapshot` and invoke `run_classifiers`
+    /// instead of going through the trait.
+    async fn run_integrity_check(
+        &self,
+        _scope: &AccessScope,
+    ) -> Result<Vec<(IntegrityCategory, Violation)>, DomainError> {
+        let outcome = std::mem::take(&mut self.state.lock().expect("lock").next_audit_outcome);
+        match outcome {
+            NextAuditOutcome::Ok => Ok(Vec::new()),
+            NextAuditOutcome::Violations(pairs) => Ok(pairs),
+            NextAuditOutcome::Err(err) => Err(err),
+        }
+    }
+
+    /// Test-side analogue for the production repair planner.
+    /// Consumes the dedicated one-shot `next_repair_outcome` queue
+    /// (independent of [`Self::run_integrity_check_for_scope`]'s
+    /// `next_audit_outcome`) so service-layer tests can script a
+    /// `check → auto_after_check → repair` flow without one
+    /// `mem::take` draining the other's outcome.
+    ///
+    /// Behaviour:
+    ///
+    /// * `NextAuditOutcome::Ok` (default) → empty `RepairReport`
+    ///   with all derivable + deferred categories at zero (matches
+    ///   a clean snapshot).
+    /// * `NextAuditOutcome::Violations(pairs)` → buckets each pair
+    ///   by [`IntegrityCategory::is_derivable`] using the same
+    ///   per-category collapsing the production planner applies:
+    ///   `DescendantStatusDivergence` is one logical update per
+    ///   descendant (matches `RepairPlan::status_updates`), so
+    ///   multiple stale closure rows for the same descendant
+    ///   collapse to one count rather than `n`. Both vectors carry
+    ///   one entry per category in fixed order with zero counts for
+    ///   absent categories.
+    /// * `NextAuditOutcome::Err(err)` → propagated verbatim.
+    async fn repair_derivable_closure_violations(
+        &self,
+        _scope: &AccessScope,
+    ) -> Result<RepairReport, DomainError> {
+        let outcome = std::mem::take(&mut self.state.lock().expect("lock").next_repair_outcome);
+        match outcome {
+            NextAuditOutcome::Ok => Ok(RepairReport {
+                repaired_per_category: derivable_zero_buckets(),
+                deferred_per_category: deferred_zero_buckets(),
+            }),
+            NextAuditOutcome::Violations(pairs) => {
+                let mut repaired: HashMap<IntegrityCategory, usize> = HashMap::new();
+                let mut deferred: HashMap<IntegrityCategory, usize> = HashMap::new();
+                // Per-descendant collapse for `DescendantStatusDivergence`
+                // mirroring `RepairPlan::status_updates` (one bulk
+                // update per descendant, not one per closure row).
+                // Without this, a script seeding two stale rows for
+                // the same descendant would surface count=2 here vs.
+                // count=1 in the real repo, drifting telemetry
+                // assertions even when the service layer is correct.
+                let mut status_div_descendants: HashSet<Uuid> = HashSet::new();
+                for (cat, viol) in pairs {
+                    if matches!(cat, IntegrityCategory::DescendantStatusDivergence)
+                        && let Some(tid) = viol.tenant_id
+                        && !status_div_descendants.insert(tid)
+                    {
+                        continue;
+                    }
+                    if cat.is_derivable() {
+                        *repaired.entry(cat).or_insert(0) += 1;
+                    } else {
+                        *deferred.entry(cat).or_insert(0) += 1;
+                    }
+                }
+                Ok(RepairReport {
+                    repaired_per_category: IntegrityCategory::all()
+                        .into_iter()
+                        .filter(|c| c.is_derivable())
+                        .map(|c| (c, repaired.get(&c).copied().unwrap_or(0)))
+                        .collect(),
+                    deferred_per_category: IntegrityCategory::all()
+                        .into_iter()
+                        .filter(|c| !c.is_derivable())
+                        .map(|c| (c, deferred.get(&c).copied().unwrap_or(0)))
+                        .collect(),
+                })
+            }
+            NextAuditOutcome::Err(err) => Err(err),
+        }
+    }
+}
+
+fn derivable_zero_buckets() -> Vec<(IntegrityCategory, usize)> {
+    IntegrityCategory::all()
+        .into_iter()
+        .filter(|c| c.is_derivable())
+        .map(|c| (c, 0))
+        .collect()
+}
+
+fn deferred_zero_buckets() -> Vec<(IntegrityCategory, usize)> {
+    IntegrityCategory::all()
+        .into_iter()
+        .filter(|c| !c.is_derivable())
+        .map(|c| (c, 0))
+        .collect()
 }
 
 /// Tests for fake-repository contract parity with the production repo.

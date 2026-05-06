@@ -782,7 +782,7 @@ Categories AM uses today:
 - `PermissionDenied` (HTTP 403) — PDP-denied cross-tenant access (also fail-closed for unreachable PDP / unsupported constraint-compile per the ModKit AuthZ invariant), non-platform-admin attempting root-tenant-scoped operations
 - `Aborted` (HTTP 409) — concurrency conflict (currently only retry-exhausted SERIALIZABLE failures, with `reason = "SERIALIZATION_CONFLICT"`)
 - `AlreadyExists` (HTTP 409) — unique-constraint violation on a tenant write
-- `ResourceExhausted` (HTTP 429) — integrity-audit single-flight refusal (`AUDIT_ALREADY_RUNNING`)
+- `ResourceExhausted` (HTTP 429) — integrity-check single-flight refusal: the canonical envelope sets `quota_violations[0].subject = "integrity_check"`; there is no separate public reason field for clients to key off. The hierarchy-integrity check itself is a Phase-2 internal SDK capability (`TenantService::check_hierarchy_integrity()`) reachable today only via the in-process periodic job and the auto-repair tick — DESIGN §3.2 *Diagnostic Capabilities* defines its semantics, the `integrity_check_runs` PK gate, and the single-flight contract; public REST surfacing is tracked together with the `InTenantSubtree` predicate and not yet a v1 functional requirement (`§5` does not list it as a public-FR), so this 429 envelope is reserved for the internal-SDK / admin-tool driven path until that exposure lands.
 - `ServiceUnavailable` (HTTP 503) — transient infrastructure outage; covers IdP outages (former `idp_unavailable`), DB outages, AuthZ PDP transport failure, and Types Registry reachability failure during a tenant-type-consulting flow. Carries `retry_after_seconds` when a defensible hint is available.
 - `Unimplemented` (HTTP 501) — IdP plugin does not support the requested operation
 - `Internal` (HTTP 500) — unclassified internal failure
@@ -840,7 +840,7 @@ Tenant A **MUST NOT** be able to access Tenant B data through any API or data ac
 
 - [ ] `p1` - **ID**: `cpt-cf-account-management-nfr-audit-completeness`
 
-Every tenant configuration change **MUST** be recorded in the platform append-only audit infrastructure with actor identity, tenant identity, and change details. AM **MUST** emit `actor=system` audit records through that same platform sink for non-request transitions it owns, including bootstrap completion, conversion expiry, provisioning-reaper compensation, and hard-delete / tenant-deprovision cleanup.
+Every tenant configuration change **MUST** be recorded in the platform append-only audit infrastructure with actor identity, tenant identity, and change details. AM **MUST** emit `actor=system` audit records through that same platform sink for non-request transitions it owns, including bootstrap completion, conversion expiry, provisioning-reaper compensation, and hard-delete / tenant-deprovision cleanup. **v1 deferral**: the platform append-only audit sink (event-bus) is not yet available, so AM-owned non-request transitions emit a structured log on the `am.events` target with `actor=system` as the v1 stand-in for the audit envelope; full sink integration is tracked as a follow-up.
 
 - **Threshold**: 100% of AM-owned state changes recorded; zero known audit gaps.
 - **Inherited controls**: Audit retention, tamper resistance, and security-monitoring integration are inherited platform controls documented in [docs/security/SECURITY.md](../../../../docs/security/SECURITY.md). AM must emit the events those platform controls rely on.
@@ -1881,7 +1881,7 @@ IdP implementations may align with standards such as SCIM 2.0 and OIDC where app
     | Mode conversion request create / resolve | ≤ 200 ms | ≤ 500 ms |
 
     IdP-dependent endpoints (tenant create, user provisioning, user deprovisioning) inherit IdP latency and may exceed these p99 bounds when the IdP itself is slow; in that case the AM-side error contract (`CanonicalError::ServiceUnavailable`, HTTP 503) applies rather than a latency-violation SLO.
-- [ ] All tenant configuration changes are recorded in the platform append-only audit infrastructure with actor and tenant identity, including `actor=system` events for AM-owned background transitions.
+- [ ] All tenant configuration changes are recorded in the platform append-only audit infrastructure with actor identity, tenant identity, and change details. AM-owned non-request transitions (bootstrap completion, conversion expiry, provisioning-reaper compensation, hard-delete / tenant-deprovision cleanup) carry `actor=system` with the same change-details payload. **v1 acceptance exception** (per §6.4): until the platform append-only audit sink lands, AM-owned non-request transitions emit a structured log on the `am.events` target with `actor=system` and full change details as the v1 stand-in; full sink integration is tracked as a follow-up.
 - [ ] All failures map to deterministic error categories.
 - [ ] AM exports the documented domain-specific metrics for dependency health, metadata resolution, bootstrap lifecycle, tenant-retention work, conversion lifecycle, hierarchy-depth threshold exceedance, and cross-tenant denials.
 - [ ] Concurrent mode conversion requests targeting the same tenant produce deterministic outcomes: duplicate initiation is rejected with the deterministic pending-request conflict response, and AM preserves the invariant that only one pending request can exist per tenant at a time.

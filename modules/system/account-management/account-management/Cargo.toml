@@ -54,6 +54,13 @@ anyhow = { workspace = true }
 
 authz-resolver-sdk = { workspace = true }
 
+[features]
+# Gates the Postgres-backed real-DB integration tests. Disabled by
+# default because they spin up a `testcontainers` Docker container
+# per test; enable with `--features postgres` when Docker is
+# available locally or in CI.
+postgres = []
+
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt", "test-util"] }
 proptest = "1.5"
@@ -61,3 +68,10 @@ proptest = "1.5"
 # default `{crate}=trace` filter rejects custom targets, hiding the
 # very `am.retention` events the redaction tests need to inspect).
 tracing-test = { workspace = true, features = ["no-env-filter"] }
+# Postgres bring-up for the integration suite. Pulled in
+# unconditionally because `[dev-dependencies]` cannot be made
+# `optional`, but every reference to these crates is gated behind
+# `#[cfg(feature = "postgres")]` so a default `cargo test` does
+# not require Docker.
+testcontainers = { workspace = true }
+testcontainers-modules = { workspace = true }

@@ -13,6 +13,9 @@
 
 use serde::Deserialize;
 
+use crate::domain::bootstrap::BootstrapConfig;
+use crate::domain::integrity_check::IntegrityCheckConfig;
+
 /// Module configuration for `cf-account-management`.
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
@@ -33,6 +36,21 @@ pub struct AccountManagementConfig {
 
     /// External `IdP` integration policy.
     pub idp: IdpConfig,
+
+    /// Optional platform-bootstrap saga configuration. `None` means no
+    /// in-process bootstrap on this platform start (deployment is
+    /// expected to bootstrap the root tenant out of band, e.g. CI smoke
+    /// tests, multi-region splits, or a unit-test harness). The
+    /// surrounding `BootstrapConfig` carries `strict` to control whether
+    /// a runtime bootstrap failure is fatal.
+    pub bootstrap: Option<BootstrapConfig>,
+
+    /// Periodic hierarchy-integrity check job configuration. Default
+    /// is `enabled = true` with a 1-hour cadence; setting `enabled =
+    /// false` disables only the in-process loop while leaving the
+    /// on-demand `TenantService::check_hierarchy_integrity` SDK
+    /// method available to admin tools.
+    pub integrity_check: IntegrityCheckConfig,
 }
 
 /// Pagination knobs for collection endpoints.
@@ -256,12 +274,35 @@ impl AccountManagementConfig {
                 "hierarchy.depth_threshold (must be <= MAX_DEPTH_THRESHOLD; protects saga depth arithmetic)",
             );
         }
-        if bad.is_empty() {
+        // Integrity-check sub-section: validate eagerly so a bad
+        // interval / jitter / initial_delay surfaces here rather than
+        // panicking inside the spawned loop on `tokio::time::sleep`.
+        let integrity_err = self.integrity_check.validate().err();
+        // Bootstrap sub-section: validate eagerly whenever a
+        // `[bootstrap]` block is present, regardless of `strict`.
+        // `strict` is the *runtime failure policy* for a saga that
+        // failed at `run()` time (logged + skipped vs. fatal init);
+        // it MUST NOT suppress static config validation. A malformed
+        // `[bootstrap]` block (nil-UUID `root_id`, empty
+        // `root_tenant_type`, etc.) that slips past validation would
+        // either land in `BootstrapService::new`'s `debug_assert!`
+        // (stripped from release) or surface as an opaque saga
+        // failure later — neither is the deterministic init-time
+        // gate operators expect.
+        let bootstrap_err = self.bootstrap.as_ref().and_then(|cfg| cfg.validate().err());
+        if bad.is_empty() && integrity_err.is_none() && bootstrap_err.is_none() {
             Ok(())
         } else {
+            let mut parts: Vec<String> = bad.into_iter().map(str::to_owned).collect();
+            if let Some(err) = integrity_err {
+                parts.push(err);
+            }
+            if let Some(err) = bootstrap_err {
+                parts.push(err);
+            }
             Err(format!(
                 "account-management configuration is invalid: {}",
-                bad.join(", ")
+                parts.join(", ")
             ))
         }
     }
