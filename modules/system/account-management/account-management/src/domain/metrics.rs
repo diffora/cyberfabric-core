@@ -40,6 +40,76 @@ pub const AM_CROSS_TENANT_DENIAL: &str = "am.cross_tenant_denial";
 /// Hierarchy-integrity violation telemetry (one per integrity category).
 pub const AM_HIERARCHY_INTEGRITY_VIOLATIONS: &str = "am.hierarchy_integrity_violations";
 
+/// Periodic integrity-check job tick outcome (`outcome` ∈ `completed` |
+/// `skipped_in_progress` | `failed`). Distinguishes "no violations
+/// because the check ran cleanly" from "no violations because the job
+/// hasn't run successfully" — the latter is invisible from
+/// [`AM_HIERARCHY_INTEGRITY_VIOLATIONS`] alone (which would just keep
+/// reporting stale-zero gauges).
+///
+/// **Outcome label set is fixed**: dashboards keyed on this counter
+/// rely on the three values above. Auto-repair tick outcomes live on
+/// [`AM_HIERARCHY_INTEGRITY_REPAIR_RUNS`] instead so this counter's
+/// label set stays stable across releases.
+pub const AM_HIERARCHY_INTEGRITY_RUNS: &str = "am.hierarchy_integrity_runs";
+
+/// Periodic auto-repair tick outcome (`outcome` ∈ `completed` |
+/// `skipped_in_progress` | `failed`). Sister metric to
+/// [`AM_HIERARCHY_INTEGRITY_RUNS`] kept on its own family so the
+/// check-loop counter's documented label set is not silently widened
+/// when auto-repair lands. Dashboards filter by family rather than
+/// `outcome` prefix to avoid label-name collisions.
+pub const AM_HIERARCHY_INTEGRITY_REPAIR_RUNS: &str = "am.hierarchy_integrity_repair_runs";
+
+/// Periodic integrity-check tick wall-clock duration in milliseconds.
+/// The `phase` label disaggregates the check phase (`phase = "check"`)
+/// from the chained auto-repair phase (`phase = "repair"`) so
+/// dashboards can tell a slow check from a slow check + repair.
+/// Drives capacity-planning alerts ("p95 > 60s"), distinct from
+/// [`AM_HIERARCHY_INTEGRITY_RUNS`] which is a tick-outcome counter.
+pub const AM_HIERARCHY_INTEGRITY_DURATION: &str = "am.hierarchy_integrity_duration";
+
+/// Unix-epoch seconds of the last successful integrity-check tick.
+/// Used for a freshness watchdog (alert when `last_success` is older
+/// than twice the configured interval) that the violation gauge
+/// cannot satisfy on its own — a stuck job and a perfectly-clean tree
+/// look identical at the violation-gauge level until this gauge stops
+/// advancing.
+pub const AM_HIERARCHY_INTEGRITY_LAST_SUCCESS: &str = "am.hierarchy_integrity_last_success";
+
+/// Unix-epoch seconds of the last integrity-check tick that did NOT
+/// complete successfully (gate-conflict or generic error). Sister
+/// gauge to [`AM_HIERARCHY_INTEGRITY_LAST_SUCCESS`]: an alert wired
+/// to "`LAST_SUCCESS` older than threshold" alone cannot tell
+/// "sustained-failure-since-Y" from "never-ran" because the success
+/// gauge keeps the last good timestamp indefinitely. Emitting both
+/// gauges from the loop's failure arms lets operators triage which
+/// kind of staleness they're looking at.
+pub const AM_HIERARCHY_INTEGRITY_LAST_FAILURE: &str = "am.hierarchy_integrity_last_failure";
+
+/// Lock-lifecycle event counter for `integrity_check_runs`. Emitted
+/// from [`crate::infra::storage::integrity::lock::release`] when the
+/// release DELETE affects zero rows — the row this worker inserted
+/// was reclaimed by a contender's stale-lock sweep, which means the
+/// check or repair exceeded
+/// [`crate::infra::storage::integrity::lock::MAX_LOCK_AGE`] AND a
+/// peer raced in. Distinct from
+/// [`AM_HIERARCHY_INTEGRITY_RUNS`] (which documents a fixed
+/// scheduler-tick outcome set) so dashboards keyed on
+/// `RUNS{outcome=*}` stay stable; this counter exists for
+/// lock-health alerting.
+pub const AM_INTEGRITY_LOCK_EVENTS: &str = "am.integrity_lock_events";
+
+/// Hierarchy-integrity repair telemetry. Emits one gauge sample per
+/// run with `category` ∈ all 10
+/// [`IntegrityCategory`](crate::domain::tenant::integrity::IntegrityCategory)
+/// values and `bucket` ∈ {`repaired`, `deferred`} so dashboards see a
+/// stable shape across runs (zero-valued samples for categories that
+/// did not appear). The five derivable categories carry counts only
+/// in `bucket = repaired`; the five operator-triage categories carry
+/// counts only in `bucket = deferred`.
+pub const AM_HIERARCHY_INTEGRITY_REPAIRED: &str = "am.hierarchy_integrity_repaired";
+
 /// SERIALIZABLE-isolation retry telemetry for the AM repo's
 /// `with_serializable_retry` helper.
 pub const AM_SERIALIZABLE_RETRY: &str = "am.serializable_retry";

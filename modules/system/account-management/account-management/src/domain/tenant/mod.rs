@@ -12,6 +12,7 @@
 
 pub mod closure;
 pub mod hooks;
+pub mod integrity;
 pub mod model;
 pub mod repo;
 pub mod resource_checker;

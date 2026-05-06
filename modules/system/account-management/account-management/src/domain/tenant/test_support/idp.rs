@@ -11,7 +11,7 @@
     clippy::missing_errors_doc
 )]
 
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use account_management_sdk::{
     CheckAvailabilityFailure, DeprovisionFailure, DeprovisionRequest, IdpTenantProvisionerClient,
@@ -19,9 +19,17 @@ use account_management_sdk::{
 };
 use async_trait::async_trait;
 use modkit_macros::domain_model;
+use tokio::sync::Notify;
 use uuid::Uuid;
 
-/// Four-outcome stub for the `IdP` provisioner.
+/// Five-outcome stub for the `IdP` provisioner.
+///
+/// `Hang` exists so the saga's `tokio::time::timeout_at(deadline, ...)`
+/// wrapping `provision_tenant` can be exercised: the call never resolves
+/// on its own, so the deadline is the only way the future returns.
+/// Drives the timeout-without-compensate branch (`service.rs` `Err(_elapsed)`
+/// arm) which `Ok` / `CleanFailure` / `Ambiguous` / `Unsupported` cannot
+/// reach because they all return synchronously.
 #[domain_model]
 #[derive(Clone)]
 pub enum FakeOutcome {
@@ -29,6 +37,7 @@ pub enum FakeOutcome {
     CleanFailure,
     Ambiguous,
     Unsupported,
+    Hang,
 }
 
 /// Stub for `deprovision_tenant` outcomes. Defaults to `Ok`.
@@ -51,6 +60,12 @@ pub struct FakeIdpProvisioner {
     pub availability_calls: Mutex<u32>,
     pub calls: Mutex<Vec<Uuid>>,
     pub deprovision_calls: Mutex<Vec<Uuid>>,
+    /// Notified once `provision_tenant` is entered (BEFORE the
+    /// per-outcome dispatch). Tests using `FakeOutcome::Hang` await
+    /// this to deterministically know the saga has reached the
+    /// hung future, avoiding empirical yield-loops that depend on
+    /// the saga's internal step count.
+    pub provision_entered: Arc<Notify>,
 }
 
 impl FakeIdpProvisioner {
@@ -63,6 +78,7 @@ impl FakeIdpProvisioner {
             availability_calls: Mutex::new(0),
             calls: Mutex::new(Vec::new()),
             deprovision_calls: Mutex::new(Vec::new()),
+            provision_entered: Arc::new(Notify::new()),
         }
     }
 
@@ -76,6 +92,28 @@ impl FakeIdpProvisioner {
 
     pub fn fail_availability_times(&self, failures: u32) {
         *self.availability_failures.lock().expect("lock") = failures;
+    }
+
+    /// Mutate the provision outcome between calls. Tests that need to
+    /// flip from `FakeOutcome::CleanFailure` to `FakeOutcome::Ok` on
+    /// the second saga attempt (retry-then-finalize coverage) call
+    /// this between awaits.
+    pub fn set_outcome(&self, oc: FakeOutcome) {
+        *self.outcome.lock().expect("lock") = oc;
+    }
+
+    /// Read the current count of `provision_tenant` calls observed by
+    /// this fake. Used by retry-loop tests to assert the saga actually
+    /// advanced past `CleanFailure` rather than short-circuiting.
+    pub fn provision_call_count(&self) -> usize {
+        self.calls.lock().expect("lock").len()
+    }
+
+    /// Read the current count of `check_availability` calls observed
+    /// by this fake. Used by `wait_for_idp_availability` tests to pin
+    /// the attempt-count contract.
+    pub fn availability_call_count(&self) -> u32 {
+        *self.availability_calls.lock().expect("lock")
     }
 }
 
@@ -98,6 +136,11 @@ impl IdpTenantProvisionerClient for FakeIdpProvisioner {
         req: &ProvisionRequest,
     ) -> Result<ProvisionResult, ProvisionFailure> {
         self.calls.lock().expect("lock").push(req.tenant_id);
+        // Signal that the saga has reached `provision_tenant`
+        // BEFORE the per-outcome dispatch so a test using
+        // `FakeOutcome::Hang` can synchronize against entry rather
+        // than yield-spin until the saga is parked.
+        self.provision_entered.notify_one();
         let oc = self.outcome.lock().expect("lock").clone();
         match oc {
             FakeOutcome::Ok => Ok(ProvisionResult {
@@ -112,6 +155,10 @@ impl IdpTenantProvisionerClient for FakeIdpProvisioner {
             FakeOutcome::Unsupported => Err(ProvisionFailure::UnsupportedOperation {
                 detail: "fake unsupported".into(),
             }),
+            FakeOutcome::Hang => {
+                std::future::pending::<()>().await;
+                unreachable!("FakeOutcome::Hang awaits a never-resolving future")
+            }
         }
     }
 

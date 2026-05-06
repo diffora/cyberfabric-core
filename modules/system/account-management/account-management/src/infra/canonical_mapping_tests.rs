@@ -68,6 +68,35 @@ fn classify_availability_yields_service_unavailable() {
 }
 
 #[test]
+fn idp_unavailable_maps_to_503() {
+    // `DomainError::IdpUnavailable` is a dedicated retry-loop sentinel
+    // for the bootstrap saga; at the public boundary it collapses back
+    // onto the same AIP-193 `ServiceUnavailable` envelope as the
+    // generic variant. This regression guard pins two halves of the
+    // contract: the HTTP status stays 503 AND the public `detail` is
+    // **redacted** to a stable generic string (vendor / SDK / endpoint
+    // text from `ProvisionFailure::detail` is operator-meaningful but
+    // not public-contract and would otherwise leak through the
+    // Problem envelope — see `canonical_mapping::IdpUnavailable` arm).
+    let domain = DomainError::IdpUnavailable {
+        detail: "idp probe timed out (vendor=keycloak, host=internal.example)".to_owned(),
+    };
+    let canonical: CanonicalError = domain.into();
+    assert_eq!(canonical.status_code(), 503);
+    // Redaction contract: if the canonical mapping ever stops
+    // redacting, vendor strings would surface in public Problem
+    // envelopes and the bootstrap retry loop's "match on the typed
+    // variant, not on detail text" invariant would be silently
+    // weakened. Pin the public string so a future regression that
+    // forwards the upstream detail verbatim fails this guard.
+    assert_eq!(
+        canonical.detail(),
+        "IdP plugin unavailable",
+        "canonical detail must collapse to the generic public string; provider detail goes to am.domain log only"
+    );
+}
+
+#[test]
 fn classify_unclassified_yields_internal() {
     use sea_orm::DbErr;
     let db_err = DbErr::Custom("unclassified".into());
