@@ -142,9 +142,9 @@ fn unsupported_operation_maps_to_501() {
 }
 
 #[test]
-fn audit_already_running_maps_to_429() {
+fn integrity_check_in_progress_maps_to_429() {
     assert_eq!(
-        status_of(DomainError::AuditAlreadyRunning {
+        status_of(DomainError::IntegrityCheckInProgress {
             scope: "whole".into()
         }),
         429
@@ -288,8 +288,9 @@ impl DomainError {
             Self::Conflict { .. } => "conflict",
             Self::CrossTenantDenied { .. } => "cross_tenant_denied",
             Self::ServiceUnavailable { .. } => "service_unavailable",
+            Self::IdpUnavailable { .. } => "idp_unavailable",
             Self::UnsupportedOperation { .. } => "unsupported_operation",
-            Self::AuditAlreadyRunning { .. } => "audit_already_running",
+            Self::IntegrityCheckInProgress { .. } => "integrity_check_in_progress",
             Self::Internal { .. } => "internal",
         }
     }
@@ -325,9 +326,9 @@ impl DomainError {
             | Self::MetadataEntryNotFound { .. } => 404,
             Self::AlreadyExists { .. } | Self::Aborted { .. } => 409,
             Self::CrossTenantDenied { .. } => 403,
-            Self::ServiceUnavailable { .. } => 503,
+            Self::ServiceUnavailable { .. } | Self::IdpUnavailable { .. } => 503,
             Self::UnsupportedOperation { .. } => 501,
-            Self::AuditAlreadyRunning { .. } => 429,
+            Self::IntegrityCheckInProgress { .. } => 429,
             Self::Internal { .. } => 500,
         }
     }

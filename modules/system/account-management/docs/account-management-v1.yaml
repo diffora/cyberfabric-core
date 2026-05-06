@@ -943,11 +943,39 @@ components:
     Problem:
       type: object
       additionalProperties: true
-      required: [type, title, status, code]
+      required: [type, title, status, detail, context]
+      description: |
+        RFC 9457 problem+json envelope produced by `modkit-canonical-errors`.
+
+        Discrimination model:
+          * `type` carries the canonical-error category as a `gts://` URI
+            (e.g. `gts://gts.cf.core.errors.err.v1~cf.core.err.service_unavailable.v1~`).
+            This is the stable broad-category discriminator across all modules.
+          * `status` carries the HTTP status (e.g. `503`).
+          * `context` is a per-category structured object documented in
+            `modkit-canonical-errors`. Categories that carry a finer reason
+            token expose it as `context.reason` (e.g. `PermissionDenied` →
+            `context.reason = "cross_tenant_denied"`, `FailedPrecondition` →
+            `context.reason = "tenant_depth_exceeded"`).
+          * `ResourceExhausted` carries `context.quota_violations[].subject`
+            (e.g. `"integrity_check:whole"`) for the exhaustion-source
+            identifier rather than a top-level reason.
+
+        AM-specific 503 sub-discriminators (`idp_unavailable`,
+        `idp_unsupported_operation`) are NOT carried as a top-level `code`
+        field today: the `service_unavailable` envelope's `context` does
+        not yet expose a `reason` / `code` slot. The bootstrap retry loop
+        and saga compensation pattern-match on the typed
+        `DomainError::IdpUnavailable` variant internally; public clients
+        can distinguish these from generic 503s by checking `detail`
+        ("IdP plugin unavailable" vs. "Service temporarily unavailable").
+        Promoting that distinction to a structured `context` field is
+        tracked as a follow-up against `modkit-canonical-errors`.
       properties:
         type:
           type: string
           format: uri-reference
+          description: Canonical-error category URI. Stable broad-category discriminator.
         title:
           type: string
         status:
@@ -957,33 +985,22 @@ components:
         instance:
           type: string
           format: uri-reference
-        code:
+        trace_id:
           type: string
-          enum:
-            - validation
-            - not_found
-            - conflict
-            - cross_tenant_denied
-            - idp_unavailable
-            - idp_unsupported_operation
-            - service_unavailable
-            - internal
-            - audit_already_running
-            - invalid_tenant_type
-            - type_not_allowed
-            - tenant_depth_exceeded
-            - tenant_has_children
-            - tenant_has_resources
-            - serialization_conflict
-            - root_tenant_cannot_delete
-            - pending_exists
-            - invalid_actor_for_transition
-            - already_resolved
-            - root_tenant_cannot_convert
-            - metadata_schema_not_registered
-            - metadata_entry_not_found
-          nullable: false
-          description: Stable module-specific error discriminator. Clients switch on `code` for fine-grained handling; the broad RFC 9457 category is conveyed by `status`.
+        context:
+          type: object
+          additionalProperties: true
+          description: |
+            Per-category structured context. Schema varies by canonical
+            category; common AM-relevant fields include:
+              * `retry_after_seconds` (`ServiceUnavailable`)
+              * `reason` (`PermissionDenied`, `FailedPrecondition`,
+                 `Aborted`, `Unauthenticated`)
+              * `quota_violations` (`ResourceExhausted`)
+              * `precondition_violations` (`FailedPrecondition`)
+              * `field_violations` (`InvalidArgument`)
+              * `resource_type`, `resource_name` (NotFound, AlreadyExists,
+                 ServiceUnavailable)
         details:
           type: object
           additionalProperties: true

@@ -1,0 +1,151 @@
+//! Hierarchy-integrity check subsystem (Rust-side).
+//!
+//! This module replaces the legacy raw-SQL classifier path with eight
+//! pure-Rust classifiers that operate on an in-memory
+//! [`Snapshot`](snapshot::Snapshot) of `(tenants, tenant_closure)`. The
+//! split between transient DB I/O and synchronous classification is the
+//! central refactor invariant:
+//!
+//! * `integrity/snapshot.rs` — value types + index builder.
+//! * `integrity/classifiers/` — eight DB-free classifier functions; the
+//!   only crate-internal entry is [`classifiers::run`].
+//! * `integrity/loader.rs` — SecureORM-only snapshot loader.
+//! * `integrity/lock.rs` — `integrity_check_runs` PK single-flight gate.
+//!
+//! The single public entry [`run_classifiers`] consumes a snapshot +
+//! optional scope root and returns an
+//! [`IntegrityReport`](crate::domain::tenant::integrity::IntegrityReport)
+//! with one fixed-order entry per
+//! [`IntegrityCategory::all`](crate::domain::tenant::integrity::IntegrityCategory::all).
+//! An empty `Vec` for a category means "no violations".
+
+mod classifiers;
+pub mod loader;
+pub mod lock;
+pub mod repair;
+pub mod snapshot;
+
+use std::collections::HashMap;
+
+use modkit_db::secure::DbTx;
+use modkit_security::AccessScope;
+use uuid::Uuid;
+
+use crate::domain::error::DomainError;
+use crate::domain::tenant::integrity::{
+    IntegrityCategory, IntegrityReport, IntegrityScope, Violation,
+};
+
+pub use snapshot::{ClosureSnap, Snapshot, TenantSnap};
+
+/// Run every classifier and aggregate the results into an
+/// [`IntegrityReport`].
+///
+/// `scope_root` controls subtree filtering: pass `None` for whole-tree
+/// checks, or `Some(root)` to scope tenants-side classifiers to the
+/// subtree rooted at `root` (membership = `root` itself OR
+/// `(root, t)` present in the snapshot's closure).
+#[must_use]
+pub fn run_classifiers(snap: &Snapshot, scope_root: Option<Uuid>) -> IntegrityReport {
+    let raw = classifiers::run(snap, scope_root);
+    let scope = match scope_root {
+        None => IntegrityScope::Whole,
+        Some(root) => IntegrityScope::Subtree(root),
+    };
+
+    let mut by_cat: HashMap<IntegrityCategory, Vec<Violation>> = HashMap::new();
+    for v in raw {
+        by_cat.entry(v.category).or_default().push(v);
+    }
+    let violations_by_category = IntegrityCategory::all()
+        .into_iter()
+        .map(|c| (c, by_cat.remove(&c).unwrap_or_default()))
+        .collect();
+    IntegrityReport {
+        scope,
+        violations_by_category,
+    }
+}
+
+/// Snapshot-load → `run_classifiers` on a caller-provided `DbTx<'_>`.
+///
+/// This entry covers only the snapshot-and-classify phase. Single-flight
+/// gating is the call site's responsibility: production callers wrap
+/// this in a [`lock::acquire_committed`] / [`lock::release_committed`]
+/// pair around a `REPEATABLE READ` transaction — keeping the gate row
+/// committed for the duration of the work so concurrent contenders
+/// observe the held gate and surface
+/// [`DomainError::IntegrityCheckInProgress`] instead of queueing on an
+/// uncommitted PK.
+///
+/// # Errors
+///
+/// Any DB error from the snapshot SELECTs, funnelled through the
+/// canonical `From<DbError> for DomainError` ladder.
+pub async fn run_integrity_check(
+    tx: &DbTx<'_>,
+    scope: &AccessScope,
+    integrity_scope: IntegrityScope,
+) -> Result<IntegrityReport, DomainError> {
+    let snapshot = loader::load_snapshot(tx, scope, integrity_scope.clone()).await?;
+    let scope_root = match integrity_scope {
+        IntegrityScope::Whole => None,
+        IntegrityScope::Subtree(root) => Some(root),
+    };
+    let report = run_classifiers(&snapshot, scope_root);
+    Ok(report)
+}
+
+#[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
+mod tests {
+    use super::*;
+    use crate::domain::tenant::model::TenantStatus;
+
+    fn tenant(id: u128, parent: Option<u128>, depth: i32) -> TenantSnap {
+        TenantSnap {
+            id: Uuid::from_u128(id),
+            parent_id: parent.map(Uuid::from_u128),
+            status: TenantStatus::Active,
+            depth,
+            self_managed: false,
+        }
+    }
+
+    fn edge(a: u128, d: u128) -> ClosureSnap {
+        ClosureSnap {
+            ancestor_id: Uuid::from_u128(a),
+            descendant_id: Uuid::from_u128(d),
+            barrier: 0,
+            descendant_status: TenantStatus::Active,
+        }
+    }
+
+    #[test]
+    fn empty_snapshot_has_one_entry_per_category() {
+        let snap = Snapshot::new(vec![], vec![]);
+        let report = run_classifiers(&snap, None);
+        assert_eq!(
+            report.violations_by_category.len(),
+            IntegrityCategory::all().len()
+        );
+        assert_eq!(report.total(), 0);
+    }
+
+    #[test]
+    fn clean_tree_has_zero_violations() {
+        let snap = Snapshot::new(
+            vec![tenant(1, None, 0), tenant(2, Some(1), 1)],
+            vec![edge(1, 1), edge(2, 2), edge(1, 2)],
+        );
+        let report = run_classifiers(&snap, None);
+        assert_eq!(report.total(), 0);
+    }
+
+    #[test]
+    fn report_scope_reflects_input() {
+        let snap = Snapshot::new(vec![tenant(1, None, 0)], vec![edge(1, 1)]);
+        let report = run_classifiers(&snap, Some(Uuid::from_u128(1)));
+        assert_eq!(report.scope, IntegrityScope::Subtree(Uuid::from_u128(1)));
+    }
+}

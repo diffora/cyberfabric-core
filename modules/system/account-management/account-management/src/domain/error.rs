@@ -137,9 +137,9 @@ pub enum DomainError {
     },
 
     // ---- ServiceUnavailable (HTTP 503) ----
-    /// Covers both transient infrastructure outages and `IdP` plugin
-    /// unavailability (former separate `IdpUnavailable` category, now
-    /// unified per AIP-193). `retry_after` populates
+    /// Covers transient infrastructure outages, generic `IdP` plugin
+    /// failures, and PDP transport errors (per AIP-193). `retry_after`
+    /// populates
     /// [`modkit_canonical_errors::context::ServiceUnavailable::retry_after_seconds`]
     /// when the caller has a defensible retry budget hint.
     ///
@@ -156,6 +156,16 @@ pub enum DomainError {
         cause: Option<BoxError>,
     },
 
+    /// `IdP` plugin reports a transient/retry-safe outage. Distinct from
+    /// the generic [`Self::ServiceUnavailable`] variant because the
+    /// bootstrap saga retry loop pattern-matches on this variant
+    /// specifically to decide whether to keep waiting on the
+    /// `idp_wait_timeout_secs` budget vs. surfacing a fatal failure.
+    /// Maps to the same AIP-193 `ServiceUnavailable` (HTTP 503) at the
+    /// boundary as [`Self::ServiceUnavailable`].
+    #[error("idp unavailable: {detail}")]
+    IdpUnavailable { detail: String },
+
     // ---- Unimplemented (HTTP 501) ----
     /// Former `IdpUnsupportedOperation` — the `IdP` plugin signalled the
     /// requested administrative operation is not supported in its
@@ -164,18 +174,19 @@ pub enum DomainError {
     UnsupportedOperation { detail: String },
 
     // ---- ResourceExhausted (HTTP 429) ----
-    /// Hierarchy-integrity audit refused because another audit on the
+    /// Hierarchy-integrity check refused because another check on the
     /// same scope is already in progress. Maps to HTTP 429 (retry-after
     /// semantics, not a state conflict). The `scope` field carries the
     /// `IntegrityScope` identity (`"whole"` or `"subtree:<uuid>"`) for
     /// the caller to match on.
     ///
-    /// Constructed by the storage layer (`audit_integrity_for_scope`)
-    /// when the per-scope single-flight gate is held — `Postgres` uses
-    /// `pg_try_advisory_xact_lock`, `SQLite` uses an `INSERT INTO
-    /// running_audits ON CONFLICT DO NOTHING` row.
-    #[error("integrity audit already running for scope: {scope}")]
-    AuditAlreadyRunning { scope: String },
+    /// Constructed by the storage layer (`run_integrity_check_for_scope`)
+    /// when the per-scope single-flight gate is held — both backends
+    /// surface the conflict as a unique-violation on the
+    /// `integrity_check_runs.scope_key` PRIMARY KEY (`Postgres` `23505`,
+    /// `SQLite` extended `2067`).
+    #[error("integrity check already in progress for scope: {scope}")]
+    IntegrityCheckInProgress { scope: String },
 
     // ---- Internal (HTTP 500) ----
     /// Unclassified internal failure. The `diagnostic` field is

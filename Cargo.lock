@@ -1387,6 +1387,8 @@ dependencies = [
  "sea-orm-migration",
  "serde",
  "serde_json",
+ "testcontainers",
+ "testcontainers-modules",
  "thiserror 2.0.18",
  "time",
  "tokio",

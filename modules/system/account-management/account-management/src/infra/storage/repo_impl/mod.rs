@@ -1,12 +1,12 @@
 //! `SeaORM`-backed implementation of [`TenantRepo`].
 //!
 //! Implementation is split across siblings (`reads`, `lifecycle`,
-//! `updates`, `retention`, `helpers`) — each method on the
+//! `updates`, `retention`, `integrity`, `helpers`) — each method on the
 //! [`TenantRepo`] trait dispatches to a `pub(super)` free function in
-//! the matching submodule. The `audit` submodule (integrity classifier
-//! dispatch) arrives in a later PR.
+//! the matching submodule.
 
 mod helpers;
+mod integrity;
 mod lifecycle;
 mod reads;
 mod retention;
@@ -27,6 +27,7 @@ use account_management_sdk::{ListChildrenQuery, TenantPage, TenantUpdate};
 
 use crate::domain::error::DomainError;
 use crate::domain::tenant::closure::ClosureRow;
+use crate::domain::tenant::integrity::{IntegrityCategory, IntegrityScope, Violation};
 use crate::domain::tenant::model::{ChildCountFilter, NewTenant, TenantModel};
 use crate::domain::tenant::repo::TenantRepo;
 use crate::domain::tenant::retention::{
@@ -203,5 +204,21 @@ impl TenantRepo for TenantRepoImpl {
         descendant: Uuid,
     ) -> Result<bool, DomainError> {
         reads::is_descendant(self, scope, ancestor, descendant).await
+    }
+
+    async fn run_integrity_check_for_scope(
+        &self,
+        scope: &AccessScope,
+        integrity_scope: IntegrityScope,
+    ) -> Result<Vec<(IntegrityCategory, Violation)>, DomainError> {
+        integrity::run_integrity_check_for_scope(self, scope, integrity_scope).await
+    }
+
+    async fn repair_derivable_closure_violations(
+        &self,
+        scope: &AccessScope,
+        integrity_scope: IntegrityScope,
+    ) -> Result<crate::domain::tenant::integrity::RepairReport, DomainError> {
+        integrity::repair_derivable_closure_violations(self, scope, integrity_scope).await
     }
 }
