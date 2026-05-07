@@ -34,6 +34,7 @@ members = [
     "libs/modkit-auth",
     "libs/modkit-canonical-errors",
     "libs/modkit-canonical-errors-macro",
+    "libs/modkit-coord",
     "libs/modkit-http",
     "libs/modkit-sdk",
     "libs/modkit-odata-macros",
