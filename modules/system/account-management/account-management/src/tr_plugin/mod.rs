@@ -22,3 +22,6 @@ mod projection;
 mod queries;
 
 pub use plugin_impl::PluginImpl;
+
+#[cfg(test)]
+mod tests;
