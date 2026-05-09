@@ -13,12 +13,17 @@
 //!   `CHECK (id = 1)` PK so concurrent acquires collide on
 //!   unique-violation, lifecycle-bound to the integrity-check
 //!   transaction).
+//! * `m0004_create_conversion_requests` —
+//!   `conversion_requests` table backing the managed/self-managed
+//!   dual-consent conversion state machine, with the partial unique
+//!   index that enforces the at-most-one-pending invariant per tenant.
 
 use sea_orm_migration::prelude::*;
 
 pub mod m0001_initial_schema;
 pub mod m0002_add_terminal_failure_columns;
 pub mod m0003_create_integrity_check_runs;
+pub mod m0004_create_conversion_requests;
 
 pub struct Migrator;
 
@@ -29,6 +34,7 @@ impl MigratorTrait for Migrator {
             Box::new(m0001_initial_schema::Migration),
             Box::new(m0002_add_terminal_failure_columns::Migration),
             Box::new(m0003_create_integrity_check_runs::Migration),
+            Box::new(m0004_create_conversion_requests::Migration),
         ]
     }
 }

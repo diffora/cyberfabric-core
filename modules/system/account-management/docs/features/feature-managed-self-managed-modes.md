@@ -350,7 +350,7 @@ Delivers the post-creation dual-consent conversion workflow described in PRD §5
 
 ### Dual-Consent Approval Apply
 
-- [ ] `p1` - **ID**: `cpt-cf-account-management-dod-managed-self-managed-modes-dual-consent-apply`
+- [x] `p1` - **ID**: `cpt-cf-account-management-dod-managed-self-managed-modes-dual-consent-apply`
 
 The system **MUST** execute every dual-consent approval as a single transaction that commits, in this order, the pre-approval barrier guard via `algo-allowed-parent-types-evaluation`, the `tenants.self_managed` flip to `target_mode`, the `tenant_closure.barrier` re-materialization delegated to `algo-closure-maintenance` on every affected `(ancestor, descendant]` path, the `ConversionRequest.state` transition to `approved` with `approved_by = counterparty actor uuid`, and the `conversion_approved` audit entry emitted through the `feature-errors-observability` audit envelope. The approval **MUST** be driven by the counterparty only; the initiator **MUST NOT** be able to approve their own request. If the pre-approval barrier guard rejects, the transaction **MUST** roll back and the `pending` row **MUST** remain untouched for retry or explicit reject/cancel. Partial commits (for example, `tenants.self_managed` flipped without `tenant_closure.barrier` re-materialized, or request status transitioned without audit emission) **MUST NOT** be externally observable under any failure mode.
 
@@ -387,7 +387,7 @@ The system **MUST** enforce the at-most-one-`pending`-`ConversionRequest`-per-te
 
 ### Barrier Re-Materialization Consistency
 
-- [ ] `p1` - **ID**: `cpt-cf-account-management-dod-managed-self-managed-modes-barrier-rematerialization-consistency`
+- [x] `p1` - **ID**: `cpt-cf-account-management-dod-managed-self-managed-modes-barrier-rematerialization-consistency`
 
 The system **MUST** ensure that after every approved conversion, every `tenant_closure` row `(ancestor, descendant)` whose strict path `(ancestor, descendant]` touches the converted tenant has its `barrier` column recomputed from the canonical invariant: `barrier = 1` iff any tenant on the strict path is `self_managed = true`. Zero half-updated `tenant_closure` rows **MUST** be visible outside the owning approval transaction. The feature **MUST NOT** re-implement closure writes; barrier re-materialization is delegated to `algo-closure-maintenance` owned by `feature-tenant-hierarchy-management`, invoked inside the approval transaction so that request state, `tenants.self_managed`, and `tenant_closure.barrier` all become visible atomically.
 
@@ -424,7 +424,7 @@ The system **MUST** bypass the dual-consent flow when `self_managed = true` is s
 
 ### Conversion Expiry Contract
 
-- [ ] `p1` - **ID**: `cpt-cf-account-management-dod-managed-self-managed-modes-conversion-expiry`
+- [x] `p1` - **ID**: `cpt-cf-account-management-dod-managed-self-managed-modes-conversion-expiry`
 
 The system **MUST** populate `expires_at` on every `pending` `ConversionRequest` insert. A background reaper **MUST** transition rows whose `expires_at` is in the past to `expired` without mutating `tenants.self_managed` or `tenant_closure.barrier`, and **MUST** emit an audit entry with `actor = system` through the `feature-errors-observability` audit envelope and advance the `am_conversion_expired_total` metric by the reaped count. Resolved rows (`approved` / `cancelled` / `rejected` / `expired`) **MUST** remain queryable on the default API surface until the configured retention window elapses, after which the soft-delete-and-hard-delete retention cadence owned by `feature-tenant-hierarchy-management` reclaims them via `ON DELETE CASCADE` on `conversion_requests.tenant_id`. The resolved-retention window **MUST NOT** exceed the tenant hard-delete retention period.
 
@@ -441,7 +441,7 @@ The system **MUST** populate `expires_at` on every `pending` `ConversionRequest`
 
 ### Parent-Side Inbound-Discovery Minimal Surface
 
-- [ ] `p1` - **ID**: `cpt-cf-account-management-dod-managed-self-managed-modes-parent-side-minimal-surface`
+- [x] `p1` - **ID**: `cpt-cf-account-management-dod-managed-self-managed-modes-parent-side-minimal-surface`
 
 The system **MUST** expose only minimal conversion-request metadata across the self-managed barrier on `GET /tenants/{parent_id}/child-conversions` and `GET /tenants/{parent_id}/child-conversions/{request_id}`: `request_id`, `tenant_id`, `child_name`, `initiator_side`, `target_mode`, `status`, actor uuids (`requested_by`, `approved_by`, `cancelled_by`, `rejected_by`), and timestamps per DESIGN §3.2 `list_inbound_for_parent`. Child-subtree data (tenant metadata, descendants, user records, resource inventories) **MUST NOT** leak through this endpoint. Cross-barrier reads **MUST NOT** bypass the barrier invariant for any field beyond this minimal projection; AuthZ is delegated to `PolicyEnforcer::enforce` on `ConversionRequest.read` at the REST layer before the service call is made.
 
@@ -458,7 +458,7 @@ The system **MUST** expose only minimal conversion-request metadata across the s
 
 ### Root-Tenant Non-Convertibility
 
-- [ ] `p1` - **ID**: `cpt-cf-account-management-dod-managed-self-managed-modes-root-tenant-non-convertibility`
+- [x] `p1` - **ID**: `cpt-cf-account-management-dod-managed-self-managed-modes-root-tenant-non-convertibility`
 
 The system **MUST** refuse every initiation attempt targeting the root tenant (`parent_id IS NULL`) with `code = root_tenant_cannot_convert`, surfaced through the `feature-errors-observability` envelope. No `ConversionRequest` row **MUST** be created for the root tenant under any code path, including creation-time admission (the root is always admitted with `self_managed = false`). The refusal **MUST** occur at the initiation boundary before any other guard runs; `flow-conversion-initiation` invokes `algo-root-tenant-conversion-refusal` as the first post-authorization check.
 
@@ -475,7 +475,7 @@ The system **MUST** refuse every initiation attempt targeting the root tenant (`
 
 ### Mixed-Mode Tree Consistency
 
-- [ ] `p2` - **ID**: `cpt-cf-account-management-dod-managed-self-managed-modes-mixed-mode-tree-consistency`
+- [x] `p2` - **ID**: `cpt-cf-account-management-dod-managed-self-managed-modes-mixed-mode-tree-consistency`
 
 The system **MUST** support managed and self-managed tenants coexisting in the same hierarchy without rejecting tree shapes that mix modes across ancestor chains. This feature **MUST** write the `tenant_closure.barrier` column via `algo-closure-maintenance` on every conversion approval and on every creation-time admission, so that the materialized barrier accurately reflects whether any tenant on each strict `(ancestor, descendant]` path is `self_managed = true`. Hot-path read semantics over the materialized barrier are owned by `tenant-resolver-plugin` and **MUST NOT** be re-implemented here; this feature's responsibility ends at writing the canonical `barrier` value.
 
@@ -495,7 +495,7 @@ The system **MUST** support managed and self-managed tenants coexisting in the s
 
 ### Dual-Consent Actor Discipline
 
-- [ ] `p1` - **ID**: `cpt-cf-account-management-dod-managed-self-managed-modes-dual-consent-actor-discipline`
+- [x] `p1` - **ID**: `cpt-cf-account-management-dod-managed-self-managed-modes-dual-consent-actor-discipline`
 
 The system **MUST** enforce that only the counterparty of a `pending` `ConversionRequest` can approve or reject it, and only the initiator can cancel their own request. Any other `(caller_side, transition)` combination **MUST** be refused with `code = invalid_actor_for_transition`, carrying `attempted_status` and `caller_side` for observability, through the `feature-errors-observability` envelope. Idempotent PATCH attempts on `approved`, `cancelled`, `rejected`, or `expired` rows **MUST** be refused with `code = already_resolved`; the resolved state **MUST NOT** be re-written under any condition. Role evaluation **MUST** happen after the `pending`-state check so that a resolved row returns `already_resolved` regardless of who the caller is.
 

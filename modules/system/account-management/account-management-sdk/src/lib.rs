@@ -46,6 +46,7 @@
 
 pub mod gts;
 pub mod idp;
+pub mod idp_user;
 pub mod tenant;
 
 pub use gts::{
@@ -54,6 +55,11 @@ pub use gts::{
 pub use idp::{
     CheckAvailabilityFailure, DeprovisionFailure, DeprovisionRequest, IdpTenantProvisionerClient,
     ProvisionFailure, ProvisionMetadataEntry, ProvisionRequest, ProvisionResult,
+};
+pub use idp_user::{
+    CreateUserRequest, DeleteUserOutcome, DeleteUserRequest, IdpUserProvisionerClient,
+    ListUsersRequest, NewUserPayload, TenantContext, UserAttributes, UserOperationFailure,
+    UserPage, UserPagination, UserPaginationError, UserProjection,
 };
 pub use modkit_canonical_errors::CanonicalError as AccountManagementError;
 pub use modkit_canonical_errors::{self, CanonicalError, Problem};

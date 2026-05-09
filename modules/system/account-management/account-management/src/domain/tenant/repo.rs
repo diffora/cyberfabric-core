@@ -90,6 +90,47 @@ pub trait TenantRepo: Send + Sync {
         id: Uuid,
     ) -> Result<Option<TenantModel>, DomainError>;
 
+    /// Batch sibling of [`Self::find_by_id`]: return every row whose id
+    /// is in `ids` and that is visible under the supplied `scope`. The
+    /// caller-supplied id slice is deduplicated by the implementation;
+    /// missing ids do not surface as errors. Order of the returned
+    /// vector is unspecified — callers that need a positional mapping
+    /// MUST build a `HashMap<Uuid, TenantModel>` from the result. Used
+    /// by listings that resolve cross-row metadata (e.g. the
+    /// conversion parent listing's live `child_tenant_name` lookup) so
+    /// they avoid an N+1 round-trip pattern.
+    ///
+    /// # Soft-delete semantics — DELIBERATE asymmetry vs. `find_by_id`
+    ///
+    /// `find_many` returns only live rows (`deleted_at IS NULL`);
+    /// `find_by_id` does not filter by deletion. This is intentional:
+    /// `find_by_id`
+    /// is consumed by paths that need to disambiguate `NotFound` from
+    /// `Found-but-Deleted` (e.g. integrity check, conversion approve's
+    /// status precondition), while `find_many` is consumed by cross-
+    /// row metadata listings where surfacing a deleted tenant's name
+    /// would leak post-deletion state across a barrier. Callers that
+    /// need both behaviours should consult the trait method whose
+    /// docstring matches their semantics — do not paper over the
+    /// difference at the call site.
+    ///
+    /// # Batch-size ceiling
+    ///
+    /// The implementation lowers `ids` into a single SQL `IN (...)`
+    /// clause, which costs one bind parameter per id. Postgres caps
+    /// prepared-statement parameters at 65535, so callers MUST cap the
+    /// caller-supplied slice well below that limit (`SQLite` is
+    /// effectively unbounded but pays the same per-id round-trip cost
+    /// at very large fan-outs). Today every caller bounds its slice
+    /// from a paginated upstream listing whose `top` is small (under
+    /// `account_management_sdk::ListChildrenQuery::max_top`), so the
+    /// ceiling is implicit; new callers MUST keep this invariant.
+    async fn find_many(
+        &self,
+        scope: &AccessScope,
+        ids: &[Uuid],
+    ) -> Result<Vec<TenantModel>, DomainError>;
+
     /// Direct-children list. Excludes `Provisioning` rows at the query
     /// layer. Pagination is `top` / `skip` per `listChildren`. Order is
     /// stable (by `(created_at, id)`) so cursor re-reads are deterministic.

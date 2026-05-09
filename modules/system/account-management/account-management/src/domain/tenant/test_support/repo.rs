@@ -167,6 +167,29 @@ impl FakeTenantRepo {
         self.state.lock().expect("lock").closure.clone()
     }
 
+    /// Push one [`ClosureRow`] directly into the fake's closure
+    /// storage. Used by tests that seed a hand-built tree to assert
+    /// closure-mutating service paths (conversion approval, status
+    /// flips) without going through the production saga that would
+    /// otherwise materialize closure rows. Mirrors `insert_tenant_raw`
+    /// in shape — bypasses the production write path on purpose so
+    /// tests can stage state that wouldn't be reachable through the
+    /// repo's regular trait surface.
+    pub fn seed_closure(
+        &self,
+        ancestor_id: Uuid,
+        descendant_id: Uuid,
+        barrier: i16,
+        descendant_status: TenantStatus,
+    ) {
+        self.state.lock().expect("lock").closure.push(ClosureRow {
+            ancestor_id,
+            descendant_id,
+            barrier,
+            descendant_status: descendant_status.as_smallint(),
+        });
+    }
+
     /// Direct row lookup that bypasses the `AccessScope` visibility
     /// filter applied by [`TenantRepo::find_by_id`]. F2 uses this to
     /// confirm the soft-deleted row is still in the DB after a
@@ -431,6 +454,44 @@ impl TenantRepo for FakeTenantRepo {
             return Ok(None);
         }
         Ok(state.tenants.get(&id).cloned())
+    }
+
+    async fn find_many(
+        &self,
+        scope: &AccessScope,
+        ids: &[Uuid],
+    ) -> Result<Vec<TenantModel>, DomainError> {
+        if ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        // Mirror the production de-dup: a caller-supplied id slice
+        // with duplicates collapses to one row per unique id.
+        let mut deduped: Vec<Uuid> = ids.to_vec();
+        deduped.sort_unstable();
+        deduped.dedup();
+
+        let state = self.state.lock().expect("lock");
+        let visible = visible_ids_for(&state, scope);
+        let mut out = Vec::with_capacity(deduped.len());
+        for id in deduped {
+            if let Some(ref vis) = visible
+                && !vis.contains(&id)
+            {
+                continue;
+            }
+            // Mirror the production `find_many`'s `deleted_at IS NULL`
+            // filter — a soft-deleted row MUST NOT surface through the
+            // batch lookup so the parent listing's live-name fallback
+            // path stays exercised in tests. `find_by_id` is
+            // intentionally broader (it returns soft-deleted rows too)
+            // and that asymmetry is documented on the trait.
+            if let Some(t) = state.tenants.get(&id)
+                && t.deleted_at.is_none()
+            {
+                out.push(t.clone());
+            }
+        }
+        Ok(out)
     }
 
     async fn list_children(

@@ -71,9 +71,7 @@ pub(super) async fn insert_provisioning(
                 // right category before the round trip.
                 if parent_id.is_none() && depth != 0 {
                     return Err(DomainError::Validation {
-                        detail: format!(
-                            "root tenant {tenant_id} must have depth 0 (got {depth})"
-                        ),
+                        detail: format!("root tenant {tenant_id} must have depth 0 (got {depth})"),
                     }
                     .into());
                 }
@@ -568,7 +566,7 @@ pub(super) async fn activate_tenant(
                             .map(|entry| tenant_metadata::ActiveModel {
                                 tenant_id: ActiveValue::Set(tenant_id),
                                 schema_uuid: ActiveValue::Set(schema_uuid_from_gts_id(
-                                    &entry.schema_id,
+                                    entry.schema_id.as_ref(),
                                 )),
                                 value: ActiveValue::Set(entry.value.clone()),
                                 created_at: ActiveValue::Set(now),

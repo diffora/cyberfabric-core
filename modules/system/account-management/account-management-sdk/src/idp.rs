@@ -84,9 +84,14 @@ pub struct ProvisionResult {
 }
 
 /// Single metadata entry produced by the provider and persisted by AM.
+///
+/// `schema_id` is typed as [`GtsSchemaId`] so invalid chained
+/// identifiers returned by the plugin surface as deserialization
+/// errors at the AM boundary rather than silently persisting garbage
+/// UUIDs into `tenant_metadata`.
 #[derive(Debug, Clone)]
 pub struct ProvisionMetadataEntry {
-    pub schema_id: String,
+    pub schema_id: GtsSchemaId,
     pub value: Value,
 }
 

@@ -5,12 +5,15 @@
 //! [`TenantRepo`] trait dispatches to a `pub(super)` free function in
 //! the matching submodule.
 
+pub mod conversion;
 mod helpers;
 mod integrity;
 mod lifecycle;
 mod reads;
 mod retention;
 mod updates;
+
+pub use conversion::ConversionRepoImpl;
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -57,6 +60,14 @@ impl TenantRepo for TenantRepoImpl {
         id: Uuid,
     ) -> Result<Option<TenantModel>, DomainError> {
         reads::find_by_id(self, scope, id).await
+    }
+
+    async fn find_many(
+        &self,
+        scope: &AccessScope,
+        ids: &[Uuid],
+    ) -> Result<Vec<TenantModel>, DomainError> {
+        reads::find_many(self, scope, ids).await
     }
 
     async fn list_children(

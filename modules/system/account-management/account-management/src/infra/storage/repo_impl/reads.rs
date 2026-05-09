@@ -38,6 +38,39 @@ pub(super) async fn find_by_id(
     }
 }
 
+pub(super) async fn find_many(
+    repo: &TenantRepoImpl,
+    scope: &AccessScope,
+    ids: &[Uuid],
+) -> Result<Vec<TenantModel>, DomainError> {
+    if ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    // Deduplicate caller-supplied ids so the resulting `IN (...)` clause
+    // does not re-query the same row on its behalf.
+    let mut deduped: Vec<Uuid> = ids.to_vec();
+    deduped.sort_unstable();
+    deduped.dedup();
+
+    let conn = repo.db.conn()?;
+    let rows = tenants::Entity::find()
+        .secure()
+        .scope_with(scope)
+        .filter(
+            Condition::all()
+                .add(tenants::Column::Id.is_in(deduped))
+                .add(tenants::Column::DeletedAt.is_null()),
+        )
+        .all(&conn)
+        .await
+        .map_err(map_scope_err)?;
+    let mut out = Vec::with_capacity(rows.len());
+    for r in rows {
+        out.push(entity_to_model(r)?);
+    }
+    Ok(out)
+}
+
 pub(super) async fn list_children(
     repo: &TenantRepoImpl,
     scope: &AccessScope,

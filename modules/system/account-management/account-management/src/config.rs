@@ -37,6 +37,12 @@ pub struct AccountManagementConfig {
     /// External `IdP` integration policy.
     pub idp: IdpConfig,
 
+    /// Conversion-request lifecycle knobs (approval TTL, resolved-row
+    /// retention window, cleanup tick cadence). Defaults match
+    /// `cpt-cf-account-management-adr-conversion-approval` (ADR-0003)
+    /// and PRD §5.4.
+    pub conversion: ConversionConfig,
+
     /// Optional platform-bootstrap saga configuration. `None` means no
     /// in-process bootstrap on this platform start (deployment is
     /// expected to bootstrap the root tenant out of band, e.g. CI smoke
@@ -182,6 +188,160 @@ impl Default for ReaperConfig {
     }
 }
 
+/// Conversion-request lifecycle configuration.
+///
+/// Owns the three lifecycle windows operators tune for the dual-consent
+/// `pending -> {approved, cancelled, rejected, expired}` flow:
+/// `approval_ttl_secs`, `resolved_retention_secs`, and the background
+/// `cleanup_interval_secs`. Defaults and bounds are pinned in
+/// `cpt-cf-account-management-adr-conversion-approval` (ADR-0003) and
+/// PRD §5.4 — see [`ConversionConfig::validate`] for the per-field
+/// bounds enforced by `AccountManagementModule::init`.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct ConversionConfig {
+    /// Approval TTL applied at `request_conversion` time as
+    /// `expires_at = now() + approval_ttl`. Default `259_200` (72h)
+    /// per ADR-0003. Range `[3600, 2_592_000]` (1h to 30d). Below the
+    /// floor the approver-response window becomes unusable; above the
+    /// ceiling a pending request can outlive any reasonable resolved-
+    /// retention setting and bloat the partial unique index.
+    pub approval_ttl_secs: u64,
+
+    /// Resolved-row retention window applied by the soft-delete
+    /// reaper as `cutoff = now() - resolved_retention`. Default
+    /// `2_592_000` (30d) per ADR-0003. Range `[86_400, 31_536_000]`
+    /// (1d to 365d). Below the floor history disappears faster than
+    /// typical audit reads; above the ceiling the table grows
+    /// unbounded without operator intent. Cross-validated against the
+    /// tenant retention window — see [`ConversionConfig::validate`].
+    pub resolved_retention_secs: u64,
+
+    /// Cleanup tick cadence for the dedicated conversion reaper that
+    /// drives `expire_pending` and `soft_delete_resolved`. Default
+    /// `60` (60s) per ADR-0003. Range `[10, 600]` (10s to 10m).
+    /// Mirrors the tenant retention pipeline's tick bounds. Distinct
+    /// from `retention.tick_secs` so an operator can dial tenant
+    /// hard-delete down without delaying conversion expiry alongside.
+    pub cleanup_interval_secs: u64,
+
+    /// Per-tick bound on rows the conversion expiry reaper scans.
+    /// `LIMIT 0` would scan zero rows forever and is rejected.
+    /// Upper bound `MAX_BATCH_SIZE` keeps the SQL `IN(...)` clause
+    /// for the candidate-id list well below Postgres's 65 535
+    /// prepared-parameter ceiling — see `MAX_BATCH_SIZE` comment.
+    pub expire_batch_size: u32,
+
+    /// Per-tick bound on rows the conversion retention sweep
+    /// soft-deletes. Same `LIMIT 0` and `MAX_BATCH_SIZE` rejections
+    /// as `expire_batch_size`. The retention sweep loads candidate
+    /// ids into an `IN(...)` UPDATE filter — staying under the PG
+    /// parameter ceiling is the load-bearing reason for the cap.
+    pub retention_batch_size: u32,
+}
+
+impl Default for ConversionConfig {
+    fn default() -> Self {
+        // 72h = 259_200s, 30d = 2_592_000s, 60s tick — pinned in
+        // ADR-0003 §1 (Decision: Configurable lifecycle windows).
+        Self {
+            approval_ttl_secs: 72 * 60 * 60,
+            resolved_retention_secs: 30 * 24 * 60 * 60,
+            cleanup_interval_secs: 60,
+            expire_batch_size: 256,
+            retention_batch_size: 256,
+        }
+    }
+}
+
+impl ConversionConfig {
+    /// Lower / upper bounds pinned in DESIGN §3.2 (`ConversionService`
+    /// configuration bounds).
+    pub(crate) const MIN_APPROVAL_TTL_SECS: u64 = 60 * 60; // 1h
+    pub(crate) const MAX_APPROVAL_TTL_SECS: u64 = 30 * 24 * 60 * 60; // 30d
+    pub(crate) const MIN_RESOLVED_RETENTION_SECS: u64 = 24 * 60 * 60; // 1d
+    pub(crate) const MAX_RESOLVED_RETENTION_SECS: u64 = 365 * 24 * 60 * 60; // 365d
+    pub(crate) const MIN_CLEANUP_INTERVAL_SECS: u64 = 10;
+    pub(crate) const MAX_CLEANUP_INTERVAL_SECS: u64 = 10 * 60; // 10m
+    /// Upper bound on per-tick batch sizes (`expire_batch_size` /
+    /// `retention_batch_size`). The retention sweep lowers candidate
+    /// ids into an `IN(...)` `UPDATE` filter — Postgres caps prepared
+    /// statements at 65 535 parameters, so the cap stays well below
+    /// that ceiling with headroom for other parameters in the
+    /// statement (`status` / `deleted_at` / scope clauses). The
+    /// production default of 256 is more than sufficient for typical
+    /// pending / resolved-row volumes; operators tuning higher can
+    /// raise it up to this ceiling.
+    pub(crate) const MAX_BATCH_SIZE: u32 = 4_096;
+
+    /// Validate per-field bounds. Cross-field constraints
+    /// (`resolved_retention <= retention.default_window_secs` so
+    /// resolved-conversion history cannot outlive the tenant row
+    /// it cascades from) are evaluated by
+    /// [`AccountManagementConfig::validate`] which has both sub-
+    /// sections in scope.
+    ///
+    /// # Errors
+    ///
+    /// Returns a human-readable string naming each invalid field.
+    pub fn validate(&self) -> Result<(), String> {
+        let mut bad: Vec<String> = Vec::new();
+        if !(Self::MIN_APPROVAL_TTL_SECS..=Self::MAX_APPROVAL_TTL_SECS)
+            .contains(&self.approval_ttl_secs)
+        {
+            bad.push(format!(
+                "conversion.approval_ttl_secs (must be in [{}, {}]; got {})",
+                Self::MIN_APPROVAL_TTL_SECS,
+                Self::MAX_APPROVAL_TTL_SECS,
+                self.approval_ttl_secs,
+            ));
+        }
+        if !(Self::MIN_RESOLVED_RETENTION_SECS..=Self::MAX_RESOLVED_RETENTION_SECS)
+            .contains(&self.resolved_retention_secs)
+        {
+            bad.push(format!(
+                "conversion.resolved_retention_secs (must be in [{}, {}]; got {})",
+                Self::MIN_RESOLVED_RETENTION_SECS,
+                Self::MAX_RESOLVED_RETENTION_SECS,
+                self.resolved_retention_secs,
+            ));
+        }
+        if !(Self::MIN_CLEANUP_INTERVAL_SECS..=Self::MAX_CLEANUP_INTERVAL_SECS)
+            .contains(&self.cleanup_interval_secs)
+        {
+            bad.push(format!(
+                "conversion.cleanup_interval_secs (must be in [{}, {}]; got {})",
+                Self::MIN_CLEANUP_INTERVAL_SECS,
+                Self::MAX_CLEANUP_INTERVAL_SECS,
+                self.cleanup_interval_secs,
+            ));
+        }
+        if self.expire_batch_size == 0 || self.expire_batch_size > Self::MAX_BATCH_SIZE {
+            bad.push(format!(
+                "conversion.expire_batch_size (must be in [1, {}]; got {}; zero would scan no \
+                 rows forever and values above the cap risk PG IN(...) prepared-parameter \
+                 ceiling)",
+                Self::MAX_BATCH_SIZE,
+                self.expire_batch_size,
+            ));
+        }
+        if self.retention_batch_size == 0 || self.retention_batch_size > Self::MAX_BATCH_SIZE {
+            bad.push(format!(
+                "conversion.retention_batch_size (must be in [1, {}]; got {}; zero would scan \
+                 no rows forever and values above the cap risk PG IN(...) prepared-parameter \
+                 ceiling)",
+                Self::MAX_BATCH_SIZE,
+                self.retention_batch_size,
+            ));
+        }
+        if bad.is_empty() {
+            Ok(())
+        } else {
+            Err(bad.join(", "))
+        }
+    }
+}
+
 /// External `IdP` integration policy.
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
@@ -274,6 +434,36 @@ impl AccountManagementConfig {
                 "hierarchy.depth_threshold (must be <= MAX_DEPTH_THRESHOLD; protects saga depth arithmetic)",
             );
         }
+        // Conversion sub-section: validate eagerly so a bad
+        // approval_ttl / resolved_retention / cleanup_interval / batch
+        // surfaces at init time. Cross-field guard
+        // `resolved_retention <= retention.default_window_secs` keeps
+        // resolved-conversion history from outliving the tenant
+        // hard-delete cascade — see DESIGN §3.2 cross-validation
+        // requirement and ADR-0003 §1.
+        //
+        // Edge case: `retention.default_window_secs == 0` means
+        // "immediate hard-delete eligibility" for tenants. Combined
+        // with the `ConversionConfig::MIN_RESOLVED_RETENTION_SECS`
+        // floor (1 day), this cross-check forces deployments that
+        // disable tenant retention entirely to ALSO accept the
+        // conversion-history visibility implication: no positive
+        // `resolved_retention_secs` can satisfy the constraint, so
+        // such a deployment must remove the `[conversion]` section
+        // (defaults won't pass) AND adjust the tenant retention
+        // policy. The constraint surface is intentional — it
+        // prevents stale conversion history pinning rows that the
+        // tenant cascade is supposed to reclaim.
+        let conversion_err = self.conversion.validate().err();
+        if self.conversion.resolved_retention_secs > self.retention.default_window_secs {
+            bad.push(
+                "conversion.resolved_retention_secs (must be <= retention.default_window_secs; \
+                 conversion_requests.tenant_id is ON DELETE CASCADE so resolved-request history \
+                 cannot outlive the tenant retention window -- note: \
+                 retention.default_window_secs = 0 disables tenant retention entirely and \
+                 rejects ANY positive resolved_retention_secs, including the default 30d)",
+            );
+        }
         // Integrity-check sub-section: validate eagerly so a bad
         // interval / jitter / initial_delay surfaces here rather than
         // panicking inside the spawned loop on `tokio::time::sleep`.
@@ -290,10 +480,17 @@ impl AccountManagementConfig {
         // failure later — neither is the deterministic init-time
         // gate operators expect.
         let bootstrap_err = self.bootstrap.as_ref().and_then(|cfg| cfg.validate().err());
-        if bad.is_empty() && integrity_err.is_none() && bootstrap_err.is_none() {
+        if bad.is_empty()
+            && conversion_err.is_none()
+            && integrity_err.is_none()
+            && bootstrap_err.is_none()
+        {
             Ok(())
         } else {
             let mut parts: Vec<String> = bad.into_iter().map(str::to_owned).collect();
+            if let Some(err) = conversion_err {
+                parts.push(err);
+            }
             if let Some(err) = integrity_err {
                 parts.push(err);
             }

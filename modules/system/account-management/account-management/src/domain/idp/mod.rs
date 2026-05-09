@@ -35,7 +35,7 @@
 
 use std::hash::Hasher;
 
-use account_management_sdk::ProvisionFailure;
+use account_management_sdk::{ProvisionFailure, UserOperationFailure};
 use fnv::FnvHasher;
 use uuid::Uuid;
 
@@ -201,6 +201,126 @@ impl ProvisionFailureExt for ProvisionFailure {
 // `ProvisionFailure` side) lands together with its first real
 // caller — typically an admin endpoint that surfaces a deprovision
 // outcome to a caller — rather than as dead infrastructure here.
+
+/// Map [`UserOperationFailure`] onto the [`DomainError`] taxonomy with
+/// caller-supplied `tenant_id` context.
+///
+/// * `Unavailable` → [`DomainError::IdpUnavailable`] (HTTP 503). The
+///   provider was unreachable, the call timed out, or the transport
+///   returned a retryable failure. AM holds no fallback projection
+///   per `cpt-cf-account-management-constraint-no-user-storage`.
+/// * `UnsupportedOperation` → [`DomainError::UnsupportedOperation`]
+///   (HTTP 501). The provider declined a mutating operation in its
+///   current implementation profile.
+/// * `Rejected` → [`DomainError::Validation`] (HTTP 400). The
+///   provider returned a payload-rejection category; the canonical
+///   mapping refinement is owned by `feature-errors-observability`
+///   and may diverge per provider in a follow-up. The Validation
+///   surface is the most conservative public envelope today.
+///
+/// Provider-supplied detail strings are redacted via
+/// [`redact_provider_detail`] before reaching public envelopes:
+/// vendor SDK text can carry endpoint names, hostnames, or token-
+/// bearing fragments. Operators correlate redacted public envelopes
+/// to raw provider responses via the digest + length emitted on the
+/// `am.idp` `tracing::warn!` line.
+pub(crate) trait UserOperationFailureExt {
+    fn into_domain_error(self, tenant_id: Uuid) -> DomainError;
+}
+
+impl UserOperationFailureExt for UserOperationFailure {
+    #[allow(
+        clippy::cognitive_complexity,
+        reason = "flat 3-arm match with redact + warn! per arm; splitting fragments the variant->DomainError mapping reviewers must eyeball-check"
+    )]
+    fn into_domain_error(self, tenant_id: Uuid) -> DomainError {
+        match self {
+            // @cpt-begin:cpt-cf-account-management-dod-idp-user-operations-contract-idp-unavailability-contract:p1:inst-dod-idp-user-operations-contract-unavailability-mapping
+            // @cpt-begin:cpt-cf-account-management-algo-idp-user-operations-contract-idp-contract-invocation:p1:inst-algo-ici-transport-failure
+            // @cpt-begin:cpt-cf-account-management-algo-idp-user-operations-contract-idp-contract-invocation:p1:inst-algo-ici-transport-return
+            Self::Unavailable { detail } => {
+                let (digest, len) = redact_provider_detail(&detail);
+                tracing::warn!(
+                    target: "am.idp",
+                    tenant_id = %tenant_id,
+                    provider_detail_digest = digest,
+                    provider_detail_len = len,
+                    "IdP user operation Unavailable; surfacing IdpUnavailable, raw detail redacted (correlate via digest)"
+                );
+                DomainError::IdpUnavailable {
+                    detail: format!(
+                        "identity provider unavailable for user operation (detail redacted; \
+                         digest=0x{digest:016x} len={len})"
+                    ),
+                }
+            }
+            // @cpt-end:cpt-cf-account-management-algo-idp-user-operations-contract-idp-contract-invocation:p1:inst-algo-ici-transport-return
+            // @cpt-end:cpt-cf-account-management-algo-idp-user-operations-contract-idp-contract-invocation:p1:inst-algo-ici-transport-failure
+            // @cpt-end:cpt-cf-account-management-dod-idp-user-operations-contract-idp-unavailability-contract:p1:inst-dod-idp-user-operations-contract-unavailability-mapping
+            // @cpt-begin:cpt-cf-account-management-algo-idp-user-operations-contract-idp-contract-invocation:p1:inst-algo-ici-unsupported-branch
+            // @cpt-begin:cpt-cf-account-management-algo-idp-user-operations-contract-idp-contract-invocation:p1:inst-algo-ici-unsupported-return
+            Self::UnsupportedOperation { detail } => {
+                let (digest, len) = redact_provider_detail(&detail);
+                tracing::warn!(
+                    target: "am.idp",
+                    tenant_id = %tenant_id,
+                    provider_detail_digest = digest,
+                    provider_detail_len = len,
+                    "IdP user operation UnsupportedOperation; raw detail redacted"
+                );
+                DomainError::UnsupportedOperation {
+                    detail: format!(
+                        "provider declined the user operation (detail redacted; \
+                         digest=0x{digest:016x} len={len})"
+                    ),
+                }
+            }
+            // @cpt-end:cpt-cf-account-management-algo-idp-user-operations-contract-idp-contract-invocation:p1:inst-algo-ici-unsupported-return
+            // @cpt-end:cpt-cf-account-management-algo-idp-user-operations-contract-idp-contract-invocation:p1:inst-algo-ici-unsupported-branch
+            // @cpt-begin:cpt-cf-account-management-algo-idp-user-operations-contract-idp-contract-invocation:p1:inst-algo-ici-provider-error
+            // @cpt-begin:cpt-cf-account-management-algo-idp-user-operations-contract-idp-contract-invocation:p1:inst-algo-ici-provider-error-return
+            Self::Rejected { detail } => {
+                let (digest, len) = redact_provider_detail(&detail);
+                tracing::warn!(
+                    target: "am.idp",
+                    tenant_id = %tenant_id,
+                    provider_detail_digest = digest,
+                    provider_detail_len = len,
+                    "IdP user operation Rejected; surfacing Validation, raw detail redacted"
+                );
+                DomainError::Validation {
+                    detail: format!(
+                        "identity provider rejected the user operation (detail redacted; \
+                         digest=0x{digest:016x} len={len})"
+                    ),
+                }
+            }
+            // @cpt-end:cpt-cf-account-management-algo-idp-user-operations-contract-idp-contract-invocation:p1:inst-algo-ici-provider-error-return
+            // @cpt-end:cpt-cf-account-management-algo-idp-user-operations-contract-idp-contract-invocation:p1:inst-algo-ici-provider-error
+            // SDK enum is `#[non_exhaustive]`. A new variant added in
+            // a future SDK release lands here until the AM-side
+            // mapping is updated; surface as `Internal` with a loud
+            // `error!` so the gap shows up in operator logs the
+            // moment the new variant flows through.
+            other => {
+                let label = other.as_metric_label();
+                tracing::error!(
+                    target: "am.idp",
+                    tenant_id = %tenant_id,
+                    variant = label,
+                    "unknown UserOperationFailure variant; mapping conservatively to Internal -- update UserOperationFailureExt::into_domain_error"
+                );
+                DomainError::Internal {
+                    diagnostic: format!(
+                        "idp user operation unknown failure variant `{label}` (raw detail redacted; \
+                         update UserOperationFailureExt::into_domain_error)"
+                    ),
+                    cause: None,
+                }
+            }
+        }
+    }
+}
 
 #[cfg(test)]
 #[cfg_attr(coverage_nightly, coverage(off))]

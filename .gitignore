@@ -45,6 +45,9 @@ logs
 .claude/settings.local.json
 .claude/scheduled_tasks.lock
 
+# Cypilot per-task plan artifacts (scratch data; not tracked)
+.cypilot/.plans/
+
 CLAUDE.local.md
 .setup-stamp
 

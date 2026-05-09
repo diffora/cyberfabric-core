@@ -47,22 +47,27 @@ use authz_resolver_sdk::{AuthZResolverClient, PolicyEnforcer};
 use modkit::contracts::DatabaseCapability;
 use modkit::lifecycle::ReadySignal;
 use modkit::{Module, ModuleCtx};
+use modkit_security::AccessScope;
 use tokio_util::sync::CancellationToken;
 use tracing::info;
 
-use account_management_sdk::IdpTenantProvisionerClient;
+use account_management_sdk::{IdpTenantProvisionerClient, IdpUserProvisionerClient};
 
 use crate::config::AccountManagementConfig;
 use crate::domain::bootstrap::BootstrapService;
+use crate::domain::conversion::repo::ConversionRepo;
+use crate::domain::conversion::service::ConversionService;
 use crate::domain::integrity_check::{IntegrityChecker, run_integrity_check_loop};
+use crate::domain::tenant::TenantRepo;
 use crate::domain::tenant::hooks::TenantHardDeleteHook;
 use crate::domain::tenant::resource_checker::ResourceOwnershipChecker;
 use crate::domain::tenant::service::TenantService;
 use crate::domain::tenant_type::TenantTypeChecker;
-use crate::infra::idp::NoopProvisioner;
+use crate::domain::user::service::UserService;
+use crate::infra::idp::{NoopProvisioner, NoopUserProvisioner};
 use crate::infra::rg::RgResourceOwnershipChecker;
 use crate::infra::storage::migrations::Migrator;
-use crate::infra::storage::repo_impl::{AmDbProvider, TenantRepoImpl};
+use crate::infra::storage::repo_impl::{AmDbProvider, ConversionRepoImpl, TenantRepoImpl};
 use crate::infra::types_registry::GtsTenantTypeChecker;
 
 type ConcreteService = TenantService<TenantRepoImpl>;
@@ -79,6 +84,13 @@ struct BootstrapParams {
     types_registry: Arc<dyn types_registry_sdk::TypesRegistryClient>,
 }
 
+// Conversion lifecycle knobs (`approval_ttl`, `resolved_retention`,
+// `cleanup_interval`, batch sizes) live on `cfg.conversion` per
+// `ConversionConfig`. Defaults match `cpt-cf-account-management-adr-
+// conversion-approval` (ADR-0003 §1) — `init` validates each before
+// the conversion service is wired and `serve` spawns the cleanup
+// tick.
+
 #[modkit::module(
     name = "account-management",
     deps = ["authz-resolver", "types-registry", "resource-group"],
@@ -87,6 +99,20 @@ struct BootstrapParams {
 )]
 pub struct AccountManagementModule {
     service: OnceLock<Arc<ConcreteService>>,
+    /// Conversion-request domain service handle, published alongside
+    /// [`Self::service`] so SDK consumers (and the upcoming REST
+    /// surface) can drive the dual-consent
+    /// `pending -> {approved, cancelled, rejected, expired}` lifecycle
+    /// without re-discovering its dependencies. Wired during
+    /// [`Module::init`]; remains unset until init runs.
+    conversion_service: OnceLock<Arc<ConversionService>>,
+    /// `IdP` user-operations domain service handle, published alongside
+    /// [`Self::service`] so SDK consumers (and the upcoming REST
+    /// surface for `/tenants/{id}/users`) can drive provision /
+    /// deprovision / list flows without re-discovering the resolved
+    /// `IdpUserProvisionerClient`. Wired during [`Module::init`];
+    /// remains unset until init runs.
+    user_service: OnceLock<Arc<UserService>>,
     /// Hooks registered before [`Module::init`] has set up the service.
     /// Drained into the service inside `init` before the `OnceLock` is
     /// populated, so siblings can call `register_hard_delete_hook`
@@ -103,6 +129,8 @@ impl Default for AccountManagementModule {
     fn default() -> Self {
         Self {
             service: OnceLock::new(),
+            conversion_service: OnceLock::new(),
+            user_service: OnceLock::new(),
             pending_hard_delete_hooks: Mutex::new(Vec::new()),
             bootstrap_params: Mutex::new(None),
         }
@@ -128,6 +156,48 @@ impl AccountManagementModule {
     /// `hard_delete_one` call (the hook list is snapshotted per tick,
     /// so a late-arriving hook may be observed by some concurrent
     /// tenants but not others).
+    /// Public accessor for the wired [`ConversionService`].
+    ///
+    /// # Lifecycle
+    ///
+    /// Returns `None` until [`Module::init`] has finished publishing
+    /// the service into its [`OnceLock`]. The upcoming conversion
+    /// REST surface (cyberfabric-core#1813 follow-up) MUST defer any
+    /// access to this handle until the runtime has signalled
+    /// `Running`, since `init` is the only writer and `OnceLock`'s
+    /// `get` is unsynchronized — a caller observing `None` at the
+    /// wrong moment cannot tell "init has not run" from "init failed".
+    ///
+    /// SDK consumers in tests may safely fan out from this accessor
+    /// because tests construct the service directly through
+    /// [`ConversionService::new`] and bypass `init` entirely; this
+    /// public accessor exists for the production wiring path only.
+    #[must_use]
+    pub fn conversion_service(&self) -> Option<Arc<ConversionService>> {
+        self.conversion_service.get().cloned()
+    }
+
+    /// Public accessor for the wired [`UserService`].
+    ///
+    /// # Lifecycle
+    ///
+    /// Returns `None` until [`Module::init`] has finished publishing
+    /// the service into its [`OnceLock`]. The follow-up REST surface
+    /// for `/tenants/{id}/users` (cyberfabric-core#1813 follow-up)
+    /// MUST defer any access to this handle until the runtime has
+    /// signalled `Running`, since `init` is the only writer and
+    /// `OnceLock`'s `get` is unsynchronized -- a caller observing
+    /// `None` at the wrong moment cannot tell "init has not run"
+    /// from "init failed".
+    ///
+    /// SDK consumers in tests construct the service directly through
+    /// [`UserService::new`] and bypass `init` entirely; this public
+    /// accessor exists for the production wiring path only.
+    #[must_use]
+    pub fn user_service(&self) -> Option<Arc<UserService>> {
+        self.user_service.get().cloned()
+    }
+
     pub fn register_hard_delete_hook(&self, hook: TenantHardDeleteHook) {
         // Lock the buffer first, *then* check the OnceLock: this
         // ordering is the atomic switch with `init`, which drains
@@ -173,7 +243,7 @@ impl AccountManagementModule {
     )]
     #[allow(
         clippy::cognitive_complexity,
-        reason = "three symmetric tick-task spawns + a 3-arm select! that joins the survivors per-arm; collapsing the arms would obscure the panic-cascade contract documented above each arm"
+        reason = "four symmetric tick-task spawns (retention, reaper, integrity, conversion) + a 4-arm select! that joins the survivors per-arm; collapsing the arms would obscure the panic-cascade contract documented above each arm"
     )]
     pub(crate) async fn serve(
         self: Arc<Self>,
@@ -199,10 +269,21 @@ impl AccountManagementModule {
         let batch_size = svc.hard_delete_batch_size();
         let provisioning_timeout = svc.provisioning_timeout();
         let integrity_cfg = svc.integrity_check_config();
+        // Conversion service handle is published by `init` alongside
+        // the tenant service — if `init` ran successfully (which is
+        // the only path that reaches `serve`), it MUST be present.
+        // Bail out instead of silently skipping conversion ticks so a
+        // misconfigured deployment fails loudly at startup rather
+        // than letting pending conversions accumulate forever.
+        let conversion_svc = self.conversion_service.get().cloned().ok_or_else(|| {
+            anyhow::anyhow!(
+                "account-management: serve invoked before conversion service was published"
+            )
+        })?;
 
         // Shared child token — cancelled by either the runtime
         // (normal shutdown via `cancel`) or by `serve()` itself when
-        // one of the tick tasks dies (early-fail). All three tick
+        // one of the tick tasks dies (early-fail). All four tick
         // tasks observe the same token so a panic in one shuts down
         // the others deterministically instead of leaving them
         // running for up to one full tick beyond `serve()`'s return.
@@ -210,6 +291,7 @@ impl AccountManagementModule {
         let retention_cancel = tasks_cancel.clone();
         let reaper_cancel = tasks_cancel.clone();
         let integrity_cancel = tasks_cancel.clone();
+        let conversion_cancel = tasks_cancel.clone();
         let retention_svc = svc.clone();
         let reaper_svc = svc.clone();
         let integrity_checker: Arc<dyn IntegrityChecker> = svc;
@@ -289,6 +371,82 @@ impl AccountManagementModule {
             run_integrity_check_loop(integrity_checker, integrity_cfg, integrity_cancel).await;
         });
 
+        // Conversion-request expire + retention loop. Two cleanups
+        // share one tick because each is bounded by its own
+        // `batch_size` cap and both run against the same table — the
+        // alternative (two extra spawns) would only buy independent
+        // backpressure for two reads / writes that are already
+        // light. Pure background work, no caller scope; uses
+        // `AccessScope::allow_all` like the other AM reaper paths.
+        // Errors from either method are warn-logged; the loop never
+        // exits short of cancellation so a transient DB blip cannot
+        // permanently silence the reaper.
+        let conversion_loop_svc = Arc::clone(&conversion_svc);
+        let conversion_resolved_retention = conversion_svc.resolved_retention();
+        let conversion_cleanup_interval = conversion_svc.cleanup_interval();
+        let conversion_expire_batch = conversion_svc.expire_batch_size();
+        let conversion_retention_batch = conversion_svc.retention_batch_size();
+        let mut conversion_handle = tokio::spawn(async move {
+            // Dedicated `cleanup_interval` cadence per ADR-0003 §1 —
+            // distinct from `retention_tick` so an operator dialing
+            // tenant hard-delete down does NOT slow conversion expiry
+            // / retention along with it.
+            let mut interval = tokio::time::interval(conversion_cleanup_interval);
+            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+            loop {
+                tokio::select! {
+                    biased;
+                    () = conversion_cancel.cancelled() => break,
+                    _instant = interval.tick() => {
+                        match conversion_loop_svc
+                            .expire_pending(&AccessScope::allow_all(), conversion_expire_batch)
+                            .await
+                        {
+                            Ok(transitioned) if transitioned > 0 => {
+                                info!(
+                                    target: "am.lifecycle",
+                                    transitioned,
+                                    "conversion expire_pending tick"
+                                );
+                            }
+                            Ok(_) => {}
+                            Err(err) => {
+                                tracing::warn!(
+                                    target: "am.lifecycle",
+                                    error = %err,
+                                    "conversion expire_pending tick failed"
+                                );
+                            }
+                        }
+                        match conversion_loop_svc
+                            .soft_delete_resolved(
+                                &AccessScope::allow_all(),
+                                conversion_resolved_retention,
+                                conversion_retention_batch,
+                            )
+                            .await
+                        {
+                            Ok(soft_deleted) if soft_deleted > 0 => {
+                                info!(
+                                    target: "am.lifecycle",
+                                    soft_deleted,
+                                    "conversion soft_delete_resolved tick"
+                                );
+                            }
+                            Ok(_) => {}
+                            Err(err) => {
+                                tracing::warn!(
+                                    target: "am.lifecycle",
+                                    error = %err,
+                                    "conversion soft_delete_resolved tick failed"
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
         // Flip the runtime's `Starting -> Running` gate. Note: this
         // returns once all three `tokio::spawn` calls above have
         // submitted their futures to the scheduler, but **before** any
@@ -308,19 +466,20 @@ impl AccountManagementModule {
             retention_tick_secs = retention_tick.as_secs(),
             reaper_tick_secs = reaper_tick.as_secs(),
             integrity_check_enabled = integrity_enabled,
+            conversion_tick_secs = conversion_cleanup_interval.as_secs(),
             "account-management background ticks started"
         );
 
         // `select!` on the join handles instead of `join!`: a `join!`
-        // would wait for **both** tasks to complete, which means a
-        // panic in one is invisible until the other finishes its
-        // current tick (potentially the full retention or reaper
+        // would wait for **all** tasks to complete, which means a
+        // panic in one is invisible until the others finish their
+        // current ticks (potentially the full retention or reaper
         // interval). With `select!` the first task to finish wins;
-        // we then cancel `tasks_cancel` to stop the survivor and
-        // join it before returning.
+        // we then cancel `tasks_cancel` to stop the survivors and
+        // join them before returning.
         //
-        // The `&mut handle` borrow keeps both `JoinHandle`s alive
-        // past the `select!` so we can `.await` the survivor in the
+        // The `&mut handle` borrow keeps every `JoinHandle` alive
+        // past the `select!` so we can `.await` the survivors in the
         // tail of the chosen arm. `JoinHandle: Unpin`, so the
         // implicit `&mut F: Future` blanket impl applies.
         let serve_result: anyhow::Result<()> = tokio::select! {
@@ -328,27 +487,44 @@ impl AccountManagementModule {
                 tasks_cancel.cancel();
                 let reaper_res = (&mut reaper_handle).await;
                 let integrity_res = (&mut integrity_handle).await;
+                let conversion_res = (&mut conversion_handle).await;
                 check_task_join("retention", res)?;
                 check_task_join("reaper", reaper_res)?;
                 check_task_join("integrity", integrity_res)?;
+                check_task_join("conversion", conversion_res)?;
                 Ok(())
             }
             res = &mut reaper_handle => {
                 tasks_cancel.cancel();
                 let retention_res = (&mut retention_handle).await;
                 let integrity_res = (&mut integrity_handle).await;
+                let conversion_res = (&mut conversion_handle).await;
                 check_task_join("reaper", res)?;
                 check_task_join("retention", retention_res)?;
                 check_task_join("integrity", integrity_res)?;
+                check_task_join("conversion", conversion_res)?;
                 Ok(())
             }
             res = &mut integrity_handle => {
                 tasks_cancel.cancel();
                 let retention_res = (&mut retention_handle).await;
                 let reaper_res = (&mut reaper_handle).await;
+                let conversion_res = (&mut conversion_handle).await;
                 check_task_join("integrity", res)?;
                 check_task_join("retention", retention_res)?;
                 check_task_join("reaper", reaper_res)?;
+                check_task_join("conversion", conversion_res)?;
+                Ok(())
+            }
+            res = &mut conversion_handle => {
+                tasks_cancel.cancel();
+                let retention_res = (&mut retention_handle).await;
+                let reaper_res = (&mut reaper_handle).await;
+                let integrity_res = (&mut integrity_handle).await;
+                check_task_join("conversion", res)?;
+                check_task_join("retention", retention_res)?;
+                check_task_join("reaper", reaper_res)?;
+                check_task_join("integrity", integrity_res)?;
                 Ok(())
             }
         };
@@ -406,7 +582,7 @@ impl Module for AccountManagementModule {
         let db_raw = ctx.db_required()?;
         let db: Arc<AmDbProvider> = Arc::new(AmDbProvider::new(db_raw.db()));
 
-        let repo = Arc::new(TenantRepoImpl::new(db));
+        let repo = Arc::new(TenantRepoImpl::new(Arc::clone(&db)));
 
         // Resolve the IdP provisioner plugin from ClientHub. The
         // resolution policy is config-gated by `idp.required`:
@@ -440,6 +616,37 @@ impl Module for AccountManagementModule {
                     Arc::new(NoopProvisioner)
                 }
             };
+
+        // Resolve the IdP user-operations plugin from `ClientHub`.
+        //
+        // Unlike the tenant provisioner above, this resolution is
+        // ALWAYS soft (`idp.required` is NOT consulted): the user-
+        // operations REST surface (`/tenants/{id}/users`) is still
+        // deferred until `cyberfabric-core#1813`, so no production
+        // call path reaches the resolved client today. A deployment
+        // that already configured `idp.required = true` for the
+        // tenant boundary would otherwise fail to boot purely
+        // because it has not shipped a user-operations adapter yet
+        // -- a regression with no user-visible benefit.
+        //
+        // When the REST surface lands, the fail-closed gate will
+        // return through a dedicated config knob (e.g.
+        // `idp.user_operations_required`) so deployments can opt in
+        // independently of the tenant-side policy.
+        // @cpt-begin:cpt-cf-account-management-algo-idp-user-operations-contract-idp-contract-invocation:p1:inst-algo-ici-resolve-plugin
+        let idp_user: Arc<dyn IdpUserProvisionerClient> =
+            if let Ok(plugin) = ctx.client_hub().get::<dyn IdpUserProvisionerClient>() {
+                info!("idp user-operations plugin resolved from client hub");
+                plugin
+            } else {
+                info!(
+                    "no idp user-operations plugin registered; falling back to \
+                 NoopUserProvisioner (REST surface is deferred until \
+                 cyberfabric-core#1813)"
+                );
+                Arc::new(NoopUserProvisioner)
+            };
+        // @cpt-end:cpt-cf-account-management-algo-idp-user-operations-contract-idp-contract-invocation:p1:inst-algo-ici-resolve-plugin
 
         // FEATURE 2.3 (tenant-type-enforcement) — hard-resolve the
         // GTS Types Registry client. types-registry is declared in
@@ -524,15 +731,73 @@ impl Module for AccountManagementModule {
             }
         }
 
+        // Capture the conversion section before `cfg` is moved into
+        // `TenantService::new` below — the conversion service is
+        // constructed afterwards and needs the same validated values.
+        let conversion_cfg = cfg.conversion.clone();
+
         let mut service = TenantService::new(
-            repo,
+            Arc::clone(&repo),
             idp,
             resource_checker,
-            tenant_type_checker,
+            Arc::clone(&tenant_type_checker),
             enforcer,
             cfg,
         );
-        service = service.with_types_registry(types_registry);
+        service = service.with_types_registry(Arc::clone(&types_registry));
+
+        // Build the conversion-request domain service alongside the
+        // tenant service. Same `AmDbProvider` and `TenantTypeChecker`
+        // dependencies — the conversion repo's apply seam re-evaluates
+        // parent / child types in the same TX as the
+        // `tenants.self_managed` flip, so it MUST share the live
+        // checker resolved from the `types-registry` plugin.
+        let conversion_repo: Arc<dyn ConversionRepo> = Arc::new(ConversionRepoImpl::new(
+            Arc::clone(&db),
+            Arc::clone(&tenant_type_checker),
+        ));
+        let conversion_service = Arc::new(
+            ConversionService::new(
+                conversion_repo,
+                Arc::clone(&repo) as Arc<dyn TenantRepo>,
+                std::time::Duration::from_secs(conversion_cfg.approval_ttl_secs),
+                std::time::Duration::from_secs(conversion_cfg.resolved_retention_secs),
+            )
+            .with_cleanup_lifecycle(
+                std::time::Duration::from_secs(conversion_cfg.cleanup_interval_secs),
+                conversion_cfg.expire_batch_size,
+                conversion_cfg.retention_batch_size,
+            ),
+        );
+        self.conversion_service
+            .set(Arc::clone(&conversion_service))
+            .map_err(|_| {
+                anyhow::anyhow!(
+                    "{} module already initialized (conversion service)",
+                    Self::MODULE_NAME
+                )
+            })?;
+
+        // Build the user-operations domain service alongside the
+        // conversion service. Shares the same `TenantRepoImpl` for
+        // tenant-existence resolution; the resolved
+        // `IdpUserProvisionerClient` plugin came in via `ClientHub`
+        // earlier in this `init`. Per
+        // `cpt-cf-account-management-constraint-no-user-storage` the
+        // service holds NO storage handles -- every read and write
+        // is a live pass-through to the IdP.
+        let user_service = Arc::new(UserService::new(
+            Arc::clone(&repo) as Arc<dyn TenantRepo>,
+            idp_user,
+        ));
+        self.user_service
+            .set(Arc::clone(&user_service))
+            .map_err(|_| {
+                anyhow::anyhow!(
+                    "{} module already initialized (user service)",
+                    Self::MODULE_NAME
+                )
+            })?;
 
         // Drain the pre-init hook buffer into the service and
         // publish the service through `OnceLock` *under the same
