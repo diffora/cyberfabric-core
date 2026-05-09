@@ -21,9 +21,10 @@
 //!
 //! ## Empty value lists (fail-closed)
 //!
-//! Set-membership predicates (`In`, `InGroup`, `InGroupSubtree`) with an empty
-//! value list are rejected at compile time. An empty list means "match nothing"
-//! which is semantically a deny — but passing it through to the ORM would
+//! Set-membership predicates (`In`, `InGroup`, `InGroupSubtree`,
+//! `InTenantSubtree`) with an empty value list are rejected at compile
+//! time. An empty list means "match nothing" which is semantically a
+//! deny — but passing it through to the ORM would
 //! generate `WHERE col IN ()`, which is a SQL error on some engines. Instead
 //! the compiler treats this as a PDP contract violation and fails the
 //! constraint (fail-closed).
@@ -31,7 +32,7 @@
 use modkit_security::{AccessScope, ScopeConstraint, ScopeFilter, ScopeValue};
 
 use crate::constraints::{Constraint, Predicate};
-use crate::models::EvaluationResponse;
+use crate::models::{BarrierMode, EvaluationResponse};
 
 /// Error during constraint compilation.
 #[derive(Debug, thiserror::Error)]
@@ -178,6 +179,39 @@ fn compile_constraint(
                     ScopeFilter::in_group_subtree(&p.property, ancestor_ids),
                 )
             }
+            Predicate::InTenantSubtree(p) => {
+                // Fail closed if the PDP sent tenant_status: status filtering
+                // requires a descendant_status predicate that this PEP does
+                // not yet emit. Honouring the predicate without it would widen
+                // the PDP decision to a full subtree.
+                if !p.tenant_status.is_empty() {
+                    return Err(format!(
+                        "InTenantSubtree predicate on '{}' carries tenant_status \
+                         which requires unsupported descendant_status filtering (fail-closed)",
+                        p.property
+                    ));
+                }
+                let ancestor_ids: Vec<ScopeValue> = p
+                    .ancestor_ids
+                    .iter()
+                    .map(json_to_uuid_scope_value)
+                    .collect::<Result<_, _>>()?;
+                if ancestor_ids.is_empty() {
+                    return Err(format!(
+                        "InTenantSubtree predicate on '{}' has empty ancestor_ids (fail-closed)",
+                        p.property
+                    ));
+                }
+                // Map authz-sdk barrier mode onto modkit-security's bool flag.
+                // `Respect` (default) clamps the closure subquery with
+                // `AND barrier = 0`; `Ignore` is reserved for cross-barrier
+                // operations such as billing or tenant metadata reads.
+                let respect_barriers = matches!(p.barrier_mode, BarrierMode::Respect);
+                (
+                    p.property.as_str(),
+                    ScopeFilter::in_tenant_subtree(&p.property, ancestor_ids, respect_barriers),
+                )
+            }
         };
 
         if !supported_properties.contains(&property) {
@@ -188,6 +222,33 @@ fn compile_constraint(
     }
 
     Ok(ScopeConstraint::new(filters))
+}
+
+/// Convert a `serde_json::Value` to a UUID `ScopeValue`.
+///
+/// Only valid UUID strings are accepted; anything else (non-UUID string,
+/// number, bool, null, array, object) is rejected. Used for `ancestor_ids`
+/// in `InTenantSubtree` where the column type is always UUID.
+fn json_to_uuid_scope_value(v: &serde_json::Value) -> Result<ScopeValue, String> {
+    match v {
+        serde_json::Value::String(s) => {
+            uuid::Uuid::parse_str(s).map(ScopeValue::Uuid).map_err(|_| {
+                format!(
+                    "InTenantSubtree ancestor_id must be a UUID string, got: {s:?} (fail-closed)"
+                )
+            })
+        }
+        serde_json::Value::Number(_) => Err(
+            "InTenantSubtree ancestor_id must be a UUID string, got number (fail-closed)"
+                .to_owned(),
+        ),
+        serde_json::Value::Bool(_) => Err(
+            "InTenantSubtree ancestor_id must be a UUID string, got bool (fail-closed)".to_owned(),
+        ),
+        other => Err(format!(
+            "InTenantSubtree ancestor_id must be a UUID string, got: {other} (fail-closed)"
+        )),
+    }
 }
 
 /// Convert a `serde_json::Value` to a `ScopeValue`.

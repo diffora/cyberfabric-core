@@ -9,7 +9,9 @@
 //! - `Eq` / `In` - scalar value predicates (tenant scoping, resource ID)
 //! - `InGroup` - group membership subquery: resource visible if member of any listed group
 //! - `InGroupSubtree` - group subtree subquery: resource visible if member of any descendant of listed ancestors
+//! - `InTenantSubtree` - tenant subtree subquery: resource visible if its tenant is a descendant of any listed ancestor tenant
 
+use crate::models::BarrierMode;
 use crate::pep::IntoPropertyValue;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -37,6 +39,8 @@ pub enum Predicate {
     InGroup(InGroupPredicate),
     /// Group subtree: `resource_property IN (SELECT resource_id FROM membership WHERE group_id IN (SELECT descendant_id FROM closure WHERE ancestor_id IN (ancestor_ids)))`
     InGroupSubtree(InGroupSubtreePredicate),
+    /// Tenant subtree: `resource_property IN (SELECT descendant_id FROM tenant_closure WHERE ancestor_id IN (ancestor_ids))`
+    InTenantSubtree(InTenantSubtreePredicate),
 }
 
 /// Equality predicate: `property = value`.
@@ -139,6 +143,82 @@ impl InGroupSubtreePredicate {
                 .into_iter()
                 .map(IntoPropertyValue::into_filter_value)
                 .collect(),
+        }
+    }
+}
+
+/// Tenant subtree predicate: resource is visible if its tenant property is a
+/// descendant of any of the listed ancestor tenants per the AM-owned
+/// `tenant_closure` table.
+///
+/// Compiles to (with `barrier_mode = Respect`, the default):
+/// `property IN (SELECT descendant_id FROM tenant_closure
+///   WHERE ancestor_id IN (ancestor_ids) AND barrier = 0)`
+///
+/// With `barrier_mode = Ignore`:
+/// `property IN (SELECT descendant_id FROM tenant_closure
+///   WHERE ancestor_id IN (ancestor_ids))`
+///
+/// The `barrier = 0` clamp matches the AM closure-table contract:
+/// `barrier` is set when any tenant on the strict path
+/// `(ancestor, descendant]` is `self_managed`. Respecting the barrier
+/// therefore yields the canonical "subtree minus self-managed branches"
+/// semantics; ignoring it is reserved for cross-barrier operations such
+/// as billing or tenant metadata reads.
+///
+/// **`tenant_status` (canonical PDP field):** Maps to
+/// `AND descendant_status IN (...)` on the closure subquery. A non-empty
+/// `tenant_status` causes the compiler to fail the predicate closed: the
+/// SQL lowering requires a `descendant_status` predicate that this PEP
+/// does not emit, so passing through would silently widen the PDP decision.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InTenantSubtreePredicate {
+    /// Resource property to filter (e.g., `pep_properties::OWNER_TENANT_ID`,
+    /// or `pep_properties::RESOURCE_ID` on the `tenants` entity itself).
+    pub property: String,
+    /// Ancestor tenant UUIDs — the resource's tenant must be a descendant of any.
+    pub ancestor_ids: Vec<Value>,
+    /// Barrier enforcement mode. Defaults to [`BarrierMode::Respect`]
+    /// which clamps the closure subquery with `AND barrier = 0`.
+    #[serde(default)]
+    pub barrier_mode: BarrierMode,
+    /// Status filter for the tenant subtree (canonical PDP contract field).
+    ///
+    /// Maps to `AND descendant_status IN (...)` on the `tenant_closure`
+    /// subquery. A non-empty list causes the compiler to fail this predicate
+    /// closed: the SQL lowering requires a `descendant_status` predicate that
+    /// this PEP does not emit, so passing through would silently widen a
+    /// status-constrained PDP decision to a full subtree.
+    #[serde(default)]
+    pub tenant_status: Vec<Value>,
+}
+
+impl InTenantSubtreePredicate {
+    /// Create an `InTenantSubtree` predicate with the default barrier
+    /// mode ([`BarrierMode::Respect`]).
+    #[must_use]
+    pub fn new<V: IntoPropertyValue>(
+        property: impl Into<String>,
+        ancestor_ids: impl IntoIterator<Item = V>,
+    ) -> Self {
+        Self::with_barrier_mode(property, ancestor_ids, BarrierMode::Respect)
+    }
+
+    /// Create an `InTenantSubtree` predicate with an explicit barrier mode.
+    #[must_use]
+    pub fn with_barrier_mode<V: IntoPropertyValue>(
+        property: impl Into<String>,
+        ancestor_ids: impl IntoIterator<Item = V>,
+        barrier_mode: BarrierMode,
+    ) -> Self {
+        Self {
+            property: property.into(),
+            ancestor_ids: ancestor_ids
+                .into_iter()
+                .map(IntoPropertyValue::into_filter_value)
+                .collect(),
+            barrier_mode,
+            tenant_status: Vec::new(),
         }
     }
 }

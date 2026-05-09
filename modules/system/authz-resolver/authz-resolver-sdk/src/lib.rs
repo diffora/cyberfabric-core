@@ -53,7 +53,8 @@ pub mod plugin_api;
 // Re-export main types at crate root
 pub use api::AuthZResolverClient;
 pub use constraints::{
-    Constraint, EqPredicate, InGroupPredicate, InGroupSubtreePredicate, InPredicate, Predicate,
+    Constraint, EqPredicate, InGroupPredicate, InGroupSubtreePredicate, InPredicate,
+    InTenantSubtreePredicate, Predicate,
 };
 pub use error::AuthZResolverError;
 pub use gts::AuthZResolverPluginSpecV1;

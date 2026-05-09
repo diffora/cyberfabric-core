@@ -126,6 +126,30 @@ pub mod rg_tables {
     pub const CLOSURE_DESCENDANT_ID: &str = "descendant_id";
 }
 
+/// Well-known tenant-closure table and column names for subquery construction.
+///
+/// Used by the `SecureORM` condition builder to translate `InTenantSubtree`
+/// scope filters into SQL subqueries without depending on entity types.
+///
+/// **Note:** This table is canonical to the Account Management module's
+/// database. `InTenantSubtree` predicates are only executable in modules
+/// that share the AM database (or replicate `tenant_closure` from it).
+pub mod tenant_closure_tables {
+    /// Closure table for tenant hierarchy.
+    pub const CLOSURE_TABLE: &str = "tenant_closure";
+    /// Column in closure table: the ancestor tenant.
+    pub const CLOSURE_ANCESTOR_ID: &str = "ancestor_id";
+    /// Column in closure table: the descendant tenant.
+    pub const CLOSURE_DESCENDANT_ID: &str = "descendant_id";
+    /// Column in closure table: barrier flag.
+    ///
+    /// AM materializes `barrier = 1` on every closure row whose strict path
+    /// `(ancestor, descendant]` crosses a self-managed tenant. Subtree
+    /// queries that should stop at delegation boundaries clamp the
+    /// subquery with `AND barrier = 0`.
+    pub const CLOSURE_BARRIER: &str = "barrier";
+}
+
 /// A single scope filter — a typed predicate on a named resource property.
 ///
 /// The property name (e.g., `"owner_tenant_id"`, `"id"`) is an authorization
@@ -136,6 +160,7 @@ pub mod rg_tables {
 /// - [`ScopeFilter::In`] — set membership (`property IN (values)`)
 /// - [`ScopeFilter::InGroup`] — group membership subquery
 /// - [`ScopeFilter::InGroupSubtree`] — group subtree subquery
+/// - [`ScopeFilter::InTenantSubtree`] — tenant subtree subquery on `tenant_closure`
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ScopeFilter {
     /// Equality: `property = value`.
@@ -146,6 +171,8 @@ pub enum ScopeFilter {
     InGroup(InGroupScopeFilter),
     /// Group subtree: `property IN (SELECT resource_id FROM membership WHERE group_id IN (SELECT descendant_id FROM closure WHERE ancestor_id IN (ancestor_ids)))`.
     InGroupSubtree(InGroupSubtreeScopeFilter),
+    /// Tenant subtree: `property IN (SELECT descendant_id FROM tenant_closure WHERE ancestor_id IN (ancestor_ids))`.
+    InTenantSubtree(InTenantSubtreeScopeFilter),
 }
 
 /// Equality scope filter: `property = value`.
@@ -292,6 +319,82 @@ impl InGroupSubtreeScopeFilter {
     }
 }
 
+/// Tenant subtree scope filter — clamps a property to descendants of a set
+/// of ancestor tenants via the `tenant_closure` table.
+///
+/// Compiles to (with `respect_barriers = true`, the default):
+/// `property IN (SELECT descendant_id FROM tenant_closure
+///   WHERE ancestor_id IN (ancestor_ids) AND barrier = 0)`
+///
+/// With `respect_barriers = false`:
+/// `property IN (SELECT descendant_id FROM tenant_closure
+///   WHERE ancestor_id IN (ancestor_ids))`
+///
+/// **Note on `descendant_status`:** This filter intentionally does not
+/// constrain the closure's `descendant_status` column. Status filtering
+/// is the consumer's responsibility — typically an additional
+/// [`ScopeFilter::Eq`] or [`ScopeFilter::In`] predicate on a
+/// closure-aware property registered by the entity. See the canonical
+/// `tenant_status` semantics in `docs/arch/authorization/DESIGN.md`.
+///
+/// **Heads-up for `tenants`-style entities:** When a property resolves
+/// to the `tenants` row's own primary key (via `pep_properties::RESOURCE_ID`),
+/// the entity must declare the `id` column as a resolvable secured
+/// property. Entities marked with `#[secure(no_resource, ...)]` will
+/// fail-closed at scope resolution time.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct InTenantSubtreeScopeFilter {
+    property: String,
+    ancestor_ids: Vec<ScopeValue>,
+    respect_barriers: bool,
+}
+
+impl InTenantSubtreeScopeFilter {
+    /// Create a tenant subtree scope filter that respects barriers.
+    ///
+    /// Equivalent to `with_respect_barriers(property, ancestor_ids, true)`.
+    #[must_use]
+    pub fn new(property: impl Into<String>, ancestor_ids: Vec<ScopeValue>) -> Self {
+        Self::with_respect_barriers(property, ancestor_ids, true)
+    }
+
+    /// Create a tenant subtree scope filter with explicit barrier handling.
+    #[must_use]
+    pub fn with_respect_barriers(
+        property: impl Into<String>,
+        ancestor_ids: Vec<ScopeValue>,
+        respect_barriers: bool,
+    ) -> Self {
+        Self {
+            property: property.into(),
+            ancestor_ids,
+            respect_barriers,
+        }
+    }
+
+    /// The authorization property name.
+    #[inline]
+    #[must_use]
+    pub fn property(&self) -> &str {
+        &self.property
+    }
+
+    /// The ancestor tenant IDs.
+    #[inline]
+    #[must_use]
+    pub fn ancestor_ids(&self) -> &[ScopeValue] {
+        &self.ancestor_ids
+    }
+
+    /// Whether the SQL compilation should clamp the closure subquery
+    /// with `AND barrier = 0` (i.e. stop at self-managed boundaries).
+    #[inline]
+    #[must_use]
+    pub fn respect_barriers(&self) -> bool {
+        self.respect_barriers
+    }
+}
+
 impl ScopeFilter {
     /// Create an equality filter (`property = value`).
     #[must_use]
@@ -326,6 +429,20 @@ impl ScopeFilter {
         Self::InGroupSubtree(InGroupSubtreeScopeFilter::new(property, ancestor_ids))
     }
 
+    /// Create a tenant subtree filter (respects barriers by default).
+    #[must_use]
+    pub fn in_tenant_subtree(
+        property: impl Into<String>,
+        ancestor_ids: Vec<ScopeValue>,
+        respect_barriers: bool,
+    ) -> Self {
+        Self::InTenantSubtree(InTenantSubtreeScopeFilter::with_respect_barriers(
+            property,
+            ancestor_ids,
+            respect_barriers,
+        ))
+    }
+
     /// The authorization property name.
     #[must_use]
     pub fn property(&self) -> &str {
@@ -334,21 +451,31 @@ impl ScopeFilter {
             Self::In(f) => f.property(),
             Self::InGroup(f) => f.property(),
             Self::InGroupSubtree(f) => f.property(),
+            Self::InTenantSubtree(f) => f.property(),
         }
     }
 
     /// Collect direct-match values as a slice-like view for iteration.
     ///
     /// For `Eq`, returns a single-element slice; for `In`, returns the values slice.
-    /// For `InGroup`/`InGroupSubtree`, returns empty — those are subquery parameters,
-    /// not resource property values. The actual matching happens in SQL via
-    /// [`secure::scope_to_condition`].
+    /// For `InGroup`/`InGroupSubtree`/`InTenantSubtree`, returns empty — those
+    /// are subquery parameters, not resource property values. The actual
+    /// matching happens in SQL via [`secure::scope_to_condition`].
+    ///
+    /// **Write-path limitation:** Because `InTenantSubtree` returns an empty
+    /// slice here, in-memory helpers such as [`AccessScope::contains_uuid`] and
+    /// [`AccessScope::all_uuid_values_for`] always return negative/empty results
+    /// for this filter variant. Secure-insert paths that validate scope membership
+    /// via these helpers cannot use `InTenantSubtree` as a substitute for
+    /// `allow_all()` without an additional DB-backed tenant-membership check.
     #[must_use]
     pub fn values(&self) -> ScopeFilterValues<'_> {
         match self {
             Self::Eq(f) => ScopeFilterValues::Single(&f.value),
             Self::In(f) => ScopeFilterValues::Multiple(&f.values),
-            Self::InGroup(_) | Self::InGroupSubtree(_) => ScopeFilterValues::Multiple(&[]),
+            Self::InGroup(_) | Self::InGroupSubtree(_) | Self::InTenantSubtree(_) => {
+                ScopeFilterValues::Multiple(&[])
+            }
         }
     }
 
@@ -1100,6 +1227,65 @@ mod tests {
             vec![ScopeValue::Uuid(uid(T1))],
         )]));
         assert!(!scope.contains_uuid(pep_properties::OWNER_TENANT_ID, uid(T1)));
+    }
+
+    // --- ScopeFilter::InTenantSubtree ---
+
+    #[test]
+    fn scope_filter_in_tenant_subtree_constructor_defaults_to_respect() {
+        let f = ScopeFilter::in_tenant_subtree(
+            pep_properties::RESOURCE_ID,
+            vec![ScopeValue::Uuid(uid(T1))],
+            true,
+        );
+        assert_eq!(f.property(), pep_properties::RESOURCE_ID);
+        assert!(matches!(f, ScopeFilter::InTenantSubtree(_)));
+        assert_eq!(f.values().iter().count(), 0);
+        match &f {
+            ScopeFilter::InTenantSubtree(sf) => assert!(sf.respect_barriers()),
+            other => panic!("unexpected variant: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn in_tenant_subtree_scope_contains_uuid_returns_false() {
+        let scope = AccessScope::single(ScopeConstraint::new(vec![
+            ScopeFilter::in_tenant_subtree(
+                pep_properties::RESOURCE_ID,
+                vec![ScopeValue::Uuid(uid(T1))],
+                true,
+            ),
+        ]));
+        assert!(!scope.contains_uuid(pep_properties::RESOURCE_ID, uid(T1)));
+    }
+
+    #[test]
+    fn in_tenant_subtree_scope_filter_exposes_property_and_ancestors() {
+        let f = InTenantSubtreeScopeFilter::new(
+            pep_properties::RESOURCE_ID,
+            vec![ScopeValue::Uuid(uid(T1)), ScopeValue::Uuid(uid(T2))],
+        );
+        assert_eq!(f.property(), pep_properties::RESOURCE_ID);
+        assert_eq!(f.ancestor_ids().len(), 2);
+        assert!(f.respect_barriers());
+    }
+
+    #[test]
+    fn in_tenant_subtree_scope_filter_ignore_barriers_constructor() {
+        let f = InTenantSubtreeScopeFilter::with_respect_barriers(
+            pep_properties::OWNER_TENANT_ID,
+            vec![ScopeValue::Uuid(uid(T1))],
+            false,
+        );
+        assert!(!f.respect_barriers());
+    }
+
+    #[test]
+    fn tenant_closure_tables_constants_are_stable() {
+        assert_eq!(tenant_closure_tables::CLOSURE_TABLE, "tenant_closure");
+        assert_eq!(tenant_closure_tables::CLOSURE_ANCESTOR_ID, "ancestor_id");
+        assert_eq!(tenant_closure_tables::CLOSURE_DESCENDANT_ID, "descendant_id");
+        assert_eq!(tenant_closure_tables::CLOSURE_BARRIER, "barrier");
     }
 
     // --- contains_uuid string matching ---
