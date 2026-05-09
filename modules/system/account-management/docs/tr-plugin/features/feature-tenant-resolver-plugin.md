@@ -96,7 +96,7 @@ This feature realizes the sole feature entry in the `cf-tr-plugin` sub-system DE
 **Error Scenarios**:
 
 - Tenant identifier absent from `tenants` or the matched row is provisioning — plugin returns the canonical `not_found` code (mapped by `cpt-cf-account-management-feature-errors-observability` to `TenantResolverError::TenantNotFound`).
-- Database connection failure, query timeout, or tenant-type reverse-hydration failure — plugin returns the canonical `service_unavailable` code (mapped to `TenantResolverError::ServiceUnavailable`); the gateway decides retry.
+- Database connection failure, query timeout, or tenant-type reverse-hydration failure — plugin returns `TenantResolverError::Internal` with an opaque caller-facing message; the detailed cause is logged server-side via `tracing::warn!`. `Internal` (not `ServiceUnavailable`) is the chosen surface because these failures do not carry an actionable retry hint — see `tr_plugin/error_map.rs` for the rationale.
 
 **Steps**:
 
@@ -109,7 +109,7 @@ This feature realizes the sole feature entry in the `cf-tr-plugin` sub-system DE
    1. [ ] - `p1` - Invoke `algo-tenant-resolver-plugin-tenant-type-reverse-lookup` with the row's `tenant_type_uuid` to resolve the public chained `tenant_type` identifier - `inst-flow-get-tenant-hydrate-type`
    2. [ ] - `p1` - Project the AM row onto `TenantInfo` and **RETURN** it to the gateway - `inst-flow-get-tenant-return-info`
 6. [ ] - `p1` - **IF** any read step raised a transient DB or Types Registry failure - `inst-flow-get-tenant-error-branch`
-   1. [ ] - `p1` - **RETURN** the canonical `service_unavailable` code to the gateway - `inst-flow-get-tenant-return-unavailable`
+   1. [ ] - `p1` - **RETURN** `TenantResolverError::Internal` to the gateway with an opaque caller-facing message - `inst-flow-get-tenant-return-unavailable`
 
 ### Get Root Tenant
 
@@ -123,8 +123,8 @@ This feature realizes the sole feature entry in the `cf-tr-plugin` sub-system DE
 
 **Error Scenarios**:
 
-- No non-provisioning root present (including the bootstrap window when the sole root candidate is still provisioning) or multiple root rows present — plugin returns the canonical `service_unavailable` code (mapped to `TenantResolverError::ServiceUnavailable`); the single-root invariant is not recoverable by caller retry alone.
-- Database connection failure or query timeout — plugin returns the canonical `service_unavailable` code.
+- No non-provisioning root present (including the bootstrap window when the sole root candidate is still provisioning) or multiple root rows present — plugin returns `TenantResolverError::Internal`; the single-root invariant is not recoverable by caller retry alone, so `Internal` (the "wrong-state, ops-eyeball" surface) is preferred over `ServiceUnavailable` (which carries a "retry me" hint).
+- Database connection failure or query timeout — plugin returns `TenantResolverError::Internal` with an opaque caller-facing message; the detailed cause is logged server-side.
 
 **Steps**:
 
@@ -132,14 +132,14 @@ This feature realizes the sole feature entry in the `cf-tr-plugin` sub-system DE
 2. [ ] - `p1` - Invoke `algo-tenant-resolver-plugin-provisioning-invisibility-filter` with an absent caller `status_filter` to obtain the effective provisioning-exclusion predicate for the root candidate - `inst-flow-get-root-tenant-provisioning`
 3. [ ] - `p1` - Query AM `tenants` for the unique root candidate (root-marker predicate `parent_id is null`) via the read-only role, applying the effective provisioning-exclusion predicate - `inst-flow-get-root-tenant-lookup`
 4. [ ] - `p1` - **IF** no row is returned (no non-provisioning root present, including bootstrap window) - `inst-flow-get-root-tenant-none-branch`
-   1. [ ] - `p1` - **RETURN** the canonical `service_unavailable` code to the gateway - `inst-flow-get-root-tenant-return-service-unavailable-none`
+   1. [ ] - `p1` - **RETURN** `TenantResolverError::Internal` to the gateway - `inst-flow-get-root-tenant-return-service-unavailable-none`
 5. [ ] - `p1` - **ELSE IF** more than one root candidate is returned (single-root invariant violated) - `inst-flow-get-root-tenant-multiple-branch`
-   1. [ ] - `p1` - **RETURN** the canonical `service_unavailable` code to the gateway - `inst-flow-get-root-tenant-return-service-unavailable-multiple`
+   1. [ ] - `p1` - **RETURN** `TenantResolverError::Internal` to the gateway - `inst-flow-get-root-tenant-return-service-unavailable-multiple`
 6. [ ] - `p1` - **ELSE** exactly one non-provisioning root row is returned - `inst-flow-get-root-tenant-unique-branch`
    1. [ ] - `p1` - Invoke `algo-tenant-resolver-plugin-tenant-type-reverse-lookup` with the row's `tenant_type_uuid` - `inst-flow-get-root-tenant-hydrate-type`
    2. [ ] - `p1` - Project the AM row onto `TenantInfo` and **RETURN** it to the gateway - `inst-flow-get-root-tenant-return-info`
 7. [ ] - `p1` - **IF** any read step raised a transient DB or Types Registry failure - `inst-flow-get-root-tenant-error-branch`
-   1. [ ] - `p1` - **RETURN** the canonical `service_unavailable` code to the gateway - `inst-flow-get-root-tenant-return-unavailable`
+   1. [ ] - `p1` - **RETURN** `TenantResolverError::Internal` to the gateway - `inst-flow-get-root-tenant-return-unavailable`
 
 ### Get Tenants
 
@@ -154,7 +154,7 @@ This feature realizes the sole feature entry in the `cf-tr-plugin` sub-system DE
 **Error Scenarios**:
 
 - Caller supplies a malformed `GetTenantsOptions` payload (e.g., a status value outside the SDK-visible domain) — plugin returns `CanonicalError::InvalidArgument`.
-- Database connection failure or query timeout — plugin returns the canonical `service_unavailable` code.
+- Database connection failure or query timeout — plugin returns `TenantResolverError::Internal` with an opaque caller-facing message; the detailed cause is logged server-side.
 
 **Steps**:
 
@@ -168,7 +168,7 @@ This feature realizes the sole feature entry in the `cf-tr-plugin` sub-system DE
 7. [ ] - `p1` - Project each returned AM row onto `TenantInfo`; silently drop identifiers that did not match (absent or filtered out) - `inst-flow-get-tenants-project`
 8. [ ] - `p1` - **RETURN** the resulting `Vec<TenantInfo>` to the gateway - `inst-flow-get-tenants-return-vec`
 9. [ ] - `p1` - **IF** any read step raised a transient DB or Types Registry failure - `inst-flow-get-tenants-error-branch`
-   1. [ ] - `p1` - **RETURN** the canonical `service_unavailable` code to the gateway - `inst-flow-get-tenants-return-unavailable`
+   1. [ ] - `p1` - **RETURN** `TenantResolverError::Internal` to the gateway - `inst-flow-get-tenants-return-unavailable`
 
 ### Get Ancestors
 
@@ -183,7 +183,7 @@ This feature realizes the sole feature entry in the `cf-tr-plugin` sub-system DE
 **Error Scenarios**:
 
 - Starting tenant absent from `tenants` or in provisioning status — plugin returns the canonical `not_found` code.
-- Database connection failure, query timeout, or tenant-type reverse-hydration failure — plugin returns the canonical `service_unavailable` code.
+- Database connection failure, query timeout, or tenant-type reverse-hydration failure — plugin returns `TenantResolverError::Internal` with an opaque caller-facing message; the detailed cause is logged server-side.
 
 **Steps**:
 
@@ -200,7 +200,7 @@ This feature realizes the sole feature entry in the `cf-tr-plugin` sub-system DE
 9. [ ] - `p1` - Project the starting tenant onto `TenantRef` and each ancestor row onto `TenantRef`, preserving the direct-parent-first order - `inst-flow-get-ancestors-project`
 10. [ ] - `p1` - **RETURN** the assembled `GetAncestorsResponse` to the gateway - `inst-flow-get-ancestors-return-response`
 11. [ ] - `p1` - **IF** any read step raised a transient DB or Types Registry failure - `inst-flow-get-ancestors-error-branch`
-    1. [ ] - `p1` - **RETURN** the canonical `service_unavailable` code to the gateway - `inst-flow-get-ancestors-return-unavailable`
+    1. [ ] - `p1` - **RETURN** `TenantResolverError::Internal` to the gateway - `inst-flow-get-ancestors-return-unavailable`
 
 ### Get Descendants
 
@@ -216,7 +216,7 @@ This feature realizes the sole feature entry in the `cf-tr-plugin` sub-system DE
 
 - Starting tenant absent from `tenants` or in provisioning status — plugin returns the canonical `not_found` code.
 - Caller supplies a malformed `GetDescendantsOptions` payload (e.g., negative `max_depth`, or a status value outside the SDK-visible domain) — plugin returns `CanonicalError::InvalidArgument`.
-- Database connection failure, query timeout, or tenant-type reverse-hydration failure — plugin returns the canonical `service_unavailable` code.
+- Database connection failure, query timeout, or tenant-type reverse-hydration failure — plugin returns `TenantResolverError::Internal` with an opaque caller-facing message; the detailed cause is logged server-side.
 
 **Steps**:
 
@@ -235,7 +235,7 @@ This feature realizes the sole feature entry in the `cf-tr-plugin` sub-system DE
 10. [ ] - `p1` - Project the starting tenant onto `TenantRef`, then project each descendant row onto `TenantRef` preserving the pre-order returned by the algorithm, excluding the starting tenant from the `descendants` list - `inst-flow-get-descendants-project`
 11. [ ] - `p1` - **RETURN** the assembled `GetDescendantsResponse` to the gateway - `inst-flow-get-descendants-return-response`
 12. [ ] - `p1` - **IF** any read step raised a transient DB or Types Registry failure - `inst-flow-get-descendants-error-branch`
-    1. [ ] - `p1` - **RETURN** the canonical `service_unavailable` code to the gateway - `inst-flow-get-descendants-return-unavailable`
+    1. [ ] - `p1` - **RETURN** `TenantResolverError::Internal` to the gateway - `inst-flow-get-descendants-return-unavailable`
 
 ### Is Ancestor
 
@@ -250,7 +250,7 @@ This feature realizes the sole feature entry in the `cf-tr-plugin` sub-system DE
 **Error Scenarios**:
 
 - Either identifier absent from `tenants` or the matching row is in provisioning status — plugin returns the canonical `not_found` code.
-- Database connection failure or query timeout — plugin returns the canonical `service_unavailable` code.
+- Database connection failure or query timeout — plugin returns `TenantResolverError::Internal` with an opaque caller-facing message; the detailed cause is logged server-side.
 
 **Steps**:
 
@@ -267,7 +267,7 @@ This feature realizes the sole feature entry in the `cf-tr-plugin` sub-system DE
    1. [ ] - `p1` - Increment the barrier-bypass telemetry instrument for operator audit per `nfr-audit-trail` - `inst-flow-is-ancestor-record-bypass`
 9. [ ] - `p1` - **RETURN** the boolean result to the gateway - `inst-flow-is-ancestor-return-bool`
 10. [ ] - `p1` - **IF** any read step raised a transient DB failure - `inst-flow-is-ancestor-error-branch`
-    1. [ ] - `p1` - **RETURN** the canonical `service_unavailable` code to the gateway - `inst-flow-is-ancestor-return-unavailable`
+    1. [ ] - `p1` - **RETURN** `TenantResolverError::Internal` to the gateway - `inst-flow-is-ancestor-return-unavailable`
 
 ## 3. Processes / Business Logic (CDSL)
 
@@ -310,17 +310,17 @@ This feature realizes the sole feature entry in the `cf-tr-plugin` sub-system DE
 
 **Input**: `tenant_type_uuid` (AM-stored UUIDv5 surrogate observed on a `tenants` row, or a batch of such UUIDs).
 
-**Output**: public chained `tenant_type` identifier for each UUID (for example, the `gts.cf.core.am.tenant_type.v1~` envelope tail), or `CanonicalError::ServiceUnavailable` when Types Registry cannot resolve a UUID — the plugin MUST NOT return raw UUIDs in place of the public `tenant_type` field per `contract-types-registry-reverse-lookup`.
+**Output**: public chained `tenant_type` identifier for each UUID (for example, the `gts.cf.core.am.tenant_type.v1~` envelope tail), or `TenantResolverError::Internal` when Types Registry cannot resolve a UUID — the plugin MUST NOT return raw UUIDs in place of the public `tenant_type` field per `contract-types-registry-reverse-lookup`.
 
-> **Status (PR1):** UUID-keyed reverse-lookup is **dependency-gated** on the planned `TypesRegistryClient::get_by_uuid` / `resolve_traits_by_uuid` SDK additions; the chained-list endpoints available today do not satisfy this contract. Until those land, `tenant_type_uuid` reverse-hydration is unimplemented, and any flow that would reach this algorithm surfaces `CanonicalError::ServiceUnavailable` per `inst-algo-tenant-type-return-unavailable` rather than returning a partially-resolved projection.
+> **Status (current):** UUID-keyed reverse-lookup is **implemented** against `TypesRegistryClient::get_type_schema_by_uuid` (single-row hot paths) and `TypesRegistryClient::get_type_schemas_by_uuid` (batched page-style hot paths). Any registry failure surfaces `TenantResolverError::Internal` per `inst-algo-tenant-type-return-unavailable` rather than returning a partially-resolved projection — `Internal` is selected over `ServiceUnavailable` because the latter is reserved for recoverable outages with an operator retry hint, while opaque registry / DB failures do not carry that hint (see `tr_plugin/error_map.rs` for the mapping rationale shared with DB-side failures).
 
 **Steps**:
 
 1. [ ] - `p1` - Receive the input `tenant_type_uuid` (single or batch) from the invoking flow step - `inst-algo-tenant-type-receive`
-2. [ ] - `p1` - Resolve each UUID through `TypesRegistryClient` (batched call when more than one UUID is supplied) per `contract-types-registry-reverse-lookup` — **pending** the UUID-keyed lookup SDK addition described in the status note above; the registry client owns its own bounded TTL-aware cache so the plugin **MUST NOT** maintain a parallel cache of these mappings - `inst-algo-tenant-type-resolve`
-3. [ ] - `p1` - **IF** Types Registry cannot resolve one or more UUIDs (today: while the UUID-keyed lookup is unavailable, this branch is taken unconditionally) - `inst-algo-tenant-type-unresolved-branch`
-   1. [ ] - `p1` - **RETURN** `CanonicalError::ServiceUnavailable` to the caller without writing a raw UUID into the SDK projection - `inst-algo-tenant-type-return-unavailable`
-4. [ ] - `p1` - **RETURN** the resolved public chained `tenant_type` identifiers to the caller (reachable only once the UUID-keyed lookup ships) - `inst-algo-tenant-type-return-resolved`
+2. [ ] - `p1` - Resolve each UUID through `TypesRegistryClient` (batched `get_type_schemas_by_uuid` when more than one UUID is supplied; single `get_type_schema_by_uuid` otherwise) per `contract-types-registry-reverse-lookup`; the registry client owns its own bounded TTL-aware cache so the plugin **MUST NOT** maintain a parallel cache of these mappings - `inst-algo-tenant-type-resolve`
+3. [ ] - `p1` - **IF** Types Registry cannot resolve one or more UUIDs - `inst-algo-tenant-type-unresolved-branch`
+   1. [ ] - `p1` - **RETURN** `TenantResolverError::Internal` to the caller without writing a raw UUID into the SDK projection - `inst-algo-tenant-type-return-unavailable`
+4. [ ] - `p1` - **RETURN** the resolved public chained `tenant_type` identifiers to the caller - `inst-algo-tenant-type-return-resolved`
 
 ### Descendant Bounded Pre-Order
 
@@ -333,9 +333,9 @@ This feature realizes the sole feature entry in the `cf-tr-plugin` sub-system DE
 **Steps**:
 
 1. [ ] - `p1` - Receive the starting tenant identifier, the optional `max_depth` bound, the effective status-filter predicate, and the barrier predicate fragment from the invoking flow step - `inst-algo-preorder-receive-inputs`
-2. [ ] - `p1` - Issue a single bounded recursive subtree read against AM `tenants` rooted at the starting tenant identifier via the read-only role — the walk traverses the parent-link relation in AM `tenants`, ordering siblings by the tenant identifier and bounding recursion by the supplied `max_depth` bound (unbounded when absent) - `inst-algo-preorder-walk-tenants`
-3. [ ] - `p1` - Join the walk to AM `tenant_closure` on the `(ancestor_id, descendant_id)` pair anchored at the starting tenant, applying the barrier predicate fragment and the effective descendant-status predicate on the closure row in the same query — closure-driven provisioning invisibility is structural (closure contains no provisioning rows per AM's closure contract) and the defense-in-depth status-filter predicate on the joined `tenants` row prevents any stray leak - `inst-algo-preorder-join-closure`
-4. [ ] - `p1` - Emit the matched rows in the SDK's documented pre-order (parent before that parent's descendants; siblings ordered by tenant identifier) directly from the single closure-join query, so the plugin performs no application-layer walk — ordering is a property of the query result, not of plugin-side post-processing - `inst-algo-preorder-emit-preorder`
+2. [ ] - `p1` - Issue the bounded subtree read against AM `tenants` rooted at the starting tenant identifier via the read-only role, ordering siblings by the tenant identifier and bounding the result by the supplied `max_depth` bound (unbounded when absent). **Target shape:** a single recursive CTE pushing both ordering and depth bound into SQL. **Current shape:** the secure `modkit-db` extension does not expose raw `ConnectionTrait` today, so the implementation issues a single non-recursive `tenant_closure` scan for the barrier-bounded subtree and walks the resulting parent map pre-order in memory; `max_depth` is applied during the in-memory walk, NOT at the DB layer. Server-side cost therefore scales with the full barrier-bounded subtree under the pivot rather than with `max_depth × out-degree`; the recursive-CTE optimization is a tracked follow-up that lands when `modkit-db` ships a safe raw-SQL hook. - `inst-algo-preorder-walk-tenants`
+3. [ ] - `p1` - **Target shape:** join the walk to AM `tenant_closure` on the `(ancestor_id, descendant_id)` pair anchored at the starting tenant, applying the barrier predicate fragment and the effective descendant-status predicate on the closure row in the same query. **Current shape:** the closure scan in step 2 is the only DB-side filter; the barrier predicate fragment is folded into that scan, the caller-supplied `status_filter` is applied as an in-memory emission predicate during the pre-order walk (so a `[Active]` filter still emits an `Active` leaf whose intermediate parent is `Suspended`), and provisioning invisibility is structural (closure contains no provisioning rows per AM's closure contract) — no second DB query is issued. - `inst-algo-preorder-join-closure`
+4. [ ] - `p1` - Emit the matched rows in the SDK's documented pre-order (parent before that parent's descendants; siblings ordered by tenant identifier). **Current shape:** ordering is produced by an application-layer pre-order walk over the parent map built from the step-2 closure scan; `max_depth` is enforced during the walk and the status-filter emission predicate is evaluated per node. **Target shape:** ordering will be a property of the recursive-CTE result once `modkit-db` ships the raw-SQL hook — at that point this step becomes pure DB-side emission with no plugin-side post-processing. - `inst-algo-preorder-emit-preorder`
 5. [ ] - `p1` - Exclude the starting tenant from the emitted descendants list per SDK contract; the caller hydrates the starting tenant separately as `response.tenant` - `inst-algo-preorder-exclude-starting`
 6. [ ] - `p1` - **RETURN** the ordered descendant projection to the caller for downstream `tenant_type` reverse-hydration and `TenantRef` projection - `inst-algo-preorder-return-projection`
 
@@ -416,9 +416,32 @@ Every SDK method **MUST** structurally exclude rows whose AM-owned `tenants.stat
 
 ### Read-Only Database Role Enforcement
 
-- [ ] `p1` - **ID**: `cpt-cf-tr-plugin-dod-tenant-resolver-plugin-read-only-role-enforcement`
+- [ ] `p2` - **ID**: `cpt-cf-tr-plugin-dod-tenant-resolver-plugin-read-only-role-enforcement`
 
-The plugin **MUST** connect to the account-management database exclusively through a dedicated role that holds `SELECT` privileges only on `tenants` and `tenant_closure` (and whatever read-only auxiliary objects DESIGN §3.7 enumerates for coverage indexes), and **MUST NOT** be granted any mutation privilege on any AM-owned object. A startup-time privilege assertion **MUST** verify that the configured role carries no `INSERT`, `UPDATE`, `DELETE`, `TRUNCATE`, `GRANT`, or DDL privilege on AM-owned schemas and **MUST** fail plugin bootstrap when an excess privilege is detected. CI **MUST** enforce the same privilege shape on every deployable artifact so that a misconfigured role cannot silently ship.
+> **Status:** **Deferred follow-up.** The original design (and DESIGN §3.5
+> `constraint-read-only-role`) calls for the plugin to connect through a
+> dedicated `SELECT`-only role with a startup-time privilege assertion.
+> The current implementation shares AM's writer-grade `Db` handle because
+> `modkit-db` does not yet expose a connection-pool-per-role abstraction —
+> introducing one is an infrastructure-layer change with cross-module impact
+> beyond this PR. Until the abstraction lands, the plugin emits a startup
+> audit warning under `target = "am.tr_plugin.audit"` whenever
+> `tr_plugin.enabled = true`, pinning the deviation in operator logs so
+> the gap is visible. This DoD is intentionally demoted to `p2` and will
+> return to `p1` together with the `modkit-db` per-role pool work.
+
+**Current PR acceptance criteria (`p2`, deferred enforcement):**
+
+- The `tr_plugin` query layer surfaces is read-only **structurally**: every entry point is a `find()` / `count()` against `tenants` / `tenant_closure`; the module contains no `secure_insert` / `secure_update` / `secure_delete` calls. CI may grep for these symbols inside `src/tr_plugin/` to enforce the shape.
+- When `tr_plugin.enabled = true`, AM emits a startup audit warning under `target = "am.tr_plugin.audit"` recording that the plugin is sharing AM's writer pool, so the deviation is visible to operators.
+- No DB-side privilege assertion runs in this PR; deploys that flip `enabled = true` accept that the plugin reads through the AM writer pool with full SELECT / INSERT / UPDATE / DELETE privilege.
+
+**Future-state acceptance criteria (deferred, to be promoted to `p1` once `modkit-db` ships the per-role pool):**
+
+- The plugin **MUST** connect to the account-management database through a dedicated role that holds `SELECT` privileges only on `tenants` and `tenant_closure` (and whatever read-only auxiliary objects DESIGN §3.7 enumerates for coverage indexes), and **MUST NOT** be granted any mutation privilege on any AM-owned object.
+- A startup-time privilege assertion **MUST** verify that the configured role carries no `INSERT`, `UPDATE`, `DELETE`, `TRUNCATE`, `GRANT`, or DDL privilege on AM-owned schemas and **MUST** fail plugin bootstrap when an excess privilege is detected.
+- CI **MUST** enforce the same privilege shape on every deployable artifact so that a misconfigured role cannot silently ship.
+- The DB-side privilege layer **MUST** reject mutation attempts independently of plugin-code structure (defense-in-depth above the structural read-only surface from the current PR).
 
 **Implements**:
 
@@ -531,7 +554,7 @@ The plugin **MUST** register with the Tenant Resolver gateway via `ClientHub` un
 
 - [ ] `p1` - **ID**: `cpt-cf-tr-plugin-dod-tenant-resolver-plugin-closure-consistency-inheritance`
 
-The plugin **MUST** inherit closure consistency transactionally from AM's writer per `cpt-cf-tr-plugin-nfr-closure-consistency`: `tenants` and `tenant_closure` rows (including the `barrier` and `descendant_status` columns) are written together inside AM's single commit, and the plugin's reads therefore observe a consistent snapshot without any cross-row reconciliation on the read side. The plugin **MUST NOT** attempt to recompute closure rows, repair barrier drift, or run integrity checks — any such remediation is exclusively owned by `cpt-cf-account-management-algo-tenant-hierarchy-management-hierarchy-integrity-check` and related AM administrative flows. When a read observes a row shape that would only be possible under a closure-invariant violation, the plugin **MUST** surface the canonical `service_unavailable` code (envelope owned by `feature-errors-observability`) rather than patching the row, so the anomaly stays visible to operators.
+The plugin **MUST** inherit closure consistency transactionally from AM's writer per `cpt-cf-tr-plugin-nfr-closure-consistency`: `tenants` and `tenant_closure` rows (including the `barrier` and `descendant_status` columns) are written together inside AM's single commit, and the plugin's reads therefore observe a consistent snapshot without any cross-row reconciliation on the read side. The plugin **MUST NOT** attempt to recompute closure rows, repair barrier drift, or run integrity checks — any such remediation is exclusively owned by `cpt-cf-account-management-algo-tenant-hierarchy-management-hierarchy-integrity-check` and related AM administrative flows. When a read observes a row shape that would only be possible under a closure-invariant violation (for example, a closure row whose endpoint does not resolve to a visible `tenants` row), the plugin **MUST** surface `TenantResolverError::Internal` rather than patching the row or silently truncating the result, so the anomaly stays visible to operators. `Internal` (no retry hint) is preferred over `ServiceUnavailable` (caller-retry hint) here because invariant violations are not recoverable by caller retry alone.
 
 **Implements**:
 
@@ -595,13 +618,13 @@ The plugin **MUST** emit OpenTelemetry spans, metrics, and structured logs acros
 - Entities: Telemetry span, metric instrument, audit event
 - Data: (none — emission targets external telemetry pipelines; provisioning rows excluded by construction)
 - Sibling integration: `cpt-cf-tr-plugin-actor-platform-telemetry` (consumer); `cpt-cf-tr-plugin-actor-operator` (threshold owner)
-- Error taxonomy: delegated to `cpt-cf-account-management-feature-errors-observability` (audit envelope owner; the plugin emits the canonical categories `CanonicalError::NotFound`, `CanonicalError::ServiceUnavailable`, `CanonicalError::InvalidArgument` cited by name only in emitted records — `CanonicalError::PermissionDenied` is produced upstream by the gateway/dispatcher and is not a plugin outcome)
+- Error taxonomy: delegated to `cpt-cf-account-management-feature-errors-observability` (audit envelope owner; the plugin emits the SDK variants `TenantResolverError::TenantNotFound` and `TenantResolverError::Internal` cited by name only in emitted records — `TenantResolverError::ServiceUnavailable` is reserved for retry-hint upstream errors and is not a plugin outcome; cross-tenant denials surface upstream from the gateway/dispatcher and never originate inside the plugin)
 
 ### Error-Taxonomy Delegation
 
 - [ ] `p1` - **ID**: `cpt-cf-tr-plugin-dod-tenant-resolver-plugin-error-taxonomy-delegation`
 
-The plugin **MUST** delegate every public error-envelope concern — the category taxonomy, the stable canonical category identifier set, and the HTTP status mapping — to `cpt-cf-account-management-feature-errors-observability`, which is the canonical catalog owner. The plugin itself **MUST** name exactly the three categories it can surface (`CanonicalError::NotFound`, `CanonicalError::ServiceUnavailable`, `CanonicalError::InvalidArgument`) by their canonical spellings and **MUST NOT** introduce new public categories, redefine existing category semantics, or override the HTTP status returned by the envelope. Validation of caller-supplied `GetTenantsOptions` and `GetDescendantsOptions` payloads surfaces `CanonicalError::InvalidArgument`; absent or provisioning starting-tenant identifiers surface `CanonicalError::NotFound`; database or Types Registry transient failures surface `CanonicalError::ServiceUnavailable`. Cross-tenant denials (`CanonicalError::PermissionDenied`) are produced upstream by the gateway/dispatcher and never originate inside this plugin — the plugin performs zero authorization decisions and never constructs its own Problem body.
+The plugin **MUST** delegate every public error-envelope concern — the category taxonomy, the stable canonical category identifier set, and the HTTP status mapping — to `cpt-cf-account-management-feature-errors-observability`, which is the canonical catalog owner. The plugin itself **MUST** surface exactly two SDK variants — `TenantResolverError::TenantNotFound` and `TenantResolverError::Internal` — by their canonical spellings and **MUST NOT** introduce new public categories, redefine existing category semantics, or override the HTTP status returned by the envelope. Absent or provisioning starting-tenant identifiers surface `TenantNotFound`; database failures, Types Registry resolution failures, and observed closure-invariant violations all surface `Internal` (the latter, "wrong-state, ops-eyeball" surface, is preferred over `ServiceUnavailable` because none of these conditions carry an actionable caller-retry hint — see `tr_plugin/error_map.rs` for the rationale shared with DB-side failures). Cross-tenant denials and validation rejections are produced upstream by the gateway/dispatcher and never originate inside this plugin — the plugin performs zero authorization decisions and never constructs its own Problem body.
 
 **Implements**:
 
@@ -616,7 +639,7 @@ The plugin **MUST** delegate every public error-envelope concern — the categor
 
 **Touches**:
 
-- Entities: Canonical categories the plugin emits (`CanonicalError::NotFound`, `CanonicalError::ServiceUnavailable`, `CanonicalError::InvalidArgument`) referenced by name only; `CanonicalError::PermissionDenied` is gateway-upstream and not a plugin outcome
+- Entities: SDK variants the plugin emits (`TenantResolverError::TenantNotFound`, `TenantResolverError::Internal`) referenced by name only; `TenantResolverError::ServiceUnavailable` is reserved for retry-hint upstream errors and is not a plugin outcome; cross-tenant denials and `InvalidArgument` validation rejections are gateway-upstream
 - Data: (none — error surfaces carry no AM row)
 - Sibling integration: `cpt-cf-account-management-feature-errors-observability` (canonical catalog owner of the public error-category taxonomy, the stable `code` identifier set, the HTTP status mapping, and the Problem envelope shape)
 - Error taxonomy: delegated in full to `cpt-cf-account-management-feature-errors-observability`
@@ -632,10 +655,10 @@ The plugin **MUST** delegate every public error-envelope concern — the categor
 - [ ] `get_ancestors(tenant_id, BarrierMode::Respect)` returns rows in direct-parent-first order driven by `tenants.depth` DESC (starting from the direct parent down toward the root) with `tenants.id` ASC as tie-break, with ordering produced inside the database query (no application-layer sort); the same ordering holds for `BarrierMode::Ignore` invocations. Fingerprints `dod-tenant-resolver-plugin-deterministic-ordering`.
 - [ ] `get_descendants(tenant_id, GetDescendantsOptions { max_depth = N, … })` returns SDK pre-order with siblings ordered by `tenants.id` ASC and the result size bounded by `max_depth`; the ordering and bound are produced at query time per `algo-tenant-resolver-plugin-descendant-bounded-preorder`. Fingerprints `dod-tenant-resolver-plugin-deterministic-ordering`.
 - [ ] At module initialization the plugin registers with the Tenant Resolver gateway through `ClientHub` using its GTS instance identifier as the registration scope, and an observable registration event is emitted on the platform-telemetry channel. Readiness state (`Ready` / `NotReady`) is owned by the gateway / `ClientHub`, not by the plugin (the plugin is stateless per §4); while the gateway has not recorded a successful registration handshake, every inbound SDK call is short-circuited at the gateway/dispatcher with `CanonicalError::ServiceUnavailable` and the plugin's query logic is not reached. Fingerprints `dod-tenant-resolver-plugin-clienthub-registration`.
-- [ ] A concurrent AM write to `tenants` or `tenant_closure` is visible to the plugin only after AM's transaction commits (read-committed or stricter isolation); the plugin performs zero reconciliation, repair, or retry on stale rows, and any invariant violation detected at query time surfaces `CanonicalError::ServiceUnavailable` rather than a plugin-side fix-up. Fingerprints `dod-tenant-resolver-plugin-closure-consistency-inheritance`.
+- [ ] A concurrent AM write to `tenants` or `tenant_closure` is visible to the plugin only after AM's transaction commits (read-committed or stricter isolation); the plugin performs zero reconciliation, repair, or retry on stale rows, and any invariant violation detected at query time surfaces `TenantResolverError::Internal` rather than a plugin-side fix-up. Fingerprints `dod-tenant-resolver-plugin-closure-consistency-inheritance`.
 - [ ] Every SDK invocation propagates the caller-supplied `SecurityContext` onto the emitted OpenTelemetry database span and every downstream span; the plugin performs zero authorization decisions, zero policy evaluation, and zero identity translation — those remain exclusively with the AuthZ Resolver and the PolicyEnforcement Point upstream. Fingerprints `dod-tenant-resolver-plugin-security-context-passthrough`.
 - [ ] The plugin emits OpenTelemetry spans and metrics covering the Performance, Reliability, Security, and Versatility vectors per DESIGN §3.2 observability contract, and every audit event required by `cpt-cf-tr-plugin-nfr-audit-trail` is written through the platform audit envelope owned by `cpt-cf-account-management-feature-errors-observability`; no emitted payload carries PII beyond the stable `SecurityContext` identifiers. Fingerprints `dod-tenant-resolver-plugin-observability-surface`.
-- [ ] Every public error path surfaces one of exactly three canonical categories — `CanonicalError::NotFound`, `CanonicalError::ServiceUnavailable`, `CanonicalError::InvalidArgument` — by reference to the envelope owned by `cpt-cf-account-management-feature-errors-observability`; `CanonicalError::PermissionDenied` is produced upstream by the gateway/dispatcher and never originates in the plugin; the plugin introduces zero new public categories, redefines zero existing category semantics, and constructs zero Problem body on its own. Fingerprints `dod-tenant-resolver-plugin-error-taxonomy-delegation`.
+- [ ] Every public error path surfaces one of exactly two SDK variants — `TenantResolverError::TenantNotFound` and `TenantResolverError::Internal` — by reference to the envelope owned by `cpt-cf-account-management-feature-errors-observability`; `TenantResolverError::ServiceUnavailable` is reserved for retry-hint upstream errors (registration races, gateway-side dispatch outages) and is not a plugin outcome; cross-tenant denials and `InvalidArgument` validation rejections originate upstream from the gateway/dispatcher and never inside the plugin; the plugin introduces zero new public categories, redefines zero existing category semantics, and constructs zero Problem body on its own. Fingerprints `dod-tenant-resolver-plugin-error-taxonomy-delegation`.
 
 ## 7. Deliberate Omissions
 
@@ -646,7 +669,7 @@ The plugin **MUST** delegate every public error-envelope concern — the categor
 - **Process-local caching of any plugin-owned data** — *Forbidden by `cpt-cf-tr-plugin-principle-single-store`* and `cpt-cf-tr-plugin-principle-sdk-source-of-truth` (DECOMPOSITION §2.1 Out-of-scope). The plugin holds no cache of tenants, ancestors, descendants, closure rows, barrier decisions, or `tenant_type_uuid → tenant_type` mappings; every hierarchy read re-reads AM rows, and tenant-type reverse-hydration is delegated to `TypesRegistryClient`'s built-in cache per `contract-types-registry-reverse-lookup`.
 - **Multi-region reads, read-replica routing, and cross-region latency budgeting** — *Out of v1 scope* (DECOMPOSITION §2.1 Out-of-scope). v1 ships as single-region primary-only; multi-region topology and replica routing are deferred to a future deployment-profile revision.
 - **Standalone-plugin reusability against non-AM storage** — *Out of v1 scope* (DECOMPOSITION §2.1 Out-of-scope). TRP ships inside the `account-management` crate at `modules/system/account-management/account-management/src/tr_plugin/` because its correctness relies on AM-writer invariants beyond the two-table schema; a generalized plugin variant is not in this feature.
-- **Cross-cutting error taxonomy, audit pipeline, metric catalog, and Problem envelope construction** — *Owned by `cpt-cf-account-management-feature-errors-observability`* (DECOMPOSITION §2.1 Depends-On). The canonical categories `CanonicalError::NotFound`, `CanonicalError::ServiceUnavailable`, `CanonicalError::InvalidArgument`, and `CanonicalError::PermissionDenied` are catalogued there; this feature emits the first three by name and references `PermissionDenied` as a gateway-upstream outcome only — never constructs a Problem body locally.
+- **Cross-cutting error taxonomy, audit pipeline, metric catalog, and Problem envelope construction** — *Owned by `cpt-cf-account-management-feature-errors-observability`* (DECOMPOSITION §2.1 Depends-On). The canonical categories `CanonicalError::NotFound`, `CanonicalError::ServiceUnavailable`, `CanonicalError::InvalidArgument`, and `CanonicalError::PermissionDenied` are catalogued there; this feature emits only `NotFound` and `Internal` (mapped from `TenantResolverError::TenantNotFound` / `Internal`) by name, references `ServiceUnavailable` as a gateway-upstream short-circuit on registration races, and references `InvalidArgument` / `PermissionDenied` as gateway/dispatcher-upstream outcomes — never constructs a Problem body locally.
 - **Tenant state machine and tenant-status lifecycle transitions** — *Owned by `cpt-cf-account-management-feature-tenant-hierarchy-management`* (DECOMPOSITION §2.1 Out-of-scope; §4 States). The plugin projects `tenants.status` read-only onto the SDK-visible subset `Active` / `Suspended` / `Deleted`; lifecycle transitions between `provisioning`, `active`, `suspended`, and `deleted` are the parent feature's write-path responsibility.
 - **User-facing UX, accessibility, and human-facing error messaging** — *Not applicable*: the plugin is an in-process SDK behind the Tenant Resolver gateway with zero human-facing surface; every caller is a platform component (gateway, AuthZ Resolver, Policy Enforcement Point). Human-readable error presentation, localization, and accessibility obligations attach to upstream REST/UI surfaces, not to this feature.
 - **Regulatory compliance scope (GDPR, SOC2, HIPAA, etc.) and PII handling** — *Not applicable at this feature's surface*: the plugin stores no user data, performs no authorization, and propagates the caller's `SecurityContext` identifiers read-only onto telemetry spans without transformation. Compliance obligations for tenant data attach to AM's writer (`cpt-cf-account-management-feature-tenant-hierarchy-management`) and to the audit/observability pipeline owned by `cpt-cf-account-management-feature-errors-observability`; this feature emits no PII beyond what the SDK already returns.

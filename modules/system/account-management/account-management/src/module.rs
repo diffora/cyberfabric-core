@@ -22,7 +22,36 @@
 //!    the `IdpTenantProvisionerClient` plugin under a config-gated
 //!    policy (`idp.required = true` → fail-closed; `false` → fall back
 //!    to `NoopProvisioner`), builds the `TenantService`, and stores
-//!    it in `OnceLock`.
+//!    it in `OnceLock`. `tenant-resolver` is also declared in `deps`
+//!    even though AM does not consume a runtime client from it: TR
+//!    owns the registration of the `TenantResolverPluginSpecV1`
+//!    type-schema in types-registry, and AM registers a
+//!    `BaseModkitPluginV1<TenantResolverPluginSpecV1>` *instance* of
+//!    that schema when `tr_plugin.enabled = true`. The instance
+//!    registration would fail with `ParentTypeSchemaNotRegistered`
+//!    if TR's init had not run first, so the dep is the
+//!    init-order constraint that makes the registration block
+//!    deterministic.
+//!
+//!    **Trade-off — TR is mandatory in any AM-included binary,**
+//!    even when `tr_plugin.enabled = false`. ModKit hard-deps are
+//!    static (declared at compile time) and unsatisfied deps are a
+//!    fatal startup error, so we cannot conditionally drop the
+//!    edge based on the runtime config flag. We accept this cost
+//!    because:
+//!
+//!    * TR is a tiny coordinator module — the binary-size impact
+//!      is negligible.
+//!    * Any deploy that *uses* tenant-resolver functionality
+//!      (whether AM's plugin or a third-party one) needs TR
+//!      anyway, so the constraint only bites a hypothetical
+//!      AM-only-no-TR build that would have nothing to resolve
+//!      tenants with.
+//!    * Without the dep, two `system` modules sit in the same
+//!      modkit init phase with no explicit ordering, and AM could
+//!      run before TR — which silently breaks `tr_plugin.enabled
+//!      = true` deploys with a stale `ParentTypeSchemaNotRegistered`
+//!      that is hard to diagnose.
 //! 3. The runtime invokes `serve` on a background task which spawns the
 //!    retention + reaper interval loops and returns once `cancel` fires.
 
@@ -50,12 +79,17 @@ use crate::infra::rg::RgResourceOwnershipChecker;
 use crate::infra::storage::migrations::Migrator;
 use crate::infra::storage::repo_impl::{AmDbProvider, TenantRepoImpl};
 use crate::infra::types_registry::GtsTenantTypeChecker;
+use crate::tr_plugin::PluginImpl as TrPluginImpl;
+use modkit::client_hub::ClientScope;
+use modkit::gts::BaseModkitPluginV1;
+use tenant_resolver_sdk::{TenantResolverPluginClient, TenantResolverPluginSpecV1};
+use types_registry_sdk::RegisterResult;
 
 type ConcreteService = TenantService<TenantRepoImpl>;
 
 #[modkit::module(
     name = "account-management",
-    deps = ["authz-resolver", "types-registry", "resource-group"],
+    deps = ["authz-resolver", "types-registry", "resource-group", "tenant-resolver"],
     capabilities = [db, stateful],
     lifecycle(entry = "serve", stop_timeout = "30s", await_ready)
 )]
@@ -420,6 +454,13 @@ impl Module for AccountManagementModule {
         let enforcer = PolicyEnforcer::new(authz);
         info!("authz-resolver client resolved from client hub; PolicyEnforcer wired");
 
+        // `cfg` is moved into `TenantService::new` below. Capture the
+        // tr_plugin knobs here so the registration block at the bottom
+        // of `init` can still read them — `enabled`/`priority` are
+        // `Copy`, `vendor` is cloned out as an owned `String`.
+        let tr_plugin_enabled = cfg.tr_plugin.enabled;
+        let tr_plugin_vendor = cfg.tr_plugin.vendor.clone();
+        let tr_plugin_priority = cfg.tr_plugin.priority;
         let mut service = TenantService::new(
             repo,
             idp,
@@ -428,7 +469,146 @@ impl Module for AccountManagementModule {
             enforcer,
             cfg,
         );
-        service = service.with_types_registry(types_registry);
+        service = service.with_types_registry(Arc::clone(&types_registry));
+
+        // Tenant Resolver Plugin (in-process, AM-co-located).
+        //
+        // **Opt-in**: gated by `cfg.tr_plugin.enabled`. While the
+        // plugin is still in build-out the default is `false` so a
+        // deploy that incidentally pulls AM into its binary does NOT
+        // register the plugin in either types-registry or
+        // `ClientHub` — without that gate, an AM-only binary would
+        // be the sole candidate under the configured vendor and the
+        // gateway's `choose_plugin_instance` would pick AM regardless
+        // of `priority`.
+        //
+        // Runs BEFORE `self.service.set(...)` below: TR-plugin GTS
+        // registration involves a network round-trip to
+        // types-registry and is fallible (serialization, registry
+        // contract violation, transient unavailability). Publishing
+        // AM's `service` to its `OnceLock` first would leave the
+        // module half-initialized and non-retriable on TR-plugin
+        // failure (the `OnceLock` would already be taken). Doing TR
+        // registration first preserves the "init() either fully
+        // succeeds or fully fails" contract.
+        //
+        // The plugin owns no state of its own; it borrows AM's `Db`
+        // and the already-resolved `TypesRegistryClient`.
+        // Registration order (when enabled):
+        //   1. Build `PluginImpl` from the shared deps.
+        //   2. Register a `BaseModkitPluginV1<TenantResolverPluginSpecV1>`
+        //      instance in types-registry (with idempotent
+        //      `AlreadyExists` spec verification).
+        //   3. **Only after** types-registry succeeds, bind the
+        //      plugin under a scoped `ClientHub` entry keyed by its
+        //      GTS instance id, matching the pattern in
+        //      `static-tr-plugin` and `rg-tr-plugin`.
+        // Step 3 follows step 2 so a registry failure cannot leave
+        // a stale `ClientHub` entry behind on a fail-closed init.
+        // The discovery race that could occur in the gap (gateway
+        // observes the registered instance but the bound client is
+        // not yet in the hub) is not reachable at init time —
+        // modkit's init phase is sequential and the TR gateway
+        // resolves plugins lazily on the first user request, after
+        // every dep has finished initializing.
+        //
+        // Co-location rationale (DESIGN §1.1): the plugin's
+        // correctness depends on AM-writer invariants beyond the
+        // two-table schema (transactional `(tenants, tenant_closure)`
+        // maintenance, barrier materialization over
+        // `(ancestor, descendant]`, provisioning lifecycle), which a
+        // standalone crate could not validate at runtime.
+        if tr_plugin_enabled {
+            // `tr_plugin` is enabled — emit a startup audit warning to
+            // make the in-process Tenant Resolver plugin visible in
+            // logs and pin the deviation from DESIGN §3.5: the plugin
+            // shares AM's normal connection pool rather than a
+            // dedicated read-only role. Provisioning a separate role
+            // is an operator concern that lands together with a
+            // `connection-pool-per-role` abstraction in `modkit-db`;
+            // until that exists, an `enabled = true` deploy reads
+            // through the writer-grade pool. Operators should be aware
+            // of this when granting AM's connection role.
+            tracing::warn!(
+                target: "am.tr_plugin.audit",
+                priority = tr_plugin_priority,
+                "AM tr_plugin enabled — registering against shared writer pool \
+                 (DESIGN §3.5 read-only role not yet provisioned)"
+            );
+            let tr_plugin =
+                Arc::new(TrPluginImpl::new(db_raw.db(), Arc::clone(&types_registry)));
+            let tr_instance_id = TenantResolverPluginSpecV1::gts_make_instance_id(
+                "cf.builtin.account_management_tenant_resolver.plugin.v1",
+            );
+            // `vendor` and `priority` are both config-driven. `vendor`
+            // defaults to `"cyberfabric"` to match the default in
+            // `TenantResolverConfig::default()` — deploys that
+            // override `tenant-resolver.vendor` MUST also override
+            // `account-management.tr_plugin.vendor` to the same
+            // string, otherwise AM's instance is registered but
+            // never selectable by the gateway. `priority` defaults
+            // well above every in-tree alternative (`rg-tr-plugin`
+            // = 50, `static-tr-plugin` = 100) so even with
+            // `enabled = true` AM does NOT win selection when
+            // those plugins coexist. Full rationale lives on
+            // `config::TrPluginConfig`.
+            let tr_instance = BaseModkitPluginV1::<TenantResolverPluginSpecV1> {
+                id: tr_instance_id.clone(),
+                vendor: tr_plugin_vendor,
+                priority: tr_plugin_priority,
+                properties: TenantResolverPluginSpecV1,
+            };
+            let tr_instance_json = serde_json::to_value(&tr_instance)
+                .map_err(|e| anyhow::anyhow!("tr-plugin: serialize instance failed: {e}"))?;
+            let tr_results = types_registry
+                .register(vec![tr_instance_json.clone()])
+                .await?;
+            // Idempotent restart: treat `AlreadyExists` as success only
+            // when the stored spec matches our current serialized
+            // instance; fail otherwise so a stale registration under
+            // the same ID surfaces immediately.
+            for result in &tr_results {
+                if let RegisterResult::Err { error, .. } = result {
+                    if error.is_already_exists() {
+                        let existing = types_registry
+                            .get_instance(tr_instance_id.as_ref())
+                            .await
+                            .map_err(|e| {
+                                anyhow::anyhow!("tr-plugin: verify existing instance: {e}")
+                            })?;
+                        if existing.object != tr_instance_json {
+                            return Err(anyhow::anyhow!(
+                                "tr-plugin: instance already registered with a different spec"
+                            ));
+                        }
+                    } else {
+                        return Err(anyhow::anyhow!(
+                            "tr-plugin: registration failed: {error}"
+                        ));
+                    }
+                }
+            }
+            // Only after types-registry has accepted the instance
+            // (or confirmed an idempotent restart) do we publish the
+            // scoped client to the hub. A failure above returns Err
+            // before we reach this point, leaving `ClientHub`
+            // untouched.
+            let tr_api: Arc<dyn TenantResolverPluginClient> = tr_plugin;
+            ctx.client_hub()
+                .register_scoped::<dyn TenantResolverPluginClient>(
+                    ClientScope::gts_id(&tr_instance_id),
+                    tr_api,
+                );
+            info!(
+                tr_plugin_instance_id = %tr_instance_id,
+                "tenant-resolver plugin registered (in-process, AM-co-located)"
+            );
+        } else {
+            info!(
+                "tenant-resolver plugin (AM-co-located) is disabled by config; \
+                 set `account-management.tr_plugin.enabled = true` to opt in"
+            );
+        }
 
         // Drain the pre-init hook buffer into the service and
         // publish the service through `OnceLock` *under the same
