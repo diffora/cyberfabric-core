@@ -64,6 +64,11 @@ use crate::infra::rg::RgResourceOwnershipChecker;
 use crate::infra::storage::migrations::Migrator;
 use crate::infra::storage::repo_impl::{AmDbProvider, TenantRepoImpl};
 use crate::infra::types_registry::GtsTenantTypeChecker;
+use crate::tr_plugin::PluginImpl as TrPluginImpl;
+use modkit::client_hub::ClientScope;
+use modkit::gts::BaseModkitPluginV1;
+use tenant_resolver_sdk::{TenantResolverPluginClient, TenantResolverPluginSpecV1};
+use types_registry_sdk::RegisterResult;
 
 type ConcreteService = TenantService<TenantRepoImpl>;
 
@@ -532,7 +537,59 @@ impl Module for AccountManagementModule {
             enforcer,
             cfg,
         );
-        service = service.with_types_registry(types_registry);
+        service = service.with_types_registry(Arc::clone(&types_registry));
+
+        // Tenant Resolver Plugin (in-process, AM-co-located).
+        //
+        // Run BEFORE `self.service.set(...)` below: TR-plugin GTS
+        // registration involves a network round-trip to types-registry
+        // and is fallible (serialization, registry contract violation,
+        // transient unavailability). Publishing AM's `service` to its
+        // `OnceLock` first would leave the module half-initialized
+        // and non-retriable on TR-plugin failure (the OnceLock would
+        // already be taken). Doing TR registration first preserves the
+        // "init() either fully succeeds or fully fails" contract.
+        //
+        // The plugin owns no state of its own; it borrows AM's `Db` and
+        // the already-resolved `TypesRegistryClient`. Registration order:
+        //   1. Build `PluginImpl` from the shared deps.
+        //   2. Register a `BaseModkitPluginV1<TenantResolverPluginSpecV1>`
+        //      instance in types-registry so the Tenant Resolver gateway
+        //      can discover it.
+        //   3. Bind the plugin under a scoped `ClientHub` entry keyed by
+        //      its GTS instance id, matching the pattern in
+        //      `static-tr-plugin` and `rg-tr-plugin`.
+        //
+        // Co-location rationale (DESIGN §1.1): the plugin's correctness
+        // depends on AM-writer invariants beyond the two-table schema
+        // (transactional `(tenants, tenant_closure)` maintenance, barrier
+        // materialization over `(ancestor, descendant]`, provisioning
+        // lifecycle), which a standalone crate could not validate at
+        // runtime.
+        let tr_plugin = Arc::new(TrPluginImpl::new(db_raw.db(), Arc::clone(&types_registry)));
+        let tr_instance_id = TenantResolverPluginSpecV1::gts_make_instance_id(
+            "cf.builtin.account_management_tenant_resolver.plugin.v1",
+        );
+        let tr_instance = BaseModkitPluginV1::<TenantResolverPluginSpecV1> {
+            id: tr_instance_id.clone(),
+            vendor: "cyberfabric".to_owned(),
+            priority: 100,
+            properties: TenantResolverPluginSpecV1,
+        };
+        let tr_instance_json = serde_json::to_value(&tr_instance)
+            .map_err(|e| anyhow::anyhow!("tr-plugin: serialize instance failed: {e}"))?;
+        let tr_results = types_registry.register(vec![tr_instance_json]).await?;
+        RegisterResult::ensure_all_ok(&tr_results)?;
+        let tr_api: Arc<dyn TenantResolverPluginClient> = tr_plugin;
+        ctx.client_hub()
+            .register_scoped::<dyn TenantResolverPluginClient>(
+                ClientScope::gts_id(&tr_instance_id),
+                tr_api,
+            );
+        info!(
+            tr_plugin_instance_id = %tr_instance_id,
+            "tenant-resolver plugin registered (in-process, AM-co-located)"
+        );
 
         // Drain the pre-init hook buffer into the service and
         // publish the service through `OnceLock` *under the same
