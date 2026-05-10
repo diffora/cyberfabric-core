@@ -8,6 +8,78 @@ fn default_validates_clean() {
 }
 
 #[test]
+fn tr_plugin_vendor_default_matches_resolver_default() {
+    // Pinned: AM's `tr_plugin.vendor` default MUST equal
+    // `TenantResolverConfig::default().vendor` so a deploy that
+    // flips `enabled = true` without touching either vendor knob
+    // wires through cleanly. The literal is duplicated rather than
+    // imported because AM does not depend on `tenant-resolver` at
+    // the runtime-client level (the dep is init-order only) — if
+    // the resolver default changes, both this test and the AM
+    // default need to be re-aligned in lockstep.
+    let cfg = AccountManagementConfig::default();
+    assert_eq!(
+        cfg.tr_plugin.vendor, "cyberfabric",
+        "AM tr_plugin.vendor default must match TenantResolverConfig::default().vendor"
+    );
+}
+
+#[test]
+fn rejects_empty_tr_plugin_vendor() {
+    // Empty vendor would let `enabled = true` register an instance
+    // that the gateway can never select (`choose_plugin_instance`
+    // filters by exact-match vendor; empty matches nothing in any
+    // realistic deploy). Fail at validate() rather than producing a
+    // silently-orphaned registration.
+    let cfg = AccountManagementConfig {
+        tr_plugin: TrPluginConfig {
+            vendor: String::new(),
+            ..TrPluginConfig::default()
+        },
+        ..AccountManagementConfig::default()
+    };
+    let err = cfg.validate().expect_err("empty vendor must reject");
+    assert!(err.contains("tr_plugin.vendor"), "{err}");
+}
+
+#[test]
+fn tr_plugin_disabled_by_default() {
+    // Pinned: while AM's `tr_plugin` is still in build-out, the
+    // master switch defaults to `false` so a deploy that
+    // incidentally pulls AM into its binary does NOT register the
+    // plugin in types-registry / `ClientHub` at all. This is the
+    // primary defense against silent traffic capture in an AM-only
+    // binary, where AM would otherwise be the sole candidate for
+    // its vendor and `choose_plugin_instance` would pick it
+    // regardless of priority. The switch-over commit that ships
+    // the feature-complete plugin flips this default to `true` and
+    // inverts this test.
+    let cfg = AccountManagementConfig::default();
+    assert!(
+        !cfg.tr_plugin.enabled,
+        "AM tr_plugin must be disabled by default while the plugin is in build-out"
+    );
+}
+
+#[test]
+fn tr_plugin_priority_default_loses_to_in_tree_alternatives() {
+    // Pinned: even when `enabled = true`, AM's default priority
+    // MUST be strictly **higher** than every in-tree alternative
+    // (`rg-tr-plugin` = 50, `static-tr-plugin` = 100) so a deploy
+    // that flips `enabled = true` without picking a priority still
+    // loses to coexisting plugins under the configured vendor.
+    // Secondary defense to `tr_plugin.enabled = false`; the
+    // primary defense (registration skipped entirely) lives in
+    // `tr_plugin_disabled_by_default`.
+    let cfg = AccountManagementConfig::default();
+    assert!(
+        cfg.tr_plugin.priority > 100,
+        "AM tr_plugin default priority must lose to static-tr-plugin (100); got {}",
+        cfg.tr_plugin.priority
+    );
+}
+
+#[test]
 fn idp_required_defaults_to_false() {
     // Pinned: deployments inheriting the default keep the existing
     // NoopProvisioner-fallback behaviour. Production deployments

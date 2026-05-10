@@ -33,6 +33,9 @@ pub struct AccountManagementConfig {
 
     /// External `IdP` integration policy.
     pub idp: IdpConfig,
+
+    /// In-process Tenant Resolver plugin registration knobs.
+    pub tr_plugin: TrPluginConfig,
 }
 
 /// Pagination knobs for collection endpoints.
@@ -164,6 +167,74 @@ impl Default for ReaperConfig {
     }
 }
 
+/// In-process Tenant Resolver plugin registration knobs.
+///
+/// AM can register its co-located `tr_plugin` as a
+/// `BaseModkitPluginV1<TenantResolverPluginSpecV1>` instance in
+/// types-registry. While the AM plugin is still in build-out,
+/// registration is **opt-in**: a deploy that incidentally pulls AM
+/// into its binary MUST NOT have AM start serving tenant-resolver
+/// traffic without an explicit operator decision. The `priority`
+/// knob is a secondary defense (see below) but is not sufficient
+/// on its own — in an AM-only binary AM would be the sole
+/// candidate for the configured vendor and `choose_plugin_instance`
+/// would pick it regardless of priority value.
+///
+/// When the plugin is feature-complete a single switch-over commit
+/// flips the `enabled` default to `true` (and lowers `priority`);
+/// until then operators opt in by setting `enabled = true`.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct TrPluginConfig {
+    /// Master switch for the AM-co-located TR plugin. `false` (the
+    /// default) skips both the types-registry instance registration
+    /// and the `ClientHub` bind, so the gateway never sees AM as a
+    /// candidate plugin. Operators flip this to `true` to opt the
+    /// deploy into the AM-served tenant-resolver path.
+    pub enabled: bool,
+
+    /// Plugin vendor — registered alongside the GTS instance and
+    /// used by the TR gateway's `choose_plugin_instance` to filter
+    /// candidates. **Must match `tenant-resolver.vendor`** in the
+    /// same deploy or AM's instance is registered but never
+    /// selectable. Defaults to `"cyberfabric"` to align with
+    /// `TenantResolverConfig::default()`; deploys that override
+    /// `tenant-resolver.vendor` MUST override this knob to the
+    /// same value.
+    pub vendor: String,
+
+    /// Plugin selection priority — only consulted when `enabled =
+    /// true`. Lower wins. Signed `i16` mirrors the wire format of
+    /// `BaseModkitPluginV1.priority`. The wide range
+    /// (−32 768 … 32 767) is deliberate: deploys that need to
+    /// guarantee AM wins regardless of any future plugin can pin
+    /// `priority = i16::MIN`, and the "I want AM to lose" knob is
+    /// `priority = i16::MAX`. The default sits well above the
+    /// in-tree alternatives (`rg-tr-plugin` = 50,
+    /// `static-tr-plugin` = 100) so an AM-included deploy that
+    /// flips `enabled = true` without picking a priority still
+    /// loses to those plugins when they coexist.
+    pub priority: i16,
+}
+
+impl Default for TrPluginConfig {
+    fn default() -> Self {
+        Self {
+            // Opt-in: registration is skipped entirely until the
+            // operator flips this to `true`.
+            enabled: false,
+            // Matches `TenantResolverConfig::default().vendor`.
+            // Deploys that override the resolver vendor MUST
+            // override this knob to the same value.
+            vendor: "cyberfabric".to_owned(),
+            // 1000 — well above the 50 / 100 of in-tree
+            // alternatives, leaves headroom for future plugins,
+            // fits in `i16`.
+            priority: 1000,
+        }
+    }
+}
+
 /// External `IdP` integration policy.
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
@@ -254,6 +325,11 @@ impl AccountManagementConfig {
         if self.hierarchy.depth_threshold > Self::MAX_DEPTH_THRESHOLD {
             bad.push(
                 "hierarchy.depth_threshold (must be <= MAX_DEPTH_THRESHOLD; protects saga depth arithmetic)",
+            );
+        }
+        if self.tr_plugin.vendor.is_empty() {
+            bad.push(
+                "tr_plugin.vendor (must be non-empty; an empty string would register an instance the TR gateway can never select)",
             );
         }
         if bad.is_empty() {
