@@ -39,7 +39,7 @@ AM automatically creates the initial root tenant on first platform start, links 
 
 ### 1.2 Purpose
 
-Implements PRD §5.1 Platform Bootstrap — the foundation FR group without which no tenant hierarchy can exist. The feature owns the one-time wiring moment at `AccountManagementModule` lifecycle entry: idempotency detection against the existing `tenants` table, IdP availability wait with exponential backoff, and a three-step saga. The **overall saga is not atomic**: step 1 (insert the `provisioning` tenant row) and step 3 (flip `status → active` and add the closure self-row) are each their own short DB transaction, but step 2 — `IdpProviderPluginClient::provision_tenant` — runs **outside** any DB transaction and is the compensating boundary. A clean step-2 failure deletes the `provisioning` row in a compensating TX and surfaces `CanonicalError::ServiceUnavailable` (HTTP 503); an ambiguous step-2 outcome leaves the row for the Provisioning Reaper. Only step 3's status flip + closure self-row insert commit atomically together.
+Implements PRD §5.1 Platform Bootstrap — the foundation FR group without which no tenant hierarchy can exist. The feature owns the one-time wiring moment at `AccountManagementModule` lifecycle entry: idempotency detection against the existing `tenants` table, IdP availability wait with exponential backoff, and a three-step saga. The **overall saga is not atomic**: step 1 (insert the `provisioning` tenant row) and step 3 (flip `status → active` and add the closure self-row) are each their own short DB transaction, but step 2 — `IdpPluginClient::provision_tenant` — runs **outside** any DB transaction and is the compensating boundary. A clean step-2 failure deletes the `provisioning` row in a compensating TX and surfaces `CanonicalError::ServiceUnavailable` (HTTP 503); an ambiguous step-2 outcome leaves the row for the Provisioning Reaper. Only step 3's status flip + closure self-row insert commit atomically together.
 
 **Requirements**: `cpt-cf-account-management-fr-root-tenant-creation`, `cpt-cf-account-management-fr-root-tenant-idp-link`, `cpt-cf-account-management-fr-bootstrap-idempotency`, `cpt-cf-account-management-fr-bootstrap-ordering`
 
@@ -155,7 +155,7 @@ Bootstrap is triggered by the `AccountManagementModule` lifecycle rather than an
 
 1. [ ] - `p1` - Initialize `current_backoff = idp_retry_backoff_initial`; `elapsed = 0` - `inst-algo-wait-init`
 2. [ ] - `p1` - Record start timestamp for elapsed-time calculation - `inst-algo-wait-start-timer`
-3. [ ] - `p1` - **TRY** `IdpProviderPluginClient::check_availability()` using the configured timeout budget - `inst-algo-wait-try-probe`
+3. [ ] - `p1` - **TRY** `IdpPluginClient::check_availability()` using the configured timeout budget - `inst-algo-wait-try-probe`
    1. [ ] - `p1` - **IF** IdP reports available - `inst-algo-wait-probe-ok`
       1. [ ] - `p1` - Emit metric `bootstrap.idp_wait.duration` with observed `elapsed` - `inst-algo-wait-metric-ok`
       2. [ ] - `p1` - **RETURN** `available` - `inst-algo-wait-return-ok`
@@ -253,7 +253,7 @@ The system **MUST** create exactly one root tenant row (`parent_id IS NULL`) dur
 
 - [x] `p1` - **ID**: `cpt-cf-account-management-dod-platform-bootstrap-idp-linking`
 
-The system **MUST** invoke the IdP provider's `provision_tenant(root_id, root_tenant_name, root_tenant_type, root_tenant_metadata)` exactly once during a successful bootstrap and persist every metadata entry returned in `ProvisionResult` as a `tenant_metadata` row (validated against registered GTS schemas). Bootstrap **MUST NOT** validate or interpret `root_tenant_metadata` content — it is a pass-through forwarded as-is.
+The system **MUST** invoke the IdP provider's `provision_tenant(root_id, root_tenant_name, root_tenant_type, root_tenant_metadata)` exactly once during a successful bootstrap and persist every metadata entry returned in `ProvisionResult` as a `tenant_metadata` row (validated against registered GTS schemas). Bootstrap **MUST NOT** semantically interpret `root_tenant_metadata` content — it is a pass-through forwarded as-is. When the wired IdP plugin opts in by overriding `IdpPluginClient::provision_input_schema_id` to return a GTS schema id, bootstrap **MUST** run a structural pre-check of `root_tenant_metadata` against the advertised schema before invoking `provision_tenant` so misconfigured deploy bundles surface as `Validation` here instead of as a downstream plugin error; an unregistered advertised schema is a deploy-time prerequisite failure (mapped to `Internal`, not `Validation`). Plugins that inherit the default `None` keep the pure pass-through behaviour.
 
 **Implements**:
 
@@ -286,7 +286,7 @@ The system **MUST** detect an existing active root tenant on platform restart or
 
 - [x] `p1` - **ID**: `cpt-cf-account-management-dod-platform-bootstrap-idp-wait-ordering`
 
-The system **MUST** block bootstrap at `IdpProviderPluginClient::check_availability()` until the IdP reports available, using exponential backoff with the configured `idp_retry_backoff_initial` (default 2s), capped at `idp_retry_backoff_max` (default 30s), and bounded by `idp_retry_timeout` (default 5min). On timeout, bootstrap **MUST** return `CanonicalError::ServiceUnavailable` (HTTP 503) and leave no partial `provisioning` row behind.
+The system **MUST** block bootstrap at `IdpPluginClient::check_availability()` until the IdP reports available, using exponential backoff with the configured `idp_retry_backoff_initial` (default 2s), capped at `idp_retry_backoff_max` (default 30s), and bounded by `idp_retry_timeout` (default 5min). On timeout, bootstrap **MUST** return `CanonicalError::ServiceUnavailable` (HTTP 503) and leave no partial `provisioning` row behind.
 
 **Implements**:
 

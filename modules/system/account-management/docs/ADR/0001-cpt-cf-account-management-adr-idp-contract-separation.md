@@ -40,7 +40,7 @@ The Cyber Ware platform already provides the AuthN Resolver as a gateway + plugi
 
 ## Considered Options
 
-1. **Separate contracts** — IdP integration plugin (`IdpProviderPluginClient`) for admin operations, AuthN Resolver plugin (`AuthNResolverPluginClient`) for token validation. Both follow the Cyber Ware gateway + plugin pattern with independent GTS schemas and ClientHub registration.
+1. **Separate contracts** — IdP integration plugin (`IdpPluginClient`) for admin operations, AuthN Resolver plugin (`AuthNResolverPluginClient`) for token validation. Both follow the Cyber Ware gateway + plugin pattern with independent GTS schemas and ClientHub registration.
 2. **Single unified IdP contract** — one plugin contract covering both token validation and admin operations.
 
 ## Decision Outcome
@@ -49,16 +49,16 @@ Chosen option: **Separate contracts**, because the two categories have fundament
 
 The IdP integration contract is implemented as a Cyber Ware plugin, analogous to `AuthNResolverPluginClient`:
 
-- **SDK trait**: `IdpProviderPluginClient` — defines `check_availability`, `provision_tenant`, `deprovision_tenant`, `create_user`, `delete_user`, `list_users`, `issue_impersonation_token`, `supports_impersonation`. `check_availability` is the side-effect-free provider readiness probe used by bootstrap retry/backoff and returns only available / unavailable / provider error outcomes under the configured timeout. Mutating operations must not silently no-op; unsupported mutating capabilities return explicit `idp_unsupported_operation` failures. Capability probes such as `supports_impersonation` may default to `false`, and read helpers may use explicit empty results only where the trait contract documents that behavior.
+- **SDK trait**: `IdpPluginClient` — defines `check_availability`, `provision_tenant`, `deprovision_tenant`, `provision_user`, `deprovision_user`, `list_users`, and the capability hint `provision_input_schema_id`. `check_availability` is the side-effect-free provider readiness probe used by bootstrap retry/backoff and returns only available / unavailable / provider error outcomes under the configured timeout. Mutating operations must not silently no-op; unsupported mutating capabilities return explicit `idp_unsupported_operation` failures. Capability probes such as `provision_input_schema_id` may default to `None`, and read helpers may use explicit empty results only where the trait contract documents that behavior.
 - **GTS schema**: A dedicated GTS schema (e.g., `gts.cf.core.am.idp_provider.v1~`) registers the plugin spec. Vendor-specific implementations derive from this schema.
 - **Discovery**: The accounts gateway module discovers the active IdP provider plugin via GTS types-registry and resolves it through `ClientHub`, the same way AuthN Resolver discovers its plugins.
 - **Deployment**: The platform ships a default IdP provider plugin. Vendors substitute their own implementation (e.g., Keycloak-specific realm provisioning) behind the same trait.
 
 ### Consequences
 
-* The IdP integration contract (`IdpProviderPluginClient`) and AuthN Resolver contract (`AuthNResolverPluginClient`) are independent plugins — no compile-time or runtime coupling. Both may target the same IdP instance but reference a shared configuration block rather than being merged into one interface.
+* The IdP integration contract (`IdpPluginClient`) and AuthN Resolver contract (`AuthNResolverPluginClient`) are independent plugins — no compile-time or runtime coupling. Both may target the same IdP instance but reference a shared configuration block rather than being merged into one interface.
 * Deployments that only need authentication (no AM-managed user provisioning) can implement only the AuthN Resolver plugin without the IdP provider plugin.
-* Deployments whose IdP supports standard OpenID Connect can reuse the platform-shipped OIDC AuthN Resolver plugin out of the box for authentication and only implement the `IdpProviderPluginClient` for vendor-specific admin operations (user provisioning, realm setup, impersonation). This significantly reduces integration effort — the vendor writes only the admin part, not the entire IdP integration surface.
+* Deployments whose IdP supports standard OpenID Connect can reuse the platform-shipped OIDC AuthN Resolver plugin out of the box for authentication and only implement the `IdpPluginClient` for vendor-specific admin operations (user provisioning, realm setup, impersonation). This significantly reduces integration effort — the vendor writes only the admin part, not the entire IdP integration surface.
 * Each plugin can evolve independently — changes to admin API protocols (e.g., migrating from vendor REST to SCIM) do not require changes to the token validation plugin.
 * Implementors must provide two separate plugin implementations when both capabilities are needed, which adds a small amount of integration complexity.
 * The plugin follows established Cyber Ware patterns: GTS-typed, ClientHub-registered, vendor-replaceable.

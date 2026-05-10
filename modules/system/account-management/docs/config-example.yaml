@@ -86,12 +86,12 @@ reaper:
 # `AuthZResolverClient`, `TypesRegistryClient`, `ResourceGroupClient` are
 # declared as hard `deps` in `#[modkit::module(...)]` and are ALWAYS
 # fail-closed on missing client — there is no config knob for them.
-# `IdpTenantProvisionerClient` is the only optional plugin.
+# `IdpPluginClient` is the only optional plugin.
 idp:
-  # true  → init fails closed when no IdpTenantProvisionerClient is registered
+  # true  → init fails closed when no IdpPluginClient is registered
   #         in `ClientHub` (production posture for deployments that integrate
   #         with an external IdP).
-  # false → fall back to NoopProvisioner; `create_child` returns
+  # false → fall back to NoopIdpProvider; `create_child` returns
   #         `UnsupportedOperation` at runtime if the saga reaches the IdP
   #         step.
   #
@@ -99,3 +99,44 @@ idp:
   # booting unchanged. Production deployments that need IdP integration MUST
   # set this to `true`.
   required: false
+
+# =============================================================================
+# Conversion — managed/self-managed mode-conversion lifecycle
+# =============================================================================
+# Lifecycle windows for the dual-consent `pending -> {approved, cancelled,
+# rejected, expired}` flow. Defaults pinned in
+# `cpt-cf-account-management-adr-conversion-approval` (ADR-0003 §1) and
+# PRD §5.4. `validate()` rejects every out-of-range value at module init.
+conversion:
+  # Approval TTL applied at request_conversion time:
+  # `expires_at = now() + approval_ttl_secs`. Default 72h.
+  # Range: [3600, 2_592_000] (1h to 30d).
+  approval_ttl_secs: 259200
+
+  # Resolved-row retention window (approved / cancelled / rejected /
+  # expired) before the soft-delete reaper stamps `deleted_at`.
+  # Default 30 days. Range: [86_400, 31_536_000] (1d to 365d).
+  #
+  # CROSS-CHECK: when `retention.default_window_secs > 0`, this value
+  # must be <= `retention.default_window_secs`. This ensures
+  # resolved-conversion history cannot outlive the tenant row it
+  # cascades from (`conversion_requests.tenant_id` is `ON DELETE
+  # CASCADE`). When `retention.default_window_secs = 0` (tenant
+  # retention disabled), the cross-check is skipped — the FK cascade
+  # already reclaims resolved-request rows the instant the tenant is
+  # hard-deleted, so any in-range value here is accepted.
+  resolved_retention_secs: 2592000
+
+  # Cleanup tick cadence for the dedicated conversion reaper that
+  # drives `expire_pending` + `soft_delete_resolved`. Distinct from
+  # `retention.tick_secs` (tenant hard-delete pipeline) so an operator
+  # tuning tenant retention down does NOT slow conversion expiry along
+  # with it. Default 60s. Range: [10, 600] (10s to 10m).
+  cleanup_interval_secs: 60
+
+  # Per-tick caps. Both are bounded (`> 0` and below the
+  # `ConversionConfig::MAX_BATCH_SIZE = 4_096` ceiling) so the
+  # retention sweep's `IN(...)` filter stays well under PG's
+  # 65_535-parameter prepared-statement ceiling.
+  expire_batch_size: 256
+  retention_batch_size: 256

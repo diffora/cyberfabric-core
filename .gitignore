@@ -45,6 +45,9 @@ logs
 .claude/settings.local.json
 .claude/scheduled_tasks.lock
 
+# Cypilot per-task plan artifacts (scratch data; not tracked)
+.cypilot/.plans/
+
 CLAUDE.local.md
 .setup-stamp
 
@@ -57,3 +60,6 @@ testing/e2e/.env.e2e.*
 testing/e2e/.venv/
 testing/e2e/logs/
 .docker-stage
+
+# Cypilot per-task working data (scratch reviews, logs, prompts; not tracked)
+.cypilot/work/

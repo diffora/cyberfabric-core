@@ -100,7 +100,7 @@ fn validate_rejects_idp_wait_timeout_above_cap() {
         .validate()
         .expect_err("idp_wait_timeout_secs above cap must reject");
     assert!(err.contains("idp_wait_timeout_secs"), "got: {err}");
-    assert!(err.contains("<= 86400"), "got: {err}");
+    assert!(err.contains("<= 3600"), "got: {err}");
 }
 
 #[test]

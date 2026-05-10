@@ -25,7 +25,7 @@ use serde::Deserialize;
 use serde_json::Value;
 use uuid::Uuid;
 
-/// Operational upper bound on `idp_wait_timeout_secs` (24 hours).
+/// Operational upper bound on `idp_wait_timeout_secs` (1 hour).
 ///
 /// Caps `idp_wait_timeout_secs` so that:
 ///
@@ -39,9 +39,13 @@ use uuid::Uuid;
 ///    which would silently disable the stuck-row branch in
 ///    `step_loop_classify` for the entire platform.
 ///
-/// 24h is far above any operationally meaningful bootstrap wait and
-/// keeps the cast `value * 2 -> i64` trivially in range.
-pub const MAX_IDP_WAIT_TIMEOUT_SECS: u64 = 86_400;
+/// Tightened from the previous 24h ceiling because no operationally
+/// meaningful bootstrap path waits longer than minutes — a wait
+/// pushing past an hour means something else is wrong (`IdP` down,
+/// types-registry stalled, network partition) and the platform
+/// should fail loud rather than spin silently. 1h still keeps the
+/// `value * 2 -> i64` cast trivially in range.
+pub const MAX_IDP_WAIT_TIMEOUT_SECS: u64 = 3_600;
 
 /// Bootstrap-feature configuration.
 ///
@@ -169,7 +173,7 @@ impl BootstrapConfig {
         // (`i64::try_from(value * 2)`) are both safe by construction.
         // See `MAX_IDP_WAIT_TIMEOUT_SECS` for rationale.
         if self.idp_wait_timeout_secs > MAX_IDP_WAIT_TIMEOUT_SECS {
-            missing.push("idp_wait_timeout_secs (must be <= 86400)");
+            missing.push("idp_wait_timeout_secs (must be <= 3600)");
         }
         if self.idp_retry_backoff_initial_secs == 0 {
             missing.push("idp_retry_backoff_initial_secs (must be > 0)");

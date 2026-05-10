@@ -77,19 +77,11 @@ fn internal_status_lowering_provisioning_returns_err() {
 #[test]
 fn empty_update_is_empty() {
     assert!(TenantUpdate::default().is_empty());
+    assert!(!TenantUpdate::new().with_name("x").is_empty());
     assert!(
-        !TenantUpdate {
-            name: Some("x".into()),
-            ..Default::default()
-        }
-        .is_empty()
-    );
-    assert!(
-        !TenantUpdate {
-            status: Some(account_management_sdk::TenantStatus::Active),
-            ..Default::default()
-        }
-        .is_empty()
+        !TenantUpdate::new()
+            .with_status(account_management_sdk::TenantStatus::Active)
+            .is_empty()
     );
 }
 
@@ -134,16 +126,9 @@ fn status_transition_from_deleted_rejected() {
     assert!(matches!(err, DomainError::Conflict { .. }));
 }
 
-#[test]
-fn name_length_validation_rejects_empty_and_oversized() {
-    assert!(validate_tenant_name("a").is_ok());
-    assert!(validate_tenant_name(&"x".repeat(255)).is_ok());
-    assert!(matches!(
-        validate_tenant_name("").expect_err("empty rejected"),
-        DomainError::Validation { .. }
-    ));
-    assert!(matches!(
-        validate_tenant_name(&"x".repeat(256)).expect_err("too long rejected"),
-        DomainError::Validation { .. }
-    ));
-}
+// `validate_tenant_name` was deleted in favour of
+// `domain::gts_validation::validate_tenant_name_via_gts` (the
+// resource-group `validate_metadata_via_gts` pattern). The schema-
+// driven path is exercised through service-level tests that wire a
+// `MockTypesRegistryClient` with the `gts.cf.core.am.tenant.v1~`
+// schema registered.

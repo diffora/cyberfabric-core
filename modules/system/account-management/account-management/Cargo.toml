@@ -40,6 +40,7 @@ serde_json = { workspace = true }
 async-trait = { workspace = true }
 fnv = { workspace = true }
 futures = { workspace = true }
+jsonschema = { workspace = true }
 parking_lot = { workspace = true }
 
 sea-orm = { workspace = true }
@@ -63,6 +64,7 @@ postgres = []
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt", "test-util"] }
+types-registry-sdk = { workspace = true, features = ["test-util"] }
 proptest = "1.5"
 # `no-env-filter` accepts events with `target: "am.*"` (otherwise the
 # default `{crate}=trace` filter rejects custom targets, hiding the

@@ -1,4 +1,4 @@
-//! Test stub for the [`IdpTenantProvisionerClient`] contract. Pairs
+//! Test stub for the [`IdpPluginClient`] contract. Pairs
 //! with the four-outcome enums [`FakeOutcome`] /
 //! [`FakeDeprovisionOutcome`] that drive the provision / deprovision
 //! branches independently so tests can exercise both compensable and
@@ -14,7 +14,7 @@
 use std::sync::{Arc, Mutex};
 
 use account_management_sdk::{
-    CheckAvailabilityFailure, DeprovisionFailure, DeprovisionRequest, IdpTenantProvisionerClient,
+    CheckAvailabilityFailure, DeprovisionFailure, DeprovisionRequest, IdpPluginClient,
     ProvisionFailure, ProvisionMetadataEntry, ProvisionRequest, ProvisionResult,
 };
 use async_trait::async_trait;
@@ -118,15 +118,15 @@ impl FakeIdpProvisioner {
 }
 
 #[async_trait]
-impl IdpTenantProvisionerClient for FakeIdpProvisioner {
+impl IdpPluginClient for FakeIdpProvisioner {
     async fn check_availability(&self) -> Result<(), CheckAvailabilityFailure> {
         *self.availability_calls.lock().expect("lock") += 1;
         let mut failures = self.availability_failures.lock().expect("lock");
         if *failures > 0 {
             *failures -= 1;
-            return Err(CheckAvailabilityFailure::TransientError(
-                "fake availability failure".into(),
-            ));
+            return Err(CheckAvailabilityFailure::TransientError {
+                detail: "fake availability failure".to_owned(),
+            });
         }
         Ok(())
     }
@@ -143,9 +143,9 @@ impl IdpTenantProvisionerClient for FakeIdpProvisioner {
         self.provision_entered.notify_one();
         let oc = self.outcome.lock().expect("lock").clone();
         match oc {
-            FakeOutcome::Ok => Ok(ProvisionResult {
-                metadata_entries: self.metadata_entries.lock().expect("lock").clone(),
-            }),
+            FakeOutcome::Ok => Ok(ProvisionResult::new(
+                self.metadata_entries.lock().expect("lock").clone(),
+            )),
             FakeOutcome::CleanFailure => Err(ProvisionFailure::CleanFailure {
                 detail: "fake clean".into(),
             }),

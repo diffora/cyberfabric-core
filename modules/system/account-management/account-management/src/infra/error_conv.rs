@@ -37,6 +37,51 @@ pub(crate) fn is_serialization_failure(err: &DbErr) -> bool {
         || is_retryable_contention(DbBackend::Sqlite, err)
 }
 
+/// Returns `true` iff `err` represents a `CHECK` constraint violation
+/// on either AM-supported backend.
+///
+/// AM's storage layer pins several invariants via `CHECK` constraints:
+/// `length(name) BETWEEN 1 AND 255` on `tenants` (`m0001`) and
+/// `conversion_requests.child_tenant_name` (`m0004`), the lifecycle
+/// status enum bounds on `conversion_requests.status` (`m0004`), the
+/// per-status actor invariant on `conversion_requests` (`m0004`), and
+/// the `ck_tenants_root_depth` rule for the single platform root
+/// (`m0001`). Without this classification, every such DB-side rejection
+/// falls through `classify_db_err_to_domain` into the unclassified
+/// arm and becomes `DomainError::Internal` (HTTP 500) — a 400→500
+/// regression for any payload the service layer was meant to reject
+/// upstream but admitted through a degraded-mode short-circuit (e.g.
+/// `validate_tenant_name_via_gts` returning `Ok(())` when the schema
+/// is not yet registered).
+///
+/// `sea_orm::SqlErr` does not currently expose a typed
+/// `CheckConstraintViolation` discriminant the way it does for unique
+/// and FK violations, so classification is string-based against the
+/// driver-emitted message, mirroring the fallback arm of
+/// [`modkit_db::secure::is_unique_violation`]. Recognised patterns:
+/// * **Postgres** SQLSTATE `23514` — "violates check constraint" /
+///   "`check_violation`".
+/// * **`SQLite`** extended code `275` (`SQLITE_CONSTRAINT_CHECK`) —
+///   "`CHECK constraint failed`" (the default driver text). Some
+///   connection proxies / `sqlx` versions strip the text and surface
+///   the symbolic name or the numeric code alone; cover those
+///   defensively so a stripped message still routes to `Validation`
+///   (HTTP 400) and not `Internal` (HTTP 500). The numeric token
+///   match REQUIRES the substring `"sqlite"` to also appear so an
+///   unrelated `DbErr` whose Display happens to contain `(275)` /
+///   `"275"` (a byte offset, timeout, port number) cannot be
+///   misclassified as a CHECK violation.
+pub(crate) fn is_check_violation(err: &DbErr) -> bool {
+    let msg = err.to_string().to_lowercase();
+    msg.contains("check constraint")
+        || msg.contains("check_violation")
+        || msg.contains("23514")
+        || msg.contains("sqlite_constraint_check")
+        // Numeric-code fallback gated on `"sqlite"` to avoid collision
+        // with any other `DbErr` text that happens to contain `"275"`.
+        || (msg.contains("sqlite") && msg.contains("275"))
+}
+
 /// Returns `true` iff `err` is a typed database connectivity / outage
 /// signal — pool acquire timeout, connection closed, connection-level
 /// runtime error, or a raw `std::io::Error` surfaced through
