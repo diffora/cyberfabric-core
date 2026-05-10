@@ -1,7 +1,7 @@
 //! Provisioning-reaper tick on `TenantService` —
 //! `reap_stuck_provisioning`. Cleanup is performed **directly**
 //! against the `tenants` row: a successful (or success-equivalent)
-//! `IdpTenantProvisionerClient::deprovision_tenant` call is followed
+//! `IdpPluginClient::deprovision_tenant` call is followed
 //! by an immediate hard-delete via `repo.compensate_provisioning()`,
 //! bypassing the soft-delete + retention pipeline entirely (see
 //! `compensate_provisioning_row`). This keeps stuck-`Provisioning`
@@ -22,7 +22,7 @@
 //! crash recovery, stale claim takeover).
 //!
 //! Retry / backoff / circuit-breaker policy is owned by the
-//! [`account_management_sdk::IdpTenantProvisionerClient`]
+//! [`account_management_sdk::IdpPluginClient`]
 //! implementation — a `Retryable` return signals that the plugin
 //! has exhausted its own retry budget for that call, and AM simply
 //! defers the row to the next reaper tick (default 30 s).
@@ -257,7 +257,7 @@ impl<R: TenantRepo> TenantService<R> {
     async fn classify_deprovision(&self, tenant_id: uuid::Uuid) -> ReaperOutcome {
         match self
             .idp
-            .deprovision_tenant(&DeprovisionRequest { tenant_id })
+            .deprovision_tenant(&DeprovisionRequest::new(tenant_id))
             .await
         {
             Ok(()) => ReaperOutcome::Compensable("compensated"),
@@ -265,7 +265,7 @@ impl<R: TenantRepo> TenantService<R> {
                 // `UnsupportedOperation` is only safe to treat as
                 // compensable when the deployment opted out of an
                 // IdP entirely (`cfg.idp.required = false` → wired
-                // to `NoopProvisioner`). A real plugin returning
+                // to `NoopIdpProvider`). A real plugin returning
                 // this is signalling that it cannot perform
                 // deprovision but external state may exist — hard-
                 // deleting the AM row would orphan that vendor-side

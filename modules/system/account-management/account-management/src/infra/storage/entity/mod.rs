@@ -4,6 +4,7 @@
 //! Entities contain no domain logic — they are `sea_orm` value types used
 //! by the repository implementation layer.
 
+pub mod conversion_requests;
 pub mod integrity_check_runs;
 pub mod tenant_closure;
 pub mod tenant_metadata;

@@ -44,7 +44,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 
 use account_management_sdk::{
-    DeprovisionFailure, DeprovisionRequest, IdpTenantProvisionerClient, ProvisionFailure,
+    DeprovisionFailure, DeprovisionRequest, IdpPluginClient, ProvisionFailure,
     ProvisionMetadataEntry, ProvisionRequest,
 };
 
@@ -239,7 +239,7 @@ struct RunCtx {
 #[domain_model]
 pub struct BootstrapService<R: TenantRepo> {
     repo: Arc<R>,
-    idp: Arc<dyn IdpTenantProvisionerClient>,
+    idp: Arc<dyn IdpPluginClient>,
     types_registry: Option<Arc<dyn TypesRegistryClient>>,
     cfg: BootstrapConfig,
     /// Mirrors `cfg.idp.required` from the parent
@@ -294,11 +294,7 @@ impl<R: TenantRepo> BootstrapService<R> {
     /// honored at every call site (production path is honored by
     /// `module.rs::init`).
     #[must_use]
-    pub fn new(
-        repo: Arc<R>,
-        idp: Arc<dyn IdpTenantProvisionerClient>,
-        cfg: BootstrapConfig,
-    ) -> Self {
+    pub fn new(repo: Arc<R>, idp: Arc<dyn IdpPluginClient>, cfg: BootstrapConfig) -> Self {
         // Single `validate()` call so the assertion message and the
         // boolean predicate cannot disagree (a previous shape called
         // `validate()` twice and could in principle produce different
@@ -338,7 +334,7 @@ impl<R: TenantRepo> BootstrapService<R> {
     /// uses: refuse to delete the local row when a real plugin returns
     /// Unsupported under `idp.required = true`, because vendor-side
     /// state may exist that AM cannot reach. Module wiring sets this;
-    /// tests that operate against `NoopProvisioner` (or that don't care
+    /// tests that operate against `NoopIdpProvider` (or that don't care
     /// about the orphan-prevention path) can omit it and inherit the
     /// `idp.required = false` default.
     #[must_use]
@@ -656,7 +652,10 @@ impl<R: TenantRepo> BootstrapService<R> {
     }
 
     async fn step_insert(&self, ctx: &mut RunCtx) -> BootstrapState {
-        match self.insert_root_provisioning(&ctx.scope).await {
+        match self
+            .insert_root_provisioning(&ctx.scope, ctx.deadline)
+            .await
+        {
             Ok(inserted) => {
                 ctx.already_exists_streak = 0;
                 BootstrapState::Finalize {
@@ -1057,7 +1056,81 @@ impl<R: TenantRepo> BootstrapService<R> {
     async fn insert_root_provisioning(
         &self,
         scope: &AccessScope,
+        deadline: Instant,
     ) -> Result<TenantModel, DomainError> {
+        // Validate the configured `root_name` through the published
+        // `gts.cf.core.am.tenant.v1~` schema. Mirrors the call site
+        // in `TenantService::create_child` (and the
+        // `cf-resource-group::validate_metadata_via_gts` posture): when
+        // the registry has the schema the JSON-Schema bounds
+        // (`minLength`, `maxLength`) gate the call; when the schema is
+        // not yet registered the helper short-circuits to `Ok(())` and
+        // the DB `CHECK (length(name) BETWEEN 1 AND 255)` constraint
+        // serves as the last-line guard. Without this, a misconfigured
+        // `root_name` would land in `tenants.name` after passing only
+        // the trim-non-empty check in [`BootstrapConfig::validate`].
+        //
+        // # Deadline contract
+        //
+        // Both GTS validations are live registry calls — a stalled
+        // types-registry would otherwise hang the bootstrap saga past
+        // `idp_wait_timeout_secs`. Each await is wrapped in
+        // `tokio::time::timeout_at(deadline, …)` so the saga's
+        // deadline-bound contract (already enforced for
+        // `preflight_root_tenant_type`, `check_availability`, and
+        // `provision_tenant`) extends to these too. A timeout maps
+        // to `service_unavailable` and the bootstrap retry loop
+        // handles it the same way as a transient registry error.
+        if let Some(registry) = self.types_registry.as_ref() {
+            match tokio::time::timeout_at(
+                deadline,
+                crate::domain::gts_validation::validate_tenant_name_via_gts(
+                    &self.cfg.root_name,
+                    registry.as_ref(),
+                ),
+            )
+            .await
+            {
+                Ok(Ok(())) => {}
+                Ok(Err(err)) => return Err(err),
+                Err(_elapsed) => {
+                    return Err(DomainError::service_unavailable(
+                        "bootstrap: validate_tenant_name_via_gts timed out against types-registry",
+                    ));
+                }
+            }
+            // Opt-in plugin-advertised input-schema validation for
+            // the operator-supplied `root_tenant_metadata`. Mirrors
+            // the `TenantService::create_child` call site: plugins
+            // that override `provision_input_schema_id` get the
+            // configured metadata pre-checked at bootstrap so a
+            // misconfigured TOML surfaces as a `Validation` error
+            // here rather than as a downstream plugin failure after
+            // the `provisioning` row is already inserted. Plugins
+            // that inherit the default (`None`) keep the opaque
+            // pass-through behaviour.
+            if let Some(schema_id) = self.idp.provision_input_schema_id() {
+                match tokio::time::timeout_at(
+                    deadline,
+                    crate::domain::gts_validation::validate_provision_input_metadata_via_gts(
+                        self.cfg.root_tenant_metadata.as_ref(),
+                        schema_id,
+                        registry.as_ref(),
+                    ),
+                )
+                .await
+                {
+                    Ok(Ok(())) => {}
+                    Ok(Err(err)) => return Err(err),
+                    Err(_elapsed) => {
+                        return Err(DomainError::service_unavailable(
+                            "bootstrap: validate_provision_input_metadata_via_gts timed out \
+                             against types-registry",
+                        ));
+                    }
+                }
+            }
+        }
         // The repo enforces the per-id uniqueness invariant; we accept
         // its `Conflict` mapping if a concurrent replica beat us to it.
         // Root tenants are the unique row with `parent_id = None` per
@@ -1116,16 +1189,19 @@ impl<R: TenantRepo> BootstrapService<R> {
         // `Ok`; emitting it here would record a success on every IdP
         // call attempt regardless of outcome.
 
-        let req = ProvisionRequest {
-            tenant_id: provisioning_root.id,
-            // Root tenants have no `parent_id` per
-            // `dod-platform-bootstrap-root-creation`. The IdP contract
-            // accepts an `Option<Uuid>` for exactly this reason.
-            parent_id: None,
-            name: self.cfg.root_name.clone(),
-            tenant_type: self.cfg.root_tenant_type.clone(),
-            metadata: self.cfg.root_tenant_metadata.clone(),
-        };
+        // Root tenants are the canonical bootstrap target per
+        // `dod-platform-bootstrap-root-creation` — the SDK enum
+        // names this branch explicitly so plugin authors see
+        // "this is the root, not a missing parent".
+        let mut req = ProvisionRequest::new(
+            provisioning_root.id,
+            account_management_sdk::ProvisionTarget::Root,
+            self.cfg.root_name.clone(),
+            self.cfg.root_tenant_type.clone(),
+        );
+        if let Some(meta) = self.cfg.root_tenant_metadata.clone() {
+            req = req.with_metadata(meta);
+        }
         // Cap the IdP call at the bootstrap deadline so a hung
         // provider cannot stretch `module::init` past
         // `idp_wait_timeout_secs`. Treat a timeout as
@@ -1135,7 +1211,12 @@ impl<R: TenantRepo> BootstrapService<R> {
         match tokio::time::timeout_at(deadline, self.idp.provision_tenant(&req)).await {
             Ok(Ok(result)) => {
                 match self
-                    .handle_provision_success(scope, provisioning_root.id, &result.metadata_entries)
+                    .handle_provision_success(
+                        scope,
+                        provisioning_root.id,
+                        &result.metadata_entries,
+                        deadline,
+                    )
                     .await
                 {
                     Ok(activated) => Ok(activated),
@@ -1204,12 +1285,46 @@ impl<R: TenantRepo> BootstrapService<R> {
         scope: &AccessScope,
         root_id: uuid::Uuid,
         metadata_entries: &[ProvisionMetadataEntry],
+        deadline: Instant,
     ) -> Result<TenantModel, DomainError> {
         emit_metric(
             AM_BOOTSTRAP_LIFECYCLE,
             MetricKind::Counter,
             &[("phase", "idp_provisioning"), ("outcome", "success")],
         );
+        // Validate every IdP-returned metadata entry against its
+        // declared `schema_id` BEFORE persistence. Same fence
+        // applied in `TenantService::finalize_provisioning` for the
+        // child-creation path; bootstrap's root path uses it too so
+        // a misbehaving root-bootstrap plugin cannot seed the
+        // `tenant_metadata` table with malformed entries.
+        //
+        // Wrapped in `timeout_at(deadline, …)` for the same reason
+        // as the `insert_root_provisioning` GTS calls — a stalled
+        // types-registry must not extend the bootstrap saga past
+        // `idp_wait_timeout_secs`. Timeout maps to
+        // `service_unavailable`; the saga's caller treats this as
+        // a transient infrastructure failure.
+        if let Some(registry) = self.types_registry.as_ref() {
+            match tokio::time::timeout_at(
+                deadline,
+                crate::domain::gts_validation::validate_provision_metadata_entries_via_gts(
+                    metadata_entries,
+                    registry.as_ref(),
+                ),
+            )
+            .await
+            {
+                Ok(Ok(())) => {}
+                Ok(Err(err)) => return Err(err),
+                Err(_elapsed) => {
+                    return Err(DomainError::service_unavailable(
+                        "bootstrap: validate_provision_metadata_entries_via_gts timed out \
+                         against types-registry",
+                    ));
+                }
+            }
+        }
         // Root tenant has no strict ancestors; closure rows
         // collapse to the self-row.
         let closure_rows = build_activation_rows(root_id, TenantStatus::Active, false, &[]);
@@ -1374,7 +1489,7 @@ impl<R: TenantRepo> BootstrapService<R> {
         root_id: uuid::Uuid,
         deadline: Instant,
     ) {
-        let req = DeprovisionRequest { tenant_id: root_id };
+        let req = DeprovisionRequest::new(root_id);
         let idp_clean = match tokio::time::timeout_at(deadline, self.idp.deprovision_tenant(&req))
             .await
         {
@@ -1389,7 +1504,7 @@ impl<R: TenantRepo> BootstrapService<R> {
                 // "no IdP-side state retained" when the deployment
                 // explicitly opted out of an `IdP` via
                 // `cfg.idp.required = false` (the wired-in
-                // `NoopProvisioner` path). A real plugin returning
+                // `NoopIdpProvider` path). A real plugin returning
                 // this variant under `idp.required = true` signals
                 // that vendor-side state may exist but the plugin
                 // can't deprovision it — deleting the local row

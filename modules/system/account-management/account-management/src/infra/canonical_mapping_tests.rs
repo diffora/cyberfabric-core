@@ -58,6 +58,45 @@ fn classify_unique_violation_yields_already_exists() {
 }
 
 #[test]
+fn classify_check_violation_yields_validation_400() {
+    use sea_orm::{DbErr, RuntimeErr};
+    // String-based detection of a Postgres CHECK violation surfaced
+    // through `RuntimeErr::Internal`. Without this classification the
+    // failure would fall to the unclassified arm → `Internal` (HTTP
+    // 500); the regression guard pins HTTP 400 + `Validation` so a
+    // degraded-mode short-circuit in `validate_tenant_name_via_gts`
+    // (schema not yet registered → `Ok(())`) still produces a
+    // client-actionable error when the DB-side CHECK fires.
+    let db_err = DbErr::Exec(RuntimeErr::Internal(
+        "new row for relation \"tenants\" violates check constraint \"ck_tenants_root_depth\""
+            .into(),
+    ));
+    let domain = classify_db_err_to_domain(db_err);
+    assert!(
+        matches!(domain, DomainError::Validation { .. }),
+        "CHECK constraint violations MUST map to Validation, got {domain:?}"
+    );
+    let canonical: CanonicalError = domain.into();
+    assert_eq!(canonical.status_code(), 400);
+}
+
+#[test]
+fn classify_check_violation_sqlite_lowercased_message_yields_validation() {
+    use sea_orm::{DbErr, RuntimeErr};
+    // SQLite emits the constraint failure with different capitalisation
+    // ("CHECK constraint failed: …"); the lowercase substring search
+    // in `is_check_violation` MUST catch both. Pin the SQLite shape
+    // explicitly so a future refactor that swaps to typed
+    // `SqlErr::CheckConstraintViolation` detection without keeping the
+    // fallback does not regress on this engine.
+    let db_err = DbErr::Exec(RuntimeErr::Internal(
+        "CHECK constraint failed: ck_conversion_requests_actor_invariant".into(),
+    ));
+    let domain = classify_db_err_to_domain(db_err);
+    assert!(matches!(domain, DomainError::Validation { .. }));
+}
+
+#[test]
 fn classify_availability_yields_service_unavailable() {
     use sea_orm::{ConnAcquireErr, DbErr};
     let db_err = DbErr::ConnectionAcquire(ConnAcquireErr::Timeout);

@@ -36,6 +36,39 @@ fn list_children_query_deserialize_accepts_valid_top() {
 }
 
 #[test]
+fn list_children_query_deserialize_uses_default_top_when_absent() {
+    // Wire payload omits `top` (a typical REST query like
+    // `GET /tenants/{id}/children?skip=10` or no params at all).
+    // `RawListChildrenQuery::top` has
+    // `#[serde(default = "ListChildrenQuery::default_top")]`, so the
+    // SDK fallback matches the sibling `UserPagination` contract
+    // rather than rejecting the request with "missing field `top`".
+    let only_skip =
+        r#"{"parent_id":"00000000-0000-0000-0000-000000000000","skip":10}"#;
+    let parsed: ListChildrenQuery = serde_json::from_str(only_skip)
+        .expect("missing top must use the documented default");
+    assert_eq!(parsed.top(), ListChildrenQuery::DEFAULT_TOP);
+    assert_eq!(parsed.skip, 10);
+
+    let only_parent = r#"{"parent_id":"00000000-0000-0000-0000-000000000000"}"#;
+    let parsed: ListChildrenQuery = serde_json::from_str(only_parent)
+        .expect("parent-only payload must apply top and skip defaults");
+    assert_eq!(parsed.top(), ListChildrenQuery::DEFAULT_TOP);
+    assert_eq!(parsed.skip, 0);
+}
+
+#[test]
+fn list_children_query_default_top_matches_user_pagination() {
+    // Pinned so a future tweak of either default trips the
+    // tenant-vs-user-ops divergence the M3 fix unified.
+    assert_eq!(
+        ListChildrenQuery::DEFAULT_TOP,
+        crate::idp_user::UserPagination::DEFAULT_TOP,
+        "tenant-CRUD and user-ops listings MUST share the same default page size"
+    );
+}
+
+#[test]
 fn list_children_query_accepts_sdk_visible_filters() {
     let q = ListChildrenQuery::new(
         uuid::Uuid::nil(),

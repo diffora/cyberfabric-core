@@ -4,7 +4,7 @@
 //!
 //! The service depends only on the domain-level [`TenantRepo`] and
 //! the SDK-level
-//! [`account_management_sdk::IdpTenantProvisionerClient`] traits. All
+//! [`account_management_sdk::IdpPluginClient`] traits. All
 //! tests in this file use pure in-memory fakes — no DB, no network,
 //! no filesystem.
 
@@ -70,9 +70,9 @@ pub(crate) mod pep {
 }
 
 use account_management_sdk::{
-    CreateChildInput, DeprovisionFailure, DeprovisionRequest, IdpTenantProvisionerClient,
-    ListChildrenQuery, ProvisionFailure, ProvisionMetadataEntry, ProvisionRequest, TenantInfo,
-    TenantPage, TenantUpdate,
+    CreateChildInput, DeprovisionFailure, DeprovisionRequest, IdpPluginClient, ListChildrenQuery,
+    ProvisionFailure, ProvisionMetadataEntry, ProvisionRequest, TenantInfo, TenantPage,
+    TenantUpdate,
 };
 use tenant_resolver_sdk::TenantId;
 use types_registry_sdk::TypesRegistryClient;
@@ -90,7 +90,6 @@ use crate::domain::tenant::hooks::TenantHardDeleteHook;
 use crate::domain::tenant::integrity::{IntegrityCategory, IntegrityReport, Violation};
 use crate::domain::tenant::model::{
     ChildCountFilter, NewTenant, TenantModel, TenantStatus, validate_status_transition,
-    validate_tenant_name,
 };
 use crate::domain::tenant::repo::TenantRepo;
 use crate::domain::tenant::resource_checker::ResourceOwnershipChecker;
@@ -100,7 +99,7 @@ use crate::domain::tenant_type::checker::TenantTypeChecker;
 #[domain_model]
 pub struct TenantService<R: TenantRepo> {
     repo: Arc<R>,
-    idp: Arc<dyn IdpTenantProvisionerClient>,
+    idp: Arc<dyn IdpPluginClient>,
     cfg: AccountManagementConfig,
     /// Cascade hooks registered by sibling AM features (user-groups,
     /// tenant-metadata). Invoked in registration order at the start of
@@ -154,7 +153,7 @@ impl<R: TenantRepo> TenantService<R> {
     #[must_use]
     pub fn new(
         repo: Arc<R>,
-        idp: Arc<dyn IdpTenantProvisionerClient>,
+        idp: Arc<dyn IdpPluginClient>,
         resource_checker: Arc<dyn ResourceOwnershipChecker>,
         tenant_type_checker: Arc<dyn TenantTypeChecker + Send + Sync>,
         enforcer: PolicyEnforcer,
@@ -254,6 +253,7 @@ impl<R: TenantRepo> TenantService<R> {
             top,
             skip,
             total,
+            ..
         } = page;
 
         // Fan out one batch lookup for distinct uuids in the page; we
@@ -299,12 +299,7 @@ impl<R: TenantRepo> TenantService<R> {
             });
         }
 
-        Ok(TenantPage {
-            items: mapped,
-            top,
-            skip,
-            total,
-        })
+        Ok(TenantPage::new(mapped, top, skip, total))
     }
 
     /// Append a cascade hook. Hooks run in registration order.
@@ -468,10 +463,39 @@ impl<R: TenantRepo> TenantService<R> {
             .authorize(ctx, pep::actions::CREATE, input.parent_id, None)
             .await?;
 
-        // Validate the caller-supplied tenant name before any DB
-        // writes / IdP calls. Mirrors `update_tenant`; otherwise an
-        // out-of-contract name persists and reaches the IdP.
-        validate_tenant_name(&input.name)?;
+        // Validate the caller-supplied tenant name through the
+        // published `gts.cf.core.am.tenant.v1~` schema. Mirrors the
+        // resource-group `validate_metadata_via_gts` posture: when the
+        // registry has the schema the JSON-Schema bounds (`minLength`,
+        // `maxLength`) gate the call; when the schema is not yet
+        // registered the helper short-circuits to `Ok(())` and the DB
+        // `CHECK (length(name) BETWEEN 1 AND 255)` constraint serves
+        // as the last-line guard. Tests that pin a deterministic
+        // rejection inject a registry that has the schema registered.
+        if let Some(registry) = self.types_registry.as_ref() {
+            crate::domain::gts_validation::validate_tenant_name_via_gts(
+                &input.name,
+                registry.as_ref(),
+            )
+            .await?;
+            // Opt-in plugin-advertised input-schema validation for
+            // `provisioning_metadata`. Plugins that override
+            // `provision_input_schema_id` get their request metadata
+            // pre-checked against the advertised schema and a
+            // malformed payload surfaces as HTTP 400 here rather than
+            // as a downstream plugin error after a wasted `IdP` round
+            // trip. Plugins that inherit the default (`None`) keep
+            // the opaque pass-through — see SDK trait doc for the
+            // symmetry with the response-side helper.
+            if let Some(schema_id) = self.idp.provision_input_schema_id() {
+                crate::domain::gts_validation::validate_provision_input_metadata_via_gts(
+                    input.provisioning_metadata.as_ref(),
+                    schema_id,
+                    registry.as_ref(),
+                )
+                .await?;
+            }
+        }
 
         // Derive the canonical UUIDv5 from the chained GTS string.
         // `gts::GtsID::new` enforces the chain shape; `to_uuid()` is
@@ -603,13 +627,17 @@ impl<R: TenantRepo> TenantService<R> {
 
         // Saga step 2 — invoke IdP provider outside any TX.
         // @cpt-begin:cpt-cf-account-management-dod-tenant-hierarchy-management-idp-tenant-provision:p1:inst-dod-idp-provision-call
-        let req = ProvisionRequest {
-            tenant_id: provisioning_row.id,
-            parent_id: Some(parent.id),
-            name: input.name.clone(),
-            tenant_type: input.tenant_type.clone(),
-            metadata: input.provisioning_metadata.clone(),
-        };
+        let mut req = ProvisionRequest::new(
+            provisioning_row.id,
+            account_management_sdk::ProvisionTarget::Child {
+                parent_id: parent.id,
+            },
+            input.name.clone(),
+            input.tenant_type.clone(),
+        );
+        if let Some(meta) = input.provisioning_metadata.clone() {
+            req = req.with_metadata(meta);
+        }
         let provision_result = match self.idp.provision_tenant(&req).await {
             Ok(result) => {
                 emit_metric(
@@ -838,6 +866,20 @@ impl<R: TenantRepo> TenantService<R> {
         self_managed: bool,
         metadata_entries: &[ProvisionMetadataEntry],
     ) -> Result<TenantModel, DomainError> {
+        // Validate every IdP-returned metadata entry against its
+        // declared `schema_id` BEFORE persistence. Mirrors the
+        // resource-group `validate_metadata_via_gts` seam — a
+        // misbehaving plugin (or a deploy that lost a derived
+        // metadata schema) cannot smuggle malformed data into the
+        // `tenant_metadata` table. Schema-not-registered short-
+        // circuits to admit per the documented degraded posture.
+        if let Some(registry) = self.types_registry.as_ref() {
+            crate::domain::gts_validation::validate_provision_metadata_entries_via_gts(
+                metadata_entries,
+                registry.as_ref(),
+            )
+            .await?;
+        }
         let ancestors = self
             .repo
             .load_ancestor_chain_through_parent(&AccessScope::allow_all(), parent.id)
@@ -887,9 +929,7 @@ impl<R: TenantRepo> TenantService<R> {
         // these outcomes correctly.
         let idp_clean = match self
             .idp
-            .deprovision_tenant(&DeprovisionRequest {
-                tenant_id: provisioning_id,
-            })
+            .deprovision_tenant(&DeprovisionRequest::new(provisioning_id))
             .await
         {
             Ok(()) | Err(DeprovisionFailure::NotFound { .. }) => true,
@@ -901,7 +941,7 @@ impl<R: TenantRepo> TenantService<R> {
                 // "no IdP-side state retained" when the deployment
                 // explicitly opted out of an IdP via
                 // `cfg.idp.required = false` (the wired-in
-                // `NoopProvisioner` path). A real plugin returning
+                // `NoopIdpProvider` path). A real plugin returning
                 // this variant under `idp.required = true` signals
                 // that vendor-side state may exist but the plugin
                 // can't deprovision it — hard-deleting the AM row
@@ -1152,9 +1192,6 @@ impl<R: TenantRepo> TenantService<R> {
                 detail: "update patch is empty; at least one field required".into(),
             });
         }
-        if let Some(ref new_name) = patch.name {
-            validate_tenant_name(new_name)?;
-        }
         // PEP gate (DESIGN §4.2). The compiled scope is intentionally
         // discarded for both the pre-update read and the mutating
         // write: the `tenants` entity is `no_tenant, no_resource,
@@ -1170,6 +1207,12 @@ impl<R: TenantRepo> TenantService<R> {
         let _scope = self
             .authorize(ctx, pep::actions::UPDATE, id, Some(id))
             .await?;
+        // Load the current row BEFORE any GTS round-trip so an
+        // idempotent same-name PATCH (or a PATCH against a missing /
+        // soft-deleted tenant) reaches the no-op / `NotFound` path
+        // without paying a registry call. A naive ordering that hit
+        // GTS first would turn every registry blip into a `503` for
+        // PATCH requests that would otherwise be 200 no-ops or 404s.
         let current = self
             .repo
             .find_by_id(&AccessScope::allow_all(), id)
@@ -1183,6 +1226,25 @@ impl<R: TenantRepo> TenantService<R> {
                 detail: format!("tenant {id} not found"),
                 resource: id.to_string(),
             });
+        }
+        // Schema validation runs AFTER `authorize` AND `find_by_id`
+        // so a registry outage / malformed-schema response surfaces
+        // only to already-authorized callers acting on a real row —
+        // an out-of-scope caller still gets `403 CrossTenantDenied`,
+        // a missing/deleted-row caller still gets `404 NotFound`,
+        // instead of `503` leaking registry health through the error
+        // channel. Mirrors the ordering in `create_child`. Skipped
+        // when the patched name is identical to the current name
+        // (idempotent PATCH — no shape change, no need to validate).
+        if let Some(ref new_name) = patch.name
+            && new_name != &current.name
+            && let Some(registry) = self.types_registry.as_ref()
+        {
+            crate::domain::gts_validation::validate_tenant_name_via_gts(
+                new_name,
+                registry.as_ref(),
+            )
+            .await?;
         }
         // Lift the SDK 3-variant patch status into the AM-internal
         // 4-variant taxonomy for the transition guard. SDK status

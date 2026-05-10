@@ -432,7 +432,7 @@ pub(super) async fn scan_stuck_provisioning(
     limit: usize,
 ) -> Result<Vec<TenantProvisioningRow>, DomainError> {
     // Atomic claim-and-go pattern symmetric to `scan_retention_due`:
-    // two replicas cannot stamp `IdpTenantProvisionerClient::deprovision_tenant`
+    // two replicas cannot stamp `IdpPluginClient::deprovision_tenant`
     // calls onto the same row inside one `RETENTION_CLAIM_TTL` window.
     // Defense-in-depth on top of the
     // `DeprovisionFailure::NotFound`-as-success-equivalent error

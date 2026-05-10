@@ -216,7 +216,7 @@ upstream PRD/DESIGN definition, with no broken references.
   - Soft-delete: non-root-only, requires zero non-deleted children and no remaining tenant-owned Resource Group associations; schedules hard-deletion after retention period; hard-delete runs leaf-first (`depth DESC`) and invokes IdP tenant-deprovisioning.
   - Configurable advisory hierarchy-depth threshold (default 10) with operator-visible warning signal (metric + structured log) when exceeded, plus an opt-in strict mode that rejects creation above the threshold with `tenant_depth_exceeded`.
   - Tenant closure ownership: AM owns the `tenant_closure` table with shape `(ancestor_id, descendant_id, barrier, descendant_status)`; closure rows exist only for SDK-visible statuses (`active`, `suspended`, `deleted`), never for transient `provisioning`; self-rows carry `barrier = 0`; all closure writes are transactional with the owning `tenants` write (activation, status change, hard-delete).
-  - IdP tenant-side lifecycle hooks: `fr-idp-tenant-provision` invoked during tenant creation, `fr-idp-tenant-provision-failure` handling on provider errors, `fr-idp-tenant-deprovision` invoked during hard-delete — all through `IdpProviderPluginClient`; providers MUST NOT silently no-op on mutating operations.
+  - IdP tenant-side lifecycle hooks: `fr-idp-tenant-provision` invoked during tenant creation, `fr-idp-tenant-provision-failure` handling on provider errors, `fr-idp-tenant-deprovision` invoked during hard-delete — all through `IdpPluginClient`; providers MUST NOT silently no-op on mutating operations.
   - Hierarchy integrity diagnostics: `TenantService::check_hierarchy_integrity()` internal SDK method + `am.hierarchy_integrity_violations` metric surface; remediation expectations for detected anomalies.
   - Production-scale operating envelope: closure-table sizing, depth threshold, and benchmark-backed deployment profiles for supported hierarchies.
 
@@ -419,12 +419,12 @@ upstream PRD/DESIGN definition, with no broken references.
 
 - [ ] `p1` - **ID**: `cpt-cf-account-management-feature-idp-user-operations-contract`
 
-- **Purpose**: Define the pluggable IdP user-operations contract that makes the configured IdP the source of truth for user identity and user-tenant binding, and expose that contract through Account Management's tenant-scoped user REST surface. The feature owns the `IdpProviderPluginClient` trait for user provisioning, deprovisioning, and tenant-scoped user query, together with the provisioning saga and compensation reaper that keep AM intent and IdP state aligned without AM ever becoming the system of record for user profiles or credentials. Concrete IdP adapter crates (Keycloak, Zitadel, Dex, etc.) are intentionally excluded — they conform to this contract but ship outside this module.
+- **Purpose**: Define the pluggable IdP user-operations contract that makes the configured IdP the source of truth for user identity and user-tenant binding, and expose that contract through Account Management's tenant-scoped user REST surface. The feature owns the `IdpPluginClient` trait for user provisioning, deprovisioning, and tenant-scoped user query, together with the provisioning saga and compensation reaper that keep AM intent and IdP state aligned without AM ever becoming the system of record for user profiles or credentials. Concrete IdP adapter crates (Keycloak, Zitadel, Dex, etc.) are intentionally excluded — they conform to this contract but ship outside this module.
 
 - **Depends On**: `cpt-cf-account-management-feature-tenant-hierarchy-management`, `cpt-cf-account-management-feature-errors-observability`
 
 - **Scope**:
-  - Pluggable `IdpProviderPluginClient` user-operations trait (contract surface) consumed by the user-service handlers and wired through ClientHub.
+  - Pluggable `IdpPluginClient` user-operations trait (contract surface) consumed by the user-service handlers and wired through ClientHub.
   - Tenant-scoped user provisioning: authenticated request → contract `provision_user` call → IdP becomes the SoT for the resulting user and its binding to the tenant.
   - Tenant-scoped user deprovisioning: contract `deprovision_user` call; already-absent IdP user is a successful no-op.
   - Tenant-scoped user query: list users in a tenant and point-existence checks used by other features (e.g. callers combine this with Resource Group membership operations).

@@ -14,7 +14,7 @@ use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
-use account_management_sdk::IdpTenantProvisionerClient;
+use account_management_sdk::IdpPluginClient;
 
 use crate::config::{AccountManagementConfig, ReaperConfig, RetentionConfig};
 use crate::domain::bootstrap::BootstrapConfig;
@@ -40,7 +40,7 @@ async fn run_bootstrap_phase<R: TenantRepo + 'static>(
     bootstrap: Option<BootstrapConfig>,
     idp_required: bool,
     repo: Arc<R>,
-    idp: Arc<dyn IdpTenantProvisionerClient>,
+    idp: Arc<dyn IdpPluginClient>,
     types_registry: Arc<dyn types_registry_sdk::TypesRegistryClient>,
 ) -> anyhow::Result<()> {
     let Some(boot_cfg) = bootstrap else {
@@ -223,7 +223,7 @@ async fn run_bootstrap_phase_none_skips_saga() {
         None,
         false,
         repo,
-        idp.clone() as Arc<dyn IdpTenantProvisionerClient>,
+        idp.clone() as Arc<dyn IdpPluginClient>,
         registry,
     )
     .await
@@ -244,7 +244,7 @@ async fn run_bootstrap_phase_strict_invalid_config_returns_error() {
         Some(invalid_bootstrap_cfg(true)),
         false,
         repo,
-        idp.clone() as Arc<dyn IdpTenantProvisionerClient>,
+        idp.clone() as Arc<dyn IdpPluginClient>,
         registry,
     )
     .await
@@ -270,7 +270,7 @@ async fn run_bootstrap_phase_nonstrict_invalid_config_proceeds() {
         Some(invalid_bootstrap_cfg(false)),
         false,
         repo,
-        idp.clone() as Arc<dyn IdpTenantProvisionerClient>,
+        idp.clone() as Arc<dyn IdpPluginClient>,
         registry,
     )
     .await
@@ -292,7 +292,7 @@ async fn run_bootstrap_phase_valid_with_active_root_succeeds() {
         Some(valid_bootstrap_cfg(true)),
         false,
         repo,
-        idp.clone() as Arc<dyn IdpTenantProvisionerClient>,
+        idp.clone() as Arc<dyn IdpPluginClient>,
         registry,
     )
     .await
@@ -316,7 +316,7 @@ async fn run_bootstrap_phase_strict_run_failure_returns_error() {
         Some(valid_bootstrap_cfg(true)),
         false,
         repo,
-        idp.clone() as Arc<dyn IdpTenantProvisionerClient>,
+        idp.clone() as Arc<dyn IdpPluginClient>,
         registry,
     )
     .await
@@ -338,7 +338,7 @@ async fn run_bootstrap_phase_nonstrict_run_failure_proceeds() {
         Some(valid_bootstrap_cfg(false)),
         false,
         repo,
-        idp.clone() as Arc<dyn IdpTenantProvisionerClient>,
+        idp.clone() as Arc<dyn IdpPluginClient>,
         registry,
     )
     .await

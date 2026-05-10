@@ -10,7 +10,7 @@ fn default_validates_clean() {
 #[test]
 fn idp_required_defaults_to_false() {
     // Pinned: deployments inheriting the default keep the existing
-    // NoopProvisioner-fallback behaviour. Production deployments
+    // NoopIdpProvider-fallback behaviour. Production deployments
     // that want fail-closed init must opt in explicitly.
     let cfg = AccountManagementConfig::default();
     assert!(
@@ -138,6 +138,188 @@ fn rejects_excessive_depth_threshold() {
         .validate()
         .expect_err("depth_threshold > MAX must reject");
     assert!(err.contains("hierarchy.depth_threshold"), "{err}");
+}
+
+// ---- ConversionConfig validation paths ----------------------------
+//
+// Pin every `ConversionConfig::validate()` rejection path: TTL /
+// retention / cleanup / batch out-of-range, plus the cross-check
+// `resolved_retention_secs <= retention.default_window_secs`. The
+// happy-path defaults are already covered by `default_validates_clean`.
+
+#[test]
+fn rejects_conversion_approval_ttl_below_floor() {
+    let cfg = AccountManagementConfig {
+        conversion: ConversionConfig {
+            approval_ttl_secs: ConversionConfig::MIN_APPROVAL_TTL_SECS - 1,
+            ..ConversionConfig::default()
+        },
+        ..AccountManagementConfig::default()
+    };
+    let err = cfg.validate().expect_err("TTL below floor must reject");
+    assert!(err.contains("conversion.approval_ttl_secs"), "{err}");
+}
+
+#[test]
+fn rejects_conversion_approval_ttl_above_ceiling() {
+    let cfg = AccountManagementConfig {
+        conversion: ConversionConfig {
+            approval_ttl_secs: ConversionConfig::MAX_APPROVAL_TTL_SECS + 1,
+            ..ConversionConfig::default()
+        },
+        ..AccountManagementConfig::default()
+    };
+    let err = cfg.validate().expect_err("TTL above ceiling must reject");
+    assert!(err.contains("conversion.approval_ttl_secs"), "{err}");
+}
+
+#[test]
+fn rejects_conversion_resolved_retention_below_floor() {
+    let cfg = AccountManagementConfig {
+        conversion: ConversionConfig {
+            resolved_retention_secs: ConversionConfig::MIN_RESOLVED_RETENTION_SECS - 1,
+            ..ConversionConfig::default()
+        },
+        ..AccountManagementConfig::default()
+    };
+    let err = cfg
+        .validate()
+        .expect_err("retention below floor must reject");
+    assert!(err.contains("conversion.resolved_retention_secs"), "{err}");
+}
+
+#[test]
+fn rejects_conversion_resolved_retention_above_ceiling() {
+    let cfg = AccountManagementConfig {
+        conversion: ConversionConfig {
+            resolved_retention_secs: ConversionConfig::MAX_RESOLVED_RETENTION_SECS + 1,
+            ..ConversionConfig::default()
+        },
+        ..AccountManagementConfig::default()
+    };
+    let err = cfg
+        .validate()
+        .expect_err("retention above MAX_RESOLVED_RETENTION_SECS must reject");
+    assert!(err.contains("conversion.resolved_retention_secs"), "{err}");
+}
+
+#[test]
+fn rejects_conversion_cleanup_interval_below_floor() {
+    let cfg = AccountManagementConfig {
+        conversion: ConversionConfig {
+            cleanup_interval_secs: ConversionConfig::MIN_CLEANUP_INTERVAL_SECS - 1,
+            ..ConversionConfig::default()
+        },
+        ..AccountManagementConfig::default()
+    };
+    let err = cfg
+        .validate()
+        .expect_err("cleanup_interval below floor must reject");
+    assert!(err.contains("conversion.cleanup_interval_secs"), "{err}");
+}
+
+#[test]
+fn rejects_conversion_cleanup_interval_above_ceiling() {
+    let cfg = AccountManagementConfig {
+        conversion: ConversionConfig {
+            cleanup_interval_secs: ConversionConfig::MAX_CLEANUP_INTERVAL_SECS + 1,
+            ..ConversionConfig::default()
+        },
+        ..AccountManagementConfig::default()
+    };
+    let err = cfg
+        .validate()
+        .expect_err("cleanup_interval above ceiling must reject");
+    assert!(err.contains("conversion.cleanup_interval_secs"), "{err}");
+}
+
+#[test]
+fn rejects_conversion_zero_expire_batch_size() {
+    let cfg = AccountManagementConfig {
+        conversion: ConversionConfig {
+            expire_batch_size: 0,
+            ..ConversionConfig::default()
+        },
+        ..AccountManagementConfig::default()
+    };
+    let err = cfg.validate().expect_err("zero batch must reject");
+    assert!(err.contains("conversion.expire_batch_size"), "{err}");
+}
+
+#[test]
+fn rejects_conversion_expire_batch_size_above_ceiling() {
+    let cfg = AccountManagementConfig {
+        conversion: ConversionConfig {
+            expire_batch_size: ConversionConfig::MAX_BATCH_SIZE + 1,
+            ..ConversionConfig::default()
+        },
+        ..AccountManagementConfig::default()
+    };
+    let err = cfg
+        .validate()
+        .expect_err("expire batch above MAX_BATCH_SIZE must reject");
+    assert!(err.contains("conversion.expire_batch_size"), "{err}");
+}
+
+#[test]
+fn rejects_conversion_oversized_retention_batch() {
+    let cfg = AccountManagementConfig {
+        conversion: ConversionConfig {
+            retention_batch_size: ConversionConfig::MAX_BATCH_SIZE + 1,
+            ..ConversionConfig::default()
+        },
+        ..AccountManagementConfig::default()
+    };
+    let err = cfg
+        .validate()
+        .expect_err("batch above MAX_BATCH_SIZE must reject (PG IN(...) ceiling)");
+    assert!(err.contains("conversion.retention_batch_size"), "{err}");
+}
+
+#[test]
+fn rejects_resolved_retention_exceeding_tenant_default_window() {
+    let cfg = AccountManagementConfig {
+        retention: RetentionConfig {
+            default_window_secs: 24 * 60 * 60, // 1 day
+            ..RetentionConfig::default()
+        },
+        conversion: ConversionConfig {
+            // Default 30d > deliberately-shortened 1-day tenant
+            // retention. Cross-check MUST fire because resolved
+            // conversion history would outlive the tenant cascade.
+            resolved_retention_secs: 30 * 24 * 60 * 60,
+            ..ConversionConfig::default()
+        },
+        ..AccountManagementConfig::default()
+    };
+    let err = cfg
+        .validate()
+        .expect_err("resolved_retention > tenant default_window must reject");
+    assert!(err.contains("conversion.resolved_retention_secs"), "{err}");
+    assert!(
+        err.contains("retention.default_window_secs"),
+        "diagnostic must name the cross-checked field; got: {err}"
+    );
+}
+
+#[test]
+fn allows_default_resolved_retention_when_tenant_retention_disabled() {
+    // `retention.default_window_secs = 0` means "tenants are
+    // immediately hard-delete-eligible", and the FK
+    // `conversion_requests.tenant_id REFERENCES tenants(id) ON DELETE
+    // CASCADE` reclaims the resolved-conversion rows alongside the
+    // tenant. The cross-check therefore only fires when tenant
+    // retention is positive — disabled tenant retention does not
+    // require disabling conversion retention as well.
+    let cfg = AccountManagementConfig {
+        retention: RetentionConfig {
+            default_window_secs: 0,
+            ..RetentionConfig::default()
+        },
+        ..AccountManagementConfig::default()
+    };
+    cfg.validate()
+        .expect("default conversion config must validate when tenant retention is disabled");
 }
 
 #[test]

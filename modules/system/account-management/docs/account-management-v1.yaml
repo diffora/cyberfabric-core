@@ -19,25 +19,35 @@ info:
     migration window per the Compatibility NFR in DESIGN.md. Additive changes
     within v1 do not rev the path.
 
+    **Implementation status (PR #15):** PR #15 lands the domain-layer
+    services for conversion requests (managed↔self-managed mode flips) and
+    IdP user-ops (`provision_user` / `deprovision_user` / `list_users`),
+    but does NOT publish their REST surfaces — the `/conversions`,
+    `/child-conversions`, and `/users` paths are intentionally absent
+    from this v1 contract. They land together with their handlers in
+    the follow-up REST PR (`cyberfabric-core#1813`). Pre-merging the
+    paths here would publish a contract that the server cannot satisfy:
+    standard OpenAPI codegen tools ignore `x-status` annotations and
+    generate clients that would hit `404 Not Found` at runtime. The
+    forward-looking schema shapes (`OwnConversionRequest`,
+    `ChildConversionRequest`, `UserSummary`, etc.) remain in
+    `#/components/schemas` so the handler PR ships paths + schemas
+    in one cohesive diff without re-introducing dangling type
+    definitions.
+
 servers:
   - url: https://api.example.com
 
 tags:
   - name: tenants
     description: Tenant hierarchy lifecycle and direct-child discovery.
-  - name: conversions
-    description: |
-      Dual-consent managed/self-managed mode transitions.
-      Child-scope endpoints under `/tenants/{tenant_id}/conversions` let the
-      tenant side create, list, and inspect its own conversion requests.
-      Parent-scope endpoints under `/tenants/{tenant_id}/child-conversions`
-      let the parent side discover and resolve requests targeting direct
-      children. Any post-creation mode change is initiated with `POST` and
-      resolved with `PATCH` on the corresponding `ConversionRequest`.
-  - name: users
-    description: Tenant-scoped delegated user lifecycle through the configured IdP.
   - name: metadata
     description: Tenant-scoped extensible metadata and effective-value resolution.
+  # `conversions` and `users` tags ship together with their paths in
+  # cyberfabric-core#1813 (REST handler PR). The domain-layer services
+  # (`ConversionService`, `UserService`) and their forward-looking
+  # schema shapes are already part of this contract; only the path
+  # surface is deferred.
 
 # Default security requirement applied to every operation. AM has no
 # public endpoints — the entire surface is tenant-scoped control-plane
@@ -149,214 +159,22 @@ paths:
         default:
           $ref: '#/components/responses/Problem'
 
-  /api/account-management/v1/tenants/{tenant_id}/conversions:
-    parameters:
-      - $ref: '#/components/parameters/TenantId'
-      - $ref: '#/components/parameters/Top'
-      - $ref: '#/components/parameters/Skip'
-      - $ref: '#/components/parameters/ConversionStatusFilter'
-    get:
-      operationId: listOwnConversions
-      tags: [conversions]
-      summary: List conversion requests in child scope
-      responses:
-        '200':
-          description: Page of conversion requests visible in child scope
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/OwnConversionRequestPage'
-        default:
-          $ref: '#/components/responses/Problem'
-    post:
-      operationId: createOwnConversion
-      tags: [conversions]
-      summary: Initiate a conversion request from child scope
-      requestBody:
-        required: false
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/EmptyObject'
-      responses:
-        '201':
-          description: Conversion request created
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/OwnConversionRequest'
-        default:
-          $ref: '#/components/responses/Problem'
-
-  /api/account-management/v1/tenants/{tenant_id}/conversions/{request_id}:
-    parameters:
-      - $ref: '#/components/parameters/TenantId'
-      - $ref: '#/components/parameters/RequestId'
-    get:
-      operationId: getOwnConversion
-      tags: [conversions]
-      summary: Read a conversion request in child scope
-      responses:
-        '200':
-          description: Conversion request visible in child scope
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/OwnConversionRequest'
-        default:
-          $ref: '#/components/responses/Problem'
-    patch:
-      operationId: patchOwnConversion
-      tags: [conversions]
-      summary: Resolve a conversion request in child scope
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/ConversionPatchRequest'
-      responses:
-        '200':
-          description: Updated conversion request
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/OwnConversionRequest'
-        default:
-          $ref: '#/components/responses/Problem'
-
-  /api/account-management/v1/tenants/{tenant_id}/child-conversions:
-    parameters:
-      - $ref: '#/components/parameters/TenantId'
-      - $ref: '#/components/parameters/Top'
-      - $ref: '#/components/parameters/Skip'
-      - $ref: '#/components/parameters/ConversionStatusFilter'
-    get:
-      operationId: listChildConversions
-      tags: [conversions]
-      summary: List conversion requests targeting direct children
-      responses:
-        '200':
-          description: Page of conversion requests visible in parent scope
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ChildConversionRequestPage'
-        default:
-          $ref: '#/components/responses/Problem'
-    post:
-      operationId: createChildConversion
-      tags: [conversions]
-      summary: Initiate a conversion request for a direct child
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/ChildConversionCreateRequest'
-      responses:
-        '201':
-          description: Conversion request created
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ChildConversionRequest'
-        default:
-          $ref: '#/components/responses/Problem'
-
-  /api/account-management/v1/tenants/{tenant_id}/child-conversions/{request_id}:
-    parameters:
-      - $ref: '#/components/parameters/TenantId'
-      - $ref: '#/components/parameters/RequestId'
-    get:
-      operationId: getChildConversion
-      tags: [conversions]
-      summary: Read a conversion request in parent scope
-      responses:
-        '200':
-          description: Conversion request visible in parent scope
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ChildConversionRequest'
-        default:
-          $ref: '#/components/responses/Problem'
-    patch:
-      operationId: patchChildConversion
-      tags: [conversions]
-      summary: Resolve a conversion request in parent scope
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/ConversionPatchRequest'
-      responses:
-        '200':
-          description: Updated conversion request
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ChildConversionRequest'
-        default:
-          $ref: '#/components/responses/Problem'
-
-  /api/account-management/v1/tenants/{tenant_id}/users:
-    parameters:
-      - $ref: '#/components/parameters/TenantId'
-      - $ref: '#/components/parameters/Top'
-      - $ref: '#/components/parameters/Skip'
-      - $ref: '#/components/parameters/UserIdFilter'
-    get:
-      operationId: listUsers
-      tags: [users]
-      summary: List users in a tenant scope
-      responses:
-        '200':
-          description: Page of users returned by the configured IdP integration
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/UserPage'
-        default:
-          $ref: '#/components/responses/Problem'
-    post:
-      operationId: createUser
-      tags: [users]
-      summary: Provision a user in a tenant scope
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/UserCreateRequest'
-      responses:
-        '201':
-          description: User provisioned
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/UserSummary'
-        default:
-          $ref: '#/components/responses/Problem'
-
-  /api/account-management/v1/tenants/{tenant_id}/users/{user_id}:
-    parameters:
-      - $ref: '#/components/parameters/TenantId'
-      - $ref: '#/components/parameters/UserId'
-    delete:
-      operationId: deleteUser
-      tags: [users]
-      summary: Deprovision a user in a tenant scope
-      responses:
-        '200':
-          description: User deprovisioned or already absent
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/UserDeletionResult'
-        default:
-          $ref: '#/components/responses/Problem'
+  # /api/account-management/v1/tenants/{tenant_id}/conversions
+  # /api/account-management/v1/tenants/{tenant_id}/conversions/{request_id}
+  # /api/account-management/v1/tenants/{tenant_id}/child-conversions
+  # /api/account-management/v1/tenants/{tenant_id}/child-conversions/{request_id}
+  # /api/account-management/v1/tenants/{tenant_id}/users
+  # /api/account-management/v1/tenants/{tenant_id}/users/{user_id}
+  #
+  # Conversion-request and IdP user-ops REST paths land with their
+  # handlers in cyberfabric-core#1813. PR #15 ships only the
+  # domain-layer services (`ConversionService`, `UserService`) and
+  # their forward-looking schema shapes (`OwnConversionRequest`,
+  # `ChildConversionRequest`, `UserSummary`, etc. under
+  # `#/components/schemas`). Publishing the paths here without
+  # handlers would have generators emit clients hitting `404 Not
+  # Found` at runtime — standard OpenAPI tooling does not honor
+  # vendor `x-status` annotations.
 
   /api/account-management/v1/tenants/{tenant_id}/metadata:
     parameters:
@@ -818,6 +636,19 @@ components:
           type: string
           minLength: 1
           maxLength: 255
+        email:
+          type: string
+          format: email
+          nullable: true
+          description: Optional contact email surfaced through the projection.
+        display_name:
+          type: string
+          nullable: true
+          description: Optional display name surfaced through the projection.
+        avatar_url:
+          type: string
+          nullable: true
+          description: Optional avatar URL surfaced through the projection.
         attributes:
           type: object
           additionalProperties: true
@@ -840,6 +671,9 @@ components:
           format: email
           nullable: true
         display_name:
+          type: string
+          nullable: true
+        avatar_url:
           type: string
           nullable: true
         attributes:

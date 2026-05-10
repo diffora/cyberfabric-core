@@ -37,12 +37,12 @@ This decision is closely related to but distinct from ADR-0005 (`cpt-cf-account-
 * **Token-based authorization flow**: The platform's AuthN Resolver reads the tenant identity from the bearer token at request time. For this to work, the IdP must know which tenant a user belongs to — the binding must be present in the IdP so it can be embedded in tokens without an extra lookup to AM on every request.
 * **Single source of truth**: If both AM and the IdP store the user-tenant binding, any desynchronization creates a split-brain scenario where the token claims (from IdP) disagree with AM's local record, leading to authorization inconsistencies.
 * **Consistency with ADR-0005**: ADR-0005 establishes that AM does not maintain a local user table. Storing user-tenant binding locally would reintroduce user-related state in AM's database, contradicting the no-local-user-storage constraint.
-* **IdP-agnostic portability**: The binding storage mechanism must work across all conforming IdP implementations (Keycloak, Azure AD, Okta, custom). The `IdpProviderPluginClient` contract defines `create_user` with tenant scope binding — the provider sets the attribute using its native mechanism.
+* **IdP-agnostic portability**: The binding storage mechanism must work across all conforming IdP implementations (Keycloak, Azure AD, Okta, custom). The `IdpPluginClient` contract defines `provision_user` with tenant scope binding — the provider sets the attribute using its native mechanism.
 * **Operational correctness of user-tenant queries**: AM's `GET /tenants/{id}/users` endpoint must return the authoritative list of users belonging to a tenant. If the binding is stored locally, AM can query its own database; if stored in the IdP, AM must delegate the query to the IdP.
 
 ## Considered Options
 
-1. **IdP stores user-tenant binding as a tenant identity attribute**: The `IdpProviderPluginClient::create_user` contract sets a tenant identity attribute on the user record in the IdP. AM queries tenant-scoped users via `IdpProviderPluginClient::list_users`. AM does not store any local user-tenant association.
+1. **IdP stores user-tenant binding as a tenant identity attribute**: The `IdpPluginClient::provision_user` contract sets a tenant identity attribute on the user record in the IdP. AM queries tenant-scoped users via `IdpPluginClient::list_users`. AM does not store any local user-tenant association.
 2. **AM stores user-tenant binding in a local join table**: AM maintains a `user_tenant_bindings` table mapping user IDs to tenant IDs. The IdP stores credentials and profile; AM stores the organizational relationship. User provisioning writes to both AM's table and the IdP.
 3. **Dual-write — both AM and IdP store the binding**: AM writes the binding to its local table and to the IdP simultaneously. Either can serve as a query source. Consistency is maintained by saga or compensating transactions.
 
@@ -50,21 +50,21 @@ This decision is closely related to but distinct from ADR-0005 (`cpt-cf-account-
 
 Chosen option: **Option 1 — IdP stores user-tenant binding as a tenant identity attribute**, because the authorization hot path already requires the IdP to know the user's tenant (for token claims), making the IdP the natural canonical store. Storing the binding exclusively in the IdP eliminates split-brain risk between two systems, maintains consistency with the no-local-user-storage constraint (ADR-0005), and avoids synchronization complexity across pluggable IdP implementations.
 
-The `IdpProviderPluginClient::create_user` contract requires the provider to set the tenant identity attribute on the user record. AM coordinates the binding by calling the IdP contract at the right lifecycle moment (provisioning, deprovisioning) but does not independently assert or cache the user-tenant relationship. The stable user key exchanged through this contract is the IdP-issued UUID user identifier; AM does not define an alternative local user ID.
+The `IdpPluginClient::provision_user` contract requires the provider to set the tenant identity attribute on the user record. AM coordinates the binding by calling the IdP contract at the right lifecycle moment (provisioning, deprovisioning) but does not independently assert or cache the user-tenant relationship. The stable user key exchanged through this contract is the IdP-issued UUID user identifier; AM does not define an alternative local user ID.
 
 ### Consequences
 
 * The IdP is the single authoritative source for "user X belongs to tenant Y." The AuthN Resolver reads the tenant identity from the bearer token issued by the IdP — no additional AM lookup is required on the request hot path.
-* AM's `GET /tenants/{id}/users` delegates to `IdpProviderPluginClient::list_users` with a tenant filter. Query performance and capabilities (pagination, filtering, search) depend on the IdP implementation, not on AM's database schema.
+* AM's `GET /tenants/{id}/users` delegates to `IdpPluginClient::list_users` with a tenant filter. Query performance and capabilities (pagination, filtering, search) depend on the IdP implementation, not on AM's database schema.
 * AM has no `user_tenant_bindings` table or equivalent local state. This maintains the no-local-user-storage constraint from ADR-0005 and avoids introducing user-related database entities.
 * User-tenant reassignment (moving a user between tenants) is out of scope for v1 (per PRD §4.2). When implemented, it will be coordinated through the IdP contract — AM will call the IdP to update the tenant identity attribute, and downstream effects (Resource Group membership migration, AuthZ cache invalidation, session revocation) will require cross-platform coordination.
 * If the IdP is unreachable, AM cannot query which users belong to a tenant. The platform accepts this: tenant hierarchy operations remain available, but user-related operations fail with `idp_unavailable`.
-* The `IdpProviderPluginClient` contract must be expressive enough for each provider to implement tenant identity attribute storage using its native mechanism (Keycloak: user attribute, Azure AD: custom claim, custom IdP: provider-defined). The contract specifies the semantic requirement (bind user to tenant) without prescribing the storage mechanism.
+* The `IdpPluginClient` contract must be expressive enough for each provider to implement tenant identity attribute storage using its native mechanism (Keycloak: user attribute, Azure AD: custom claim, custom IdP: provider-defined). The contract specifies the semantic requirement (bind user to tenant) without prescribing the storage mechanism.
 
 ### Confirmation
 
 * DESIGN and code review verify that AM's database schema contains no user-tenant association tables.
-* Integration tests confirm that `create_user` results in the tenant identity attribute being set on the IdP user record (verified via `list_users` with tenant filter).
+* Integration tests confirm that `provision_user` results in the tenant identity attribute being set on the IdP user record (verified via `list_users` with tenant filter).
 * Integration tests confirm that bearer tokens issued for provisioned users contain the correct tenant identity claim.
 * Code review verifies that AM never independently asserts user-tenant membership — all membership checks go through the IdP contract and preserve the IdP-issued UUID user identifier unchanged.
 
@@ -116,8 +116,8 @@ PRD Section 3.4 (User Data Ownership) explicitly states: "IdP is the single sour
 
 This decision directly addresses the following requirements and design elements:
 
-* `cpt-cf-account-management-fr-idp-user-provision` — The `create_user` contract sets the tenant identity attribute on the user record in the IdP, establishing the binding at provisioning time.
-* `cpt-cf-account-management-fr-idp-user-query` — User-tenant queries delegate to `IdpProviderPluginClient::list_users` with tenant filter because the IdP is the canonical store for the binding.
+* `cpt-cf-account-management-fr-idp-user-provision` — The `provision_user` contract sets the tenant identity attribute on the user record in the IdP, establishing the binding at provisioning time.
+* `cpt-cf-account-management-fr-idp-user-query` — User-tenant queries delegate to `IdpPluginClient::list_users` with tenant filter because the IdP is the canonical store for the binding.
 * `cpt-cf-account-management-fr-idp-user-deprovision` — User deprovisioning removes the user (and its tenant binding) from the IdP; no local binding cleanup needed.
 * `cpt-cf-account-management-principle-idp-agnostic` — The binding is stored via the IdP contract's native mechanism, maintaining provider portability.
 * `cpt-cf-account-management-constraint-no-user-storage` — No local user-tenant association table exists, consistent with the no-direct-user-data-storage constraint.
