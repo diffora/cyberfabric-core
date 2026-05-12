@@ -418,6 +418,59 @@ pub fn init_metrics_provider(_otel_cfg: &super::config::OpenTelemetryConfig) -> 
     Err(anyhow::anyhow!("otel feature is disabled"))
 }
 
+/// Returns `true` once an SDK-backed meter provider has been
+/// successfully installed as the OpenTelemetry global. Used by
+/// modules to decide whether wiring up their metric adapters is
+/// worth the work — when `false`, the global meter provider is the
+/// built-in `NoopMeterProvider` and every emitted instrument is a
+/// silent no-op, so call sites should skip the bridge entirely to
+/// preserve zero-cost behaviour on hot paths.
+///
+/// Returns `false` until either [`init_metrics_provider`] has run
+/// successfully with `metrics.enabled = true`, or
+/// [`mark_metrics_provider_installed`] has been called by a caller
+/// that bypasses `init_metrics_provider` (integration tests that wire
+/// their own [`opentelemetry::global::set_meter_provider`], custom
+/// embedders, etc.). Transient init failures are not cached, so a
+/// later retry can still flip the flag.
+#[cfg(feature = "otel")]
+#[must_use]
+pub fn metrics_provider_installed() -> bool {
+    METRICS_INIT.get().is_some()
+}
+
+/// `otel`-disabled stub for [`metrics_provider_installed`].
+#[cfg(not(feature = "otel"))]
+#[must_use]
+pub const fn metrics_provider_installed() -> bool {
+    false
+}
+
+/// Flip the [`metrics_provider_installed`] flag without going through
+/// [`init_metrics_provider`]. The escape hatch for callers that
+/// install their own [`opentelemetry::global::set_meter_provider`]
+/// directly (integration test harnesses like
+/// `modules/system/api-gateway/tests/http_metrics_tests.rs`, custom
+/// embedders wiring `OTel` outside modkit bootstrap) so module-side
+/// adapters keyed on the flag (AM's `install_facade_bridge`, etc.)
+/// see the live provider instead of staying dormant on the no-op
+/// fast path.
+///
+/// Idempotent and concurrency-safe: subsequent calls are silently
+/// ignored — the flag is one-shot once flipped, mirroring the
+/// `OnceLock` semantics in [`init_metrics_provider`].
+#[cfg(feature = "otel")]
+pub fn mark_metrics_provider_installed() {
+    // Concurrency-safe via OnceLock; second-and-later writers lose
+    // the race and their argument is dropped, which is fine here
+    // because the payload is `()`.
+    let _set_result = METRICS_INIT.set(());
+}
+
+/// `otel`-disabled stub for [`mark_metrics_provider_installed`].
+#[cfg(not(feature = "otel"))]
+pub const fn mark_metrics_provider_installed() {}
+
 // ===== connectivity probe =====================================================
 
 /// Build a tiny, separate OTLP pipeline and export a single span to verify connectivity.

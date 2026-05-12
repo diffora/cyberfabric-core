@@ -1,21 +1,27 @@
 //! Mock PDP plumbing for service-level `#[tokio::test]` blocks. Two
 //! shapes are exposed:
 //!
-//! * [`mock_enforcer`] wires [`MockAuthZResolver`], an always-permit
-//!   PDP that returns no constraints. Account Management calls
-//!   `access_scope_with(... require_constraints(false))`, so the
-//!   compiled scope is `AccessScope::allow_all` — sufficient for
-//!   the majority of saga tests that don't care about row-level
-//!   filtering semantics.
+//! * [`mock_enforcer`] wires [`MockAuthZResolver`], a permissive PDP
+//!   that emits a single
+//!   [`InTenantSubtree`](modkit_security::ScopeFilter::in_tenant_subtree)
+//!   constraint rooted at the caller's `subject_tenant_id`. Mirrors
+//!   the production policy bundle's "permit + clamp to caller's
+//!   subtree" shape. Account Management calls
+//!   `access_scope_with(... require_constraints(true))`, so an
+//!   empty-constraint PDP would surface as
+//!   [`AccessRequest::require_constraints`]-fail; the
+//!   subject-rooted subtree clamp keeps every existing test
+//!   passing because tests act within their subject's own subtree.
 //! * [`constraint_bearing_enforcer`] wires
-//!   [`ConstraintBearingAuthZResolver`], which DOES model
-//!   constraint-bearing PDP output (single `OWNER_TENANT_ID Eq`
-//!   constraint). It exists specifically to regression-pin the
-//!   `tenants`-entity scope-discard contract enforced in
-//!   `service::TenantService` (cyberware-rust#1813): an
-//!   authorized read / update / soft-delete must NOT compile a
-//!   PDP-narrowed permit into a `WHERE false` denial at the
-//!   secure-extension layer until `InTenantSubtree` lands.
+//!   [`ConstraintBearingAuthZResolver`], which models a
+//!   policy-bundle-style PDP that pins the subtree root explicitly
+//!   to a caller-supplied tenant id. Used by the regression tests
+//!   in `service_tests.rs` that pin the post-#1813 subtree-clamp
+//!   contract: an authorized read / update / soft-delete on a
+//!   tenant **inside** the root's subtree MUST succeed; an
+//!   authorized action on a tenant **outside** the root's subtree
+//!   MUST collapse to `NotFound` at the database via the secure-
+//!   extension layer.
 
 #![allow(dead_code, clippy::must_use_candidate, clippy::missing_panics_doc)]
 
@@ -24,18 +30,43 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use authz_resolver_sdk::{
     AuthZResolverClient, AuthZResolverError, PolicyEnforcer,
-    models::{EvaluationRequest, EvaluationResponse, EvaluationResponseContext},
+    models::{Capability, EvaluationRequest, EvaluationResponse, EvaluationResponseContext},
 };
 use modkit_macros::domain_model;
 
-/// Always-permit mock PDP for service / handler tests.
+/// Build a permit-with-subtree-clamp [`EvaluationResponse`] rooted at
+/// `root_tenant_id`. Centralises the production-shape predicate
+/// emission so both mocks below stay in sync.
+fn permit_with_subtree(root_tenant_id: uuid::Uuid) -> EvaluationResponse {
+    use authz_resolver_sdk::constraints::{Constraint, InTenantSubtreePredicate, Predicate};
+    use modkit_security::pep_properties;
+
+    EvaluationResponse {
+        decision: true,
+        context: EvaluationResponseContext {
+            constraints: vec![Constraint {
+                predicates: vec![Predicate::InTenantSubtree(InTenantSubtreePredicate::new(
+                    pep_properties::RESOURCE_ID,
+                    root_tenant_id,
+                ))],
+            }],
+            deny_reason: None,
+        },
+    }
+}
+
+/// Permissive PDP fake for service / handler tests.
 ///
-/// Returns `decision: true` with no constraints (i.e. compiles to
-/// [`AccessScope::allow_all`]). Cross-tenant denial in production is
-/// owned by the PDP behind a real `PolicyEnforcer` fed by the Tenant
-/// Resolver Plugin (separate PR in this stack); this mock therefore
-/// stays minimal — tests that need cross-tenant behaviour land
-/// alongside the resolver plugin, not here.
+/// Reads the caller's `subject.properties["tenant_id"]` (populated by
+/// the PEP per the `AuthZEN` spec) and emits a single
+/// [`InTenantSubtree`](modkit_security::ScopeFilter::in_tenant_subtree)
+/// constraint rooted at that tenant. Every existing service-level test
+/// uses `ctx_for(root)`, so the compiled scope clamps to the root's
+/// subtree — which transparently covers every tenant the test mutates.
+/// Cross-tenant denial in production is owned by the real PDP behind a
+/// `PolicyEnforcer` fed by the Tenant Resolver Plugin; the negative
+/// path is regression-pinned by
+/// [`ConstraintBearingAuthZResolver`] below.
 #[domain_model]
 pub struct MockAuthZResolver;
 
@@ -45,14 +76,28 @@ impl AuthZResolverClient for MockAuthZResolver {
         &self,
         request: EvaluationRequest,
     ) -> Result<EvaluationResponse, AuthZResolverError> {
-        // AM service tests exercise the current decision-only path:
-        // `require_constraints(false)` compiles an empty constraint
-        // set to `AccessScope::allow_all`.
-        let _ = request;
-        Ok(EvaluationResponse {
-            decision: true,
-            context: EvaluationResponseContext::default(),
-        })
+        // Pluck the subject's tenant id out of the AuthZEN-spec
+        // `subject.properties["tenant_id"]` slot the PEP builder
+        // wrote. A missing / malformed slot is a test-wiring bug
+        // (the production PEP at `authz-resolver-sdk::pep::enforcer`
+        // always writes a stringified `Uuid`) — panic loudly so the
+        // bug surfaces as a clear failure instead of as a confusing
+        // empty-subtree `NotFound`.
+        let root_str = request
+            .subject
+            .properties
+            .get("tenant_id")
+            .and_then(serde_json::Value::as_str)
+            .expect(
+                "MockAuthZResolver: subject.properties[\"tenant_id\"] is missing or not a string; \
+                 build SecurityContext via SecurityContext::builder().subject_tenant_id(_) so \
+                 the PEP enforcer populates the AuthZEN-spec slot",
+            );
+        let root = uuid::Uuid::parse_str(root_str).expect(
+            "MockAuthZResolver: subject.properties[\"tenant_id\"] is not a valid UUID; \
+             SecurityContext::builder takes a Uuid so this should be unreachable",
+        );
+        Ok(permit_with_subtree(root))
     }
 }
 
@@ -62,26 +107,30 @@ impl AuthZResolverClient for MockAuthZResolver {
 #[must_use]
 pub fn mock_enforcer() -> PolicyEnforcer {
     let authz: Arc<dyn AuthZResolverClient> = Arc::new(MockAuthZResolver);
-    PolicyEnforcer::new(authz)
+    // Mirror the production wiring in `module.rs`: AM advertises
+    // `TenantHierarchy` so the PDP returns the native
+    // `InTenantSubtree` predicate. Without the capability the
+    // production PDP would downgrade to a pre-resolved `In`, and
+    // tests using this enforcer would diverge from the production
+    // request shape.
+    PolicyEnforcer::new(authz).with_capabilities(vec![Capability::TenantHierarchy])
 }
 
-/// Constraint-bearing PDP fake used to regression-pin the
-/// `tenants`-entity scope-discard contract: an authorized read /
-/// update / soft-delete must NOT compile a PDP-narrowed permit into
-/// a `WHERE false` denial at the secure-extension layer. Returns
-/// `decision: true` plus a single `OWNER_TENANT_ID Eq` constraint —
-/// representative of what the static `AuthZ` resolver emits in
-/// production for tenant-scoped policies. Pairs with
-/// [`constraint_bearing_enforcer`].
+/// PDP fake that pins the subtree root explicitly to a caller-supplied
+/// tenant id, regardless of the request's subject tenant. Used by the
+/// regression tests that exercise the cross-subtree denial contract:
+/// caller scoped to root, target tenant outside root's subtree → the
+/// compiled subtree-clamp at the database collapses the row to
+/// `NotFound` even though the PDP-side `decision: true` lets the
+/// service-layer gate through.
 #[domain_model]
 pub struct ConstraintBearingAuthZResolver {
-    /// Owner-tenant value the synthetic constraint will pin to.
-    /// The actual UUID is irrelevant for the contract under test —
-    /// what matters is that the compiled `AccessScope` is
-    /// **constrained** rather than `allow_all`, which would have
-    /// turned the `tenants`-entity repo read into a deny-all
-    /// before the P1 fix.
-    pub owner_tenant_id: uuid::Uuid,
+    /// Root tenant id the synthetic
+    /// [`InTenantSubtree`](modkit_security::ScopeFilter::in_tenant_subtree)
+    /// predicate is rooted at. The compiled `AccessScope` clamps reads
+    /// on `tenants.id` to that root's closure subtree via
+    /// `tenant_closure`.
+    pub root_tenant_id: uuid::Uuid,
 }
 
 #[async_trait]
@@ -90,34 +139,19 @@ impl AuthZResolverClient for ConstraintBearingAuthZResolver {
         &self,
         request: EvaluationRequest,
     ) -> Result<EvaluationResponse, AuthZResolverError> {
-        use authz_resolver_sdk::constraints::{Constraint, EqPredicate, Predicate};
-        use modkit_security::pep_properties;
-
         let _ = request;
-        Ok(EvaluationResponse {
-            decision: true,
-            context: EvaluationResponseContext {
-                constraints: vec![Constraint {
-                    predicates: vec![Predicate::Eq(EqPredicate::new(
-                        pep_properties::OWNER_TENANT_ID,
-                        self.owner_tenant_id,
-                    ))],
-                }],
-                deny_reason: None,
-            },
-        })
+        Ok(permit_with_subtree(self.root_tenant_id))
     }
 }
 
 /// Build a [`PolicyEnforcer`] backed by [`ConstraintBearingAuthZResolver`].
-/// Used by tests that pin the contract: AM service methods must
-/// **not** plumb a PDP-narrowed scope into the `tenants` repo until
-/// `InTenantSubtree` lands (cyberware-rust#1813), because the
-/// `tenants` entity is `no_tenant, no_resource, no_owner, no_type`
-/// and any narrowed scope would compile to `WHERE false`.
+/// The compiled scope clamps reads on the `tenants` entity (and any
+/// other entity declaring an `OWNER_TENANT_ID` / `RESOURCE_ID` column
+/// against the `InTenantSubtree` predicate) to the closure subtree
+/// rooted at `root_tenant_id`.
 #[must_use]
-pub fn constraint_bearing_enforcer(owner_tenant_id: uuid::Uuid) -> PolicyEnforcer {
+pub fn constraint_bearing_enforcer(root_tenant_id: uuid::Uuid) -> PolicyEnforcer {
     let authz: Arc<dyn AuthZResolverClient> =
-        Arc::new(ConstraintBearingAuthZResolver { owner_tenant_id });
-    PolicyEnforcer::new(authz)
+        Arc::new(ConstraintBearingAuthZResolver { root_tenant_id });
+    PolicyEnforcer::new(authz).with_capabilities(vec![Capability::TenantHierarchy])
 }

@@ -13,5 +13,8 @@ pub use config::{
 };
 #[cfg(feature = "otel")]
 pub use init::init_tracing;
-pub use init::{init_metrics_provider, shutdown_tracing};
+pub use init::{
+    init_metrics_provider, mark_metrics_provider_installed, metrics_provider_installed,
+    shutdown_tracing,
+};
 pub use throttled_log::ThrottledLog;

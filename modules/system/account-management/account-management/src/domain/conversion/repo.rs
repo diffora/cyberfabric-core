@@ -82,22 +82,37 @@ pub struct ApplyConversionApprovalInput {
 /// # Caller contract on `scope`
 ///
 /// The `conversion_requests` entity is declared
-/// `Scopable(no_tenant, no_resource, no_owner, no_type)` — the same
-/// declaration used for `tenants` and `tenant_closure`. On these
-/// declarations `Scopable::IS_UNRESTRICTED` is `false` and every
-/// constraint property resolves to `None`, which means:
+/// `Scopable(tenant_col = "tenant_id", no_resource, no_owner, no_type)`
+/// (post-#1813), so `OWNER_TENANT_ID` resolves to the `tenant_id`
+/// column and the secure-extension layer compiles a narrowed scope of
+/// shape `InTenantSubtree(OWNER_TENANT_ID, root, …)` into
+/// `tenant_id IN (SELECT descendant_id FROM tenant_closure
+///   WHERE ancestor_id = :root AND barrier = 0)`.
 ///
-/// * `scope_with(allow_all())` -> no-op (no `WHERE` clause added).
-/// * `scope_with(<narrowed>)` -> `deny_all()` (`WHERE false`) for reads
-///   / mutations, and `ScopeError::Denied` for INSERTs.
+/// **Service-side posture today (pre-REST-handler PR):** every
+/// production call site in the conversion service passes
+/// [`AccessScope::allow_all`] to the repo because the dual-consent
+/// flows need barrier penetration:
 ///
-/// **Until `InTenantSubtree` lands** (cyberfabric-core#1813), callers
-/// MUST pass [`AccessScope::allow_all`]. A narrowed scope silently
-/// zero-rows every read and turns every mutation into a no-op or hard
-/// deny — no useful authorization happens at this boundary today.
-/// Cross-tenant authorization is enforced one layer up by the PDP gate
-/// in the service layer; this is **single-layer enforcement** and is a
-/// pre-production gate.
+/// * Parent acts as counterparty (`reject` / `approve`) on a
+///   conversion initiated by a self-managed child whose parent
+///   barrier is `1`. A narrowed `InTenantSubtree(.., respect_barriers
+///   = true)` clamp would exclude the child's `tenant_id` from the
+///   subtree and turn an authorized counterparty action into a silent
+///   `NotFound`.
+/// * Inbound listings (`list_inbound_for_parent`) surface conversions
+///   from self-managed children that sit behind the parent's barrier
+///   — clamping by subtree would drop them.
+///
+/// Cross-tenant authorization on the dual-consent flows is therefore
+/// still enforced one layer up by the service-layer role check on
+/// [`super::service::ConversionCaller`] plus the URL-bound tenant /
+/// parent id the REST handler trusts after the `AuthN` layer verifies
+/// the caller is bound to it. The schema-side `tenant_col` is
+/// forward-compat: the REST PR can plumb scope verbatim once the PDP
+/// emits a barrier-penetrating variant for the counterparty path.
+/// INSERTs always use `scope_unchecked` regardless — Scopable
+/// INSERT-time clamp isn't the right model for inserts.
 #[async_trait]
 pub trait ConversionRepo: Send + Sync {
     // ---- Inserts -------------------------------------------------------

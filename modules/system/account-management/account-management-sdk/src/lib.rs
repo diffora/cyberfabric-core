@@ -47,6 +47,7 @@
 pub mod gts;
 pub mod idp;
 pub mod idp_user;
+pub mod metadata;
 pub mod tenant;
 
 pub use gts::{
@@ -60,6 +61,9 @@ pub use idp_user::{
     DeprovisionUserOutcome, DeprovisionUserRequest, ListUsersRequest, NewUserPayload,
     ProvisionUserRequest, TenantContext, UserAttributes, UserOperationFailure, UserPage,
     UserPagination, UserPaginationError, UserProjection,
+};
+pub use metadata::{
+    MetadataEntry, MetadataSchemaId, MetadataValidationError, PutMetadataInput, derive_schema_uuid,
 };
 pub use modkit_canonical_errors::CanonicalError as AccountManagementError;
 // Narrow re-export: only the two types AM SDK consumers actually

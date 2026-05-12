@@ -183,11 +183,12 @@ pub(super) async fn is_descendant(
     let conn = repo.db.conn()?;
     let count = tenant_closure::Entity::find()
         .secure()
-        // TODO(InTenantSubtree): replace with the caller's narrowed
-        // scope once the predicate lands. Today every `allow_all` /
-        // `scope_unchecked` call site in this crate carries this
-        // marker so `rg "TODO(InTenantSubtree)"` greps the full
-        // bypass surface in one pass.
+        // Structural ancestry edge probe. `tenant_closure` is
+        // `no_tenant/no_resource/no_owner/no_type` so the
+        // `InTenantSubtree` predicate has no resolvable property to
+        // clamp on; permanent `allow_all`. The PDP gate one layer up
+        // is what enforces caller scope — this read is the structural
+        // truth that gate consults.
         .scope_with(&AccessScope::allow_all())
         .filter(
             Condition::all()

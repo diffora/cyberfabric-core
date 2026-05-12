@@ -39,19 +39,27 @@
 
 use std::sync::Arc;
 
+use account_management_sdk::gts::{USER_GROUP_RG_TYPE_CODE, USER_RG_TYPE_CODE};
 use account_management_sdk::{
     DeprovisionUserOutcome, DeprovisionUserRequest, IdpPluginClient, ListUsersRequest,
     NewUserPayload, ProvisionUserRequest, TenantContext, UserPage, UserPagination, UserProjection,
 };
 use modkit_macros::domain_model;
+use modkit_odata::ast::{CompareOperator, Expr, Value};
+use modkit_odata::{CursorV1, ODataQuery};
 use modkit_security::AccessScope;
+use modkit_security::SecurityContext;
+use resource_group_sdk::{ResourceGroupClient, ResourceGroupError};
+use std::time::Duration;
 use types_registry_sdk::TypesRegistryClient;
 use uuid::Uuid;
 
 use crate::domain::error::DomainError;
 use crate::domain::idp::UserOperationFailureExt;
+use crate::domain::metrics::{AM_DEPENDENCY_HEALTH, MetricKind, emit_metric};
 use crate::domain::tenant::model::TenantStatus;
 use crate::domain::tenant::repo::TenantRepo;
+use crate::domain::user_groups::am_system_context;
 
 /// Upper bound on `username` length enforced at the AM boundary
 /// before the `IdP` round-trip. Matches the `child_tenant_name`
@@ -101,10 +109,59 @@ pub struct UserService {
     /// published JSON Schema rather than re-hardcoded here. Mirrors
     /// the wiring in `cf-resource-group::validate_metadata_via_gts`.
     types_registry: Arc<dyn TypesRegistryClient>,
+    /// Optional `ResourceGroupClient` used by
+    /// [`Self::deprovision_user`] to remove dangling user-group
+    /// memberships referencing the deleted user from RG's
+    /// `resource_group_membership` table. `None` in tests that don't
+    /// exercise the cleanup path; production wiring in `module.rs`
+    /// always passes `Some(...)`.
+    rg_client: Option<Arc<dyn ResourceGroupClient + Send + Sync>>,
 }
+
+/// Per-call RG timeout for the cleanup helper.
+///
+/// Matches `CASCADE_TIMEOUT` in `domain::user_groups::cascade` so the
+/// two pipelines share an operator-tunable upper bound. Lifted into
+/// a constant so the `deprovision_user` test fixtures can construct
+/// it without re-deriving the literal.
+#[allow(
+    clippy::duration_suboptimal_units,
+    reason = "from_mins is unstable on workspace MSRV; keep from_secs"
+)]
+const RG_CLEANUP_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Maximum user-group rows fetched per `list_groups` page during cleanup.
+///
+/// Matches `CASCADE_PAGE_SIZE` in `domain::user_groups::cascade`.
+const RG_CLEANUP_PAGE_SIZE: u64 = 100;
+
+/// Overall budget for one `cleanup_user_group_memberships` invocation.
+///
+/// Caps the worst-case time the deprovision request can spend on RG
+/// cleanup before surfacing [`DomainError::ServiceUnavailable`].
+/// Without this cap a tenant with N user-groups would compound
+/// `RG_CLEANUP_TIMEOUT` × pages × N remove-calls into a request future
+/// that the caller cannot cancel.
+///
+/// Tighter sibling of `CASCADE_BUDGET` in
+/// `domain::user_groups::cascade`: cleanup runs on the synchronous
+/// `deprovision_user` request path (60s -- a user-visible response
+/// budget), whereas cascade runs on the retention pipeline's tenant
+/// hard-delete tick (120s -- a background-job budget that can yield
+/// cheaply). The two are intentionally asymmetric on purpose.
+#[allow(
+    clippy::duration_suboptimal_units,
+    reason = "from_mins is unstable on workspace MSRV; keep from_secs"
+)]
+const RG_CLEANUP_BUDGET: Duration = Duration::from_secs(60);
 
 impl UserService {
     /// Construct a fully-wired service.
+    ///
+    /// The optional [`ResourceGroupClient`] cleanup wiring is set via
+    /// [`Self::with_rg_membership_cleanup`] after construction so
+    /// existing test fixtures that don't model membership scenarios
+    /// can build the service without a fake RG client.
     #[must_use]
     pub fn new(
         tenant_repo: Arc<dyn TenantRepo>,
@@ -115,7 +172,29 @@ impl UserService {
             tenant_repo,
             idp_user,
             types_registry,
+            rg_client: None,
         }
+    }
+
+    /// Wire the [`ResourceGroupClient`] used by
+    /// [`Self::deprovision_user`] to clean up dangling user-group
+    /// memberships referencing the deprovisioned user. Without this,
+    /// hard-deleted AM users leave orphaned rows in RG's
+    /// `resource_group_membership` table (their `resource_id`
+    /// references a non-existent AM user); the next listing of the
+    /// containing group would surface a member that is no longer
+    /// a valid user.
+    ///
+    /// Production wiring in `module.rs` always invokes this builder;
+    /// tests that don't exercise the cleanup path skip it and leave
+    /// `rg_client = None` so the cleanup branch short-circuits.
+    #[must_use]
+    pub fn with_rg_membership_cleanup(
+        mut self,
+        rg_client: Arc<dyn ResourceGroupClient + Send + Sync>,
+    ) -> Self {
+        self.rg_client = Some(rg_client);
+        self
     }
 
     // ----------------------------------------------------------------
@@ -391,6 +470,14 @@ impl UserService {
             // @cpt-begin:cpt-cf-account-management-flow-idp-user-operations-contract-deprovision-user:p1:inst-flow-duser-idempotent-return
             // @cpt-begin:cpt-cf-account-management-algo-idp-user-operations-contract-deprovision-idempotency-guard:p1:inst-algo-dig-absent-return
             Ok(DeprovisionUserOutcome::NotFoundInTenant) => {
+                // IdP says target absent. Still run the RG-membership
+                // cleanup: a prior call may have succeeded against
+                // IdP but failed against RG (transport blip), leaving
+                // dangling memberships. Idempotent retry closes the
+                // gap. `NotFoundInTenant` is success-equivalent from
+                // the IdP's perspective, so cleanup proceeds.
+                self.cleanup_user_group_memberships(tenant_id, user_id)
+                    .await?;
                 tracing::info!(
                     target: "am.events",
                     event = "user_deprovisioned",
@@ -413,6 +500,17 @@ impl UserService {
             // @cpt-begin:cpt-cf-account-management-algo-idp-user-operations-contract-deprovision-idempotency-guard:p1:inst-algo-dig-other-branch-removed
             // @cpt-begin:cpt-cf-account-management-algo-idp-user-operations-contract-deprovision-idempotency-guard:p1:inst-algo-dig-other-return-removed
             Ok(DeprovisionUserOutcome::Removed) => {
+                // IdP removed the user. Clean up RG memberships
+                // BEFORE emitting the success log so the success
+                // event lands only after the user is truly gone end-
+                // to-end. If cleanup fails, the call returns Err and
+                // a retry re-enters the path; IdP returns
+                // `NotFoundInTenant` (idempotent), cleanup retries.
+                // No `user_deprovisioned` event is emitted on the
+                // failing path -- the event lands only when both
+                // sides succeed.
+                self.cleanup_user_group_memberships(tenant_id, user_id)
+                    .await?;
                 // Pass-through "non-absent success" arm of the
                 // idempotency guard: caller surfaces 204 No Content
                 // exactly as for the idempotent-absent arm above.
@@ -719,6 +817,290 @@ impl UserService {
             }
         }
     }
+
+    // ----------------------------------------------------------------
+    // RG-membership cleanup post user-deprovision
+    // ----------------------------------------------------------------
+
+    /// Remove every RG user-group membership row that references the
+    /// deprovisioned user as a member. Closes the orphaned-row gap
+    /// left by AM hard-deleting a user while RG still holds rows
+    /// pointing at it.
+    ///
+    /// Short-circuits on `rg_client = None` (test fixtures that don't
+    /// model membership scenarios). System-actor context is built via
+    /// [`am_system_context`] so the call goes through cross-module
+    /// authz with the stable AM subject UUID, mirroring the
+    /// user-group cascade hook.
+    ///
+    /// Two-step, tenant-scoped by construction:
+    ///
+    /// 1. `list_groups($filter = tenant_id eq T AND type eq USER_GROUP_RG_TYPE_CODE)`
+    ///    — drain all pages → `Vec<group_id>`. Listing groups (not
+    ///    memberships) is what clamps the cleanup to a single tenant:
+    ///    `ResourceGroup` carries `tenant_id` directly, whereas
+    ///    `ResourceGroupMembership` does not, so a membership-keyed
+    ///    listing cannot express a tenant filter without joining
+    ///    through `group_id`.
+    /// 2. For each group: `remove_membership(group_id, USER_RG_TYPE_CODE,
+    ///    user_id.to_string())`. `NotFound` is idempotent success —
+    ///    the user simply isn't a member of that group, or a peer
+    ///    cleanup tick has already removed the row.
+    ///
+    /// Symmetric with `domain::user_groups::cascade::cascade_inner`,
+    /// which also lists tenant-scoped user-groups and then dispatches
+    /// per-group cleanup. The whole body is wrapped in a single
+    /// [`tokio::time::timeout`] (`RG_CLEANUP_BUDGET`) so a tenant with
+    /// pathologically many user-groups cannot pin the deprovision
+    /// request future indefinitely.
+    ///
+    /// # Errors
+    ///
+    /// * [`DomainError::ServiceUnavailable`] -- RG transport failure,
+    ///   per-call timeout, or overall-budget exceeded. The user has
+    ///   already been removed from `IdP`; the caller's retry path
+    ///   returns `NotFoundInTenant` from `IdP` and retries cleanup
+    ///   against the still-orphaned RG rows. The mapping to AIP-193
+    ///   `ServiceUnavailable` (HTTP 503) matches other RG-failure
+    ///   call sites (cascade hook, resource ownership checker) so
+    ///   the dependency-health signal is uniform across AM.
+    /// * [`DomainError::Internal`] -- RG returned an unexpected error
+    ///   shape (e.g. an `OData` cursor it cannot decode). Surfaces
+    ///   loud rather than silently swallowing.
+    async fn cleanup_user_group_memberships(
+        &self,
+        tenant_id: Uuid,
+        user_id: Uuid,
+    ) -> Result<(), DomainError> {
+        let Some(rg) = self.rg_client.as_ref() else {
+            return Ok(());
+        };
+        let sys_ctx = am_system_context(Some(tenant_id));
+
+        let body = cleanup_inner(rg.as_ref(), &sys_ctx, tenant_id, user_id);
+        match tokio::time::timeout(RG_CLEANUP_BUDGET, body).await {
+            Ok(res) => res,
+            Err(_elapsed) => {
+                emit_metric(
+                    AM_DEPENDENCY_HEALTH,
+                    MetricKind::Counter,
+                    &[
+                        ("target", "resource_group"),
+                        ("op", "user_cleanup_memberships"),
+                        ("outcome", "budget_exceeded"),
+                    ],
+                );
+                Err(DomainError::service_unavailable(format!(
+                    "resource-group: cleanup of memberships for deprovisioned user {user_id} in \
+                     tenant {tenant_id} exceeded overall budget of {}s",
+                    RG_CLEANUP_BUDGET.as_secs()
+                )))
+            }
+        }
+    }
+}
+
+/// Inner cleanup body — extracted so the overall budget timeout in
+/// [`UserService::cleanup_user_group_memberships`] can wrap it as one
+/// future.
+///
+/// Lists every user-group in the tenant, then issues one
+/// `remove_membership(group_id, USER_RG_TYPE_CODE, user_id)` per
+/// listed group. `NotFound` on remove is idempotent (the user
+/// wasn't a member of that group); transport errors surface as
+/// [`DomainError::ServiceUnavailable`] so the caller's retry path
+/// re-enters the flow.
+async fn cleanup_inner(
+    rg: &(dyn ResourceGroupClient + Send + Sync),
+    sys_ctx: &SecurityContext,
+    tenant_id: Uuid,
+    user_id: Uuid,
+) -> Result<(), DomainError> {
+    let user_id_str = user_id.to_string();
+    let groups = list_tenant_user_groups(rg, sys_ctx, tenant_id, user_id).await?;
+
+    let mut removed: usize = 0;
+    let mut already_gone: usize = 0;
+    for group_id in &groups {
+        match tokio::time::timeout(
+            RG_CLEANUP_TIMEOUT,
+            rg.remove_membership(sys_ctx, *group_id, USER_RG_TYPE_CODE, &user_id_str),
+        )
+        .await
+        {
+            Err(_elapsed) => {
+                emit_metric(
+                    AM_DEPENDENCY_HEALTH,
+                    MetricKind::Counter,
+                    &[
+                        ("target", "resource_group"),
+                        ("op", "user_cleanup_remove_membership"),
+                        ("outcome", "timeout"),
+                    ],
+                );
+                return Err(DomainError::service_unavailable(format!(
+                    "resource-group: timeout removing user {user_id} from group {group_id} \
+                     during deprovision cleanup"
+                )));
+            }
+            Ok(Err(ResourceGroupError::NotFound { .. })) => {
+                // Either the user was never a member of this group,
+                // or a peer cleanup tick removed the row between our
+                // list and remove calls. Idempotent success — emit
+                // a distinct outcome so the metric distinguishes "we
+                // removed it" from "it wasn't there".
+                already_gone += 1;
+                emit_metric(
+                    AM_DEPENDENCY_HEALTH,
+                    MetricKind::Counter,
+                    &[
+                        ("target", "resource_group"),
+                        ("op", "user_cleanup_remove_membership"),
+                        ("outcome", "already_gone"),
+                    ],
+                );
+            }
+            Ok(Err(e)) => {
+                emit_metric(
+                    AM_DEPENDENCY_HEALTH,
+                    MetricKind::Counter,
+                    &[
+                        ("target", "resource_group"),
+                        ("op", "user_cleanup_remove_membership"),
+                        ("outcome", "error"),
+                    ],
+                );
+                tracing::warn!(
+                    target: "am.events",
+                    tenant_id = %tenant_id,
+                    user_id = %user_id,
+                    group_id = %group_id,
+                    error = %e,
+                    "RG user-group membership cleanup failed during user deprovision; \
+                     orphaned membership row pending retry"
+                );
+                return Err(DomainError::service_unavailable(format!(
+                    "resource-group: failed to remove user {user_id} from group {group_id} \
+                     during deprovision cleanup: {e}"
+                )));
+            }
+            Ok(Ok(())) => {
+                removed += 1;
+            }
+        }
+    }
+
+    emit_metric(
+        AM_DEPENDENCY_HEALTH,
+        MetricKind::Counter,
+        &[
+            ("target", "resource_group"),
+            ("op", "user_cleanup_memberships"),
+            ("outcome", "success"),
+        ],
+    );
+    tracing::debug!(
+        target: "am.user_groups",
+        tenant_id = %tenant_id,
+        user_id = %user_id,
+        groups_listed = groups.len(),
+        memberships_removed = removed,
+        already_gone,
+        "deprovision cleanup completed"
+    );
+
+    Ok(())
+}
+
+/// Drain every user-group in `tenant_id`, paginated by `CursorV1`.
+///
+/// Filters `tenant_id eq T AND type eq USER_GROUP_RG_TYPE_CODE` so
+/// the result set is tenant-clamped at the source. `user_id` is
+/// included in error diagnostics only; the listing itself is
+/// per-tenant, not per-user.
+async fn list_tenant_user_groups(
+    rg: &(dyn ResourceGroupClient + Send + Sync),
+    sys_ctx: &SecurityContext,
+    tenant_id: Uuid,
+    user_id: Uuid,
+) -> Result<Vec<Uuid>, DomainError> {
+    let filter = Expr::And(
+        Box::new(Expr::Compare(
+            Box::new(Expr::Identifier("tenant_id".to_owned())),
+            CompareOperator::Eq,
+            Box::new(Expr::Value(Value::Uuid(tenant_id))),
+        )),
+        Box::new(Expr::Compare(
+            Box::new(Expr::Identifier("type".to_owned())),
+            CompareOperator::Eq,
+            Box::new(Expr::Value(Value::String(
+                USER_GROUP_RG_TYPE_CODE.to_owned(),
+            ))),
+        )),
+    );
+
+    let mut all_ids = Vec::new();
+    let mut cursor: Option<CursorV1> = None;
+    loop {
+        let mut query = ODataQuery::default()
+            .with_limit(RG_CLEANUP_PAGE_SIZE)
+            .with_filter(filter.clone());
+        if let Some(c) = cursor.take() {
+            query = query.with_cursor(c);
+        }
+
+        let page =
+            match tokio::time::timeout(RG_CLEANUP_TIMEOUT, rg.list_groups(sys_ctx, &query)).await {
+                Err(_elapsed) => {
+                    emit_metric(
+                        AM_DEPENDENCY_HEALTH,
+                        MetricKind::Counter,
+                        &[
+                            ("target", "resource_group"),
+                            ("op", "user_cleanup_list_groups"),
+                            ("outcome", "timeout"),
+                        ],
+                    );
+                    return Err(DomainError::service_unavailable(format!(
+                        "resource-group: timeout listing user-groups for deprovisioned user \
+                         {user_id} in tenant {tenant_id}"
+                    )));
+                }
+                Ok(Err(e)) => {
+                    emit_metric(
+                        AM_DEPENDENCY_HEALTH,
+                        MetricKind::Counter,
+                        &[
+                            ("target", "resource_group"),
+                            ("op", "user_cleanup_list_groups"),
+                            ("outcome", "error"),
+                        ],
+                    );
+                    return Err(DomainError::service_unavailable(format!(
+                        "resource-group: failed to list user-groups for deprovisioned user \
+                         {user_id} in tenant {tenant_id}: {e}"
+                    )));
+                }
+                Ok(Ok(p)) => p,
+            };
+
+        all_ids.extend(page.items.into_iter().map(|g| g.id));
+
+        match page.page_info.next_cursor {
+            Some(token) => {
+                cursor = Some(CursorV1::decode(&token).map_err(|e| DomainError::Internal {
+                    diagnostic: format!(
+                        "resource-group: invalid cursor from list_groups during \
+                         user-deprovision cleanup ({user_id} in {tenant_id}): {e}"
+                    ),
+                    cause: None,
+                })?);
+            }
+            None => break,
+        }
+    }
+
+    Ok(all_ids)
 }
 
 /// AM-side fallback length cap for the optional profile fields

@@ -9,11 +9,13 @@ pub mod conversion;
 mod helpers;
 mod integrity;
 mod lifecycle;
+pub mod metadata;
 mod reads;
 mod retention;
 mod updates;
 
 pub use conversion::ConversionRepoImpl;
+pub use metadata::MetadataRepoImpl;
 
 use std::sync::Arc;
 use std::time::Duration;
