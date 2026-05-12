@@ -54,27 +54,29 @@ use crate::domain::tenant::retention::{
 /// * `scope_with(<narrowed>)` → `deny_all()` (`WHERE false`) for reads
 ///   / mutations, and `ScopeError::Denied` for INSERTs.
 ///
-/// **Until `InTenantSubtree` lands** (cyberware-rust#1813), callers
-/// MUST pass [`AccessScope::allow_all`]. A narrowed scope silently
-/// zero-rows every read and turns every mutation into a no-op or hard
-/// deny — no useful authorization happens at this boundary today.
-/// Cross-tenant authorization is enforced one layer up by the PDP
-/// gate in the service layer; this is **single-layer enforcement**
-/// and is a pre-production gate (see crate-level `lib.rs` note).
+/// # Subtree clamp via `InTenantSubtree`
 ///
-/// # Future: subtree clamp via `InTenantSubtree`
+/// The [`InTenantSubtree`](modkit_security::ScopeFilter::in_tenant_subtree)
+/// predicate (cyberware-rust#1813) compiles to a JOIN on
+/// `tenant_closure`. AM-side, the trait does NOT itself wire that
+/// predicate — the entity declares `Scopable(no_tenant, no_resource,
+/// no_owner, no_type)` so the scope filter has no resolvable property
+/// to clamp on. Authorization on `tenants` is therefore enforced one
+/// layer up via:
 ///
-/// Subtree clamp on `tenants` reads will land via a dedicated
-/// `InTenantSubtree` predicate type (mirror of the existing
-/// `InGroupSubtree` stack) — scoped as a separate PR in this stack
-/// between the AM service PR and the Tenant Resolver Plugin PR.
-/// After that lands, AM declares the `tenant_hierarchy` capability
-/// and the PDP returns `InTenantSubtree(root=subject.tenant_id)`
-/// constraints which the secure builder compiles to a JOIN on
-/// `tenant_closure`. At that point the `scope` parameter starts
-/// carrying meaningful narrowing and the impl-side `scope_with`
-/// calls begin to apply auto-filter; this docstring will be updated
-/// to drop the "MUST pass `allow_all`" requirement.
+/// * the PDP gate at the service layer (which produces the
+///   `InTenantSubtree` constraint the caller embedded in its scope),
+/// * and the URL-bound tenant id the REST handler trusts after the
+///   `AuthN` layer verifies the caller is bound to it.
+///
+/// For background callers (retention reaper, integrity check, etc.)
+/// that operate as `actor=system`, [`AccessScope::allow_all`] is the
+/// correct posture and the trait calls forward it through to the
+/// storage layer unchanged. Caller-driven reads of paginated children
+/// (`list_children`) already engage `InTenantSubtree` through the
+/// closure-table JOIN built by the secure-ORM when the caller passes
+/// a narrowed scope; the `tenants` entity itself stays
+/// scope-property-less.
 #[async_trait]
 pub trait TenantRepo: Send + Sync {
     // ---- Read operations -----------------------------------------------

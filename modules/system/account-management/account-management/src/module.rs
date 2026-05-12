@@ -6,8 +6,10 @@
 //! and periodic hierarchy-integrity-check background ticks.
 //!
 //! REST routes are deliberately out of scope for this module file —
-//! they land in a subsequent PR once the `InTenantSubtree` predicate
-//! makes the storage-level subtree clamp safe (cyberware-rust#1813).
+//! they land in a subsequent PR that wires
+//! [`InTenantSubtree`](modkit_security::ScopeFilter::in_tenant_subtree)
+//! (cyberware-rust#1813) at the request-handler layer and threads the
+//! PDP-narrowed scope through to the storage seam.
 //!
 //! Lifecycle ordering:
 //!
@@ -43,7 +45,7 @@ use std::sync::{Arc, OnceLock};
 use parking_lot::Mutex;
 
 use async_trait::async_trait;
-use authz_resolver_sdk::{AuthZResolverClient, PolicyEnforcer};
+use authz_resolver_sdk::{AuthZResolverClient, PolicyEnforcer, models::Capability};
 use modkit::contracts::DatabaseCapability;
 use modkit::lifecycle::ReadySignal;
 use modkit::{Module, ModuleCtx};
@@ -58,6 +60,10 @@ use crate::domain::bootstrap::BootstrapService;
 use crate::domain::conversion::repo::ConversionRepo;
 use crate::domain::conversion::service::ConversionService;
 use crate::domain::integrity_check::{IntegrityChecker, run_integrity_check_loop};
+use crate::domain::metadata::registry::MetadataSchemaRegistry;
+use crate::domain::metadata::repo::MetadataRepo;
+use crate::domain::metadata::service::MetadataService;
+use crate::domain::metrics::install_facade_bridge;
 use crate::domain::tenant::TenantRepo;
 use crate::domain::tenant::hooks::TenantHardDeleteHook;
 use crate::domain::tenant::resource_checker::ResourceOwnershipChecker;
@@ -65,10 +71,13 @@ use crate::domain::tenant::service::TenantService;
 use crate::domain::tenant_type::TenantTypeChecker;
 use crate::domain::user::service::UserService;
 use crate::infra::idp::NoopIdpProvider;
+use crate::infra::metrics::build_default_adapter;
 use crate::infra::rg::RgResourceOwnershipChecker;
 use crate::infra::storage::migrations::Migrator;
-use crate::infra::storage::repo_impl::{AmDbProvider, ConversionRepoImpl, TenantRepoImpl};
-use crate::infra::types_registry::GtsTenantTypeChecker;
+use crate::infra::storage::repo_impl::{
+    AmDbProvider, ConversionRepoImpl, MetadataRepoImpl, TenantRepoImpl,
+};
+use crate::infra::types_registry::{GtsMetadataSchemaRegistry, GtsTenantTypeChecker};
 
 type ConcreteService = TenantService<TenantRepoImpl>;
 
@@ -113,6 +122,13 @@ pub struct AccountManagementModule {
     /// `IdpPluginClient`. Wired during [`Module::init`];
     /// remains unset until init runs.
     user_service: OnceLock<Arc<UserService>>,
+    /// Tenant-metadata domain service handle, published alongside
+    /// [`Self::service`] so SDK consumers (and the upcoming REST
+    /// surface for `/tenants/{id}/metadata`) can drive the
+    /// list / get / put / delete / resolve flows without
+    /// re-discovering the resolved `TypesRegistryClient`. Wired during
+    /// [`Module::init`]; remains unset until init runs.
+    metadata_service: OnceLock<Arc<MetadataService>>,
     /// Hooks registered before [`Module::init`] has set up the service.
     /// Drained into the service inside `init` before the `OnceLock` is
     /// populated, so siblings can call `register_hard_delete_hook`
@@ -131,6 +147,7 @@ impl Default for AccountManagementModule {
             service: OnceLock::new(),
             conversion_service: OnceLock::new(),
             user_service: OnceLock::new(),
+            metadata_service: OnceLock::new(),
             pending_hard_delete_hooks: Mutex::new(Vec::new()),
             bootstrap_params: Mutex::new(None),
         }
@@ -191,6 +208,34 @@ impl AccountManagementModule {
     )]
     pub(crate) fn user_service(&self) -> Option<Arc<UserService>> {
         self.user_service.get().cloned()
+    }
+
+    /// Crate-private accessor for the wired [`MetadataService`].
+    ///
+    /// # Visibility
+    ///
+    /// `pub(crate)` on purpose: same posture as [`Self::conversion_service`]
+    /// and [`Self::user_service`] — `MetadataService` does not currently
+    /// inject a [`PolicyEnforcer`], so authorization for
+    /// `/tenants/{id}/metadata` is expected to land at the REST/PEP
+    /// boundary in the follow-up surface (cyberfabric-core#1813). Until
+    /// that boundary exists, exposing the service publicly would let a
+    /// sibling module reach metadata writes without going through any
+    /// authz check. Promoting back to `pub` lands with the REST handler
+    /// PR (or after `PolicyEnforcer` is injected here, whichever ships
+    /// first).
+    ///
+    /// # Lifecycle
+    ///
+    /// Returns `None` until [`Module::init`] has finished publishing
+    /// the service into its [`OnceLock`].
+    #[must_use]
+    #[allow(
+        dead_code,
+        reason = "no in-tree caller until the metadata REST handler PR (cyberfabric-core#1813) wires the PEP boundary in front of this accessor"
+    )]
+    pub(crate) fn metadata_service(&self) -> Option<Arc<MetadataService>> {
+        self.metadata_service.get().cloned()
     }
 
     /// Append a cascade hook to the hard-delete pipeline. Sibling AM
@@ -624,6 +669,60 @@ impl Module for AccountManagementModule {
             "initializing account-management module"
         );
 
+        // Clear any stale pre-init hook buffer from a previous failed
+        // `init` attempt before this run can re-register its own
+        // cascade cleanup hook below. Without this clear, a retry of
+        // `init` after a mid-init failure would observe its own
+        // `register_hard_delete_hook(build_cascade_cleanup_hook(...))`
+        // call append a SECOND copy of the cascade hook into the
+        // buffer, and the later drain into `TenantService` would run
+        // RG cascade twice on every tenant hard-delete (double cleanup
+        // + double-counted dependency metrics).
+        //
+        // Externally-registered sibling-module hooks landed before AM
+        // init are also discarded here — siblings are expected to
+        // either tolerate AM init failure (no hook → no cascade) or
+        // re-register after AM publishes the `service` handle (the
+        // post-publish path in `register_hard_delete_hook` forwards
+        // directly to the live service without touching the buffer).
+        self.pending_hard_delete_hooks.lock().clear();
+
+        // Install the OpenTelemetry-backed metrics adapter as the
+        // process-wide facade bridge unconditionally. The bridge is
+        // built against `opentelemetry::global::meter_with_scope(...)`
+        // at call time — when modkit bootstrap has installed an SDK
+        // meter provider before AM init runs (the production order),
+        // the instruments bind to the real provider; when the global
+        // is still `NoopMeterProvider`, instruments bind to no-op and
+        // every emit silently drops with one bounded `KeyValue`
+        // allocation. The cost is acceptable for AM's emit volume
+        // (bootstrap / retention / integrity loops, not request-hot)
+        // and a gate keyed on `metrics_provider_installed()` would
+        // turn the "init AM before late OTel + `mark_metrics_provider_installed`"
+        // embedder flow into a one-way trapdoor where the bridge
+        // never gets installed at all.
+        //
+        // Embedders that flip the global meter provider AFTER AM
+        // init has run MUST re-call `install_facade_bridge` (via
+        // `domain::metrics::install_facade_bridge(build_default_adapter())`)
+        // to rebind the instruments — the OTel instruments AmMetricsMeter
+        // caches at construction stay bound to whichever provider was
+        // global at install time.
+        //
+        // `install_facade_bridge` returns `false` if it replaced a
+        // previously-installed bridge — typically a parallel test
+        // harness sharing the global meter provider, or an AM re-init
+        // after a provider swap. The branch is informational, not an
+        // error.
+        if !install_facade_bridge(build_default_adapter()) {
+            info!(
+                target: "am.lifecycle",
+                kind = "metrics_bridge_replaced",
+                "facade metrics bridge replaced an existing installation (likely a \
+                 parallel module init or meter-provider hot-swap)"
+            );
+        }
+
         // AM-specific DBProvider parameterized over DomainError.
         let db_raw = ctx.db_required()?;
         let db: Arc<AmDbProvider> = Arc::new(AmDbProvider::new(db_raw.db()));
@@ -712,13 +811,13 @@ impl Module for AccountManagementModule {
         // init instead of binding an inert fallback in production.
         // (Tests construct the service directly with
         // `InertResourceOwnershipChecker` and bypass this init path.)
-        let rg_client = ctx
+        let rg_client: Arc<dyn resource_group_sdk::ResourceGroupClient + Send + Sync> = ctx
             .client_hub()
             .get::<dyn resource_group_sdk::ResourceGroupClient>()
             .map_err(|e| anyhow::anyhow!("failed to get ResourceGroupClient: {e}"))?;
         info!("resource-group client resolved from client hub; enabling RG ownership checker");
         let resource_checker: Arc<dyn ResourceOwnershipChecker> =
-            Arc::new(RgResourceOwnershipChecker::new(rg_client));
+            Arc::new(RgResourceOwnershipChecker::new(Arc::clone(&rg_client)));
 
         // PEP boundary (DESIGN §4.2). Hard-fail when no `AuthZResolverClient`
         // is registered: DESIGN §4.3 mandates fail-closed for protected
@@ -727,8 +826,62 @@ impl Module for AccountManagementModule {
             .client_hub()
             .get::<dyn AuthZResolverClient>()
             .map_err(|e| anyhow::anyhow!("failed to get AuthZ resolver: {e}"))?;
-        let enforcer = PolicyEnforcer::new(authz);
+        // Advertise `TenantHierarchy` to the PDP so it returns the
+        // native `InTenantSubtree` predicate (cyberware-rust#1813)
+        // instead of degrading to a pre-resolved `In` over the
+        // descendant id set. The AM database hosts `tenant_closure`,
+        // so the secure-extension layer can compile the predicate
+        // into the canonical
+        // `tenants.id IN (SELECT descendant_id FROM tenant_closure
+        //   WHERE ancestor_id = :root AND barrier = 0)` JOIN at
+        // query time — far cheaper than fanning out a full subtree
+        // resolve per PDP call.
+        let enforcer =
+            PolicyEnforcer::new(authz).with_capabilities(vec![Capability::TenantHierarchy]);
         info!("authz-resolver client resolved from client hub; PolicyEnforcer wired");
+
+        // FEATURE 2.6 — idempotent user-group RG type registration.
+        // Must complete before the module signals ready so the type
+        // is guaranteed to exist for any consumer that resolves AM's
+        // `Running` state. Failure aborts init.
+        // @cpt-begin:cpt-cf-account-management-flow-user-groups-rg-type-registration:p1:inst-flow-rgreg-invoke-algo
+        {
+            use crate::domain::user_groups::registration::RegistrationError;
+            // System-actor context: stable subject UUID across processes
+            // so a future RG-side authz tightening that rejects anonymous
+            // does not regress module init into permanent fail-closed.
+            let sys_ctx = crate::domain::user_groups::am_system_context(None);
+            match crate::domain::user_groups::register_user_group_types(&rg_client, &sys_ctx).await
+            {
+                Ok(outcome) => {
+                    info!(
+                        target: "am.user_groups",
+                        ?outcome,
+                        "user-groups RG type registrations completed (member handle + container)"
+                    );
+                }
+                Err(RegistrationError::ServiceUnavailable(detail)) => {
+                    return Err(anyhow::anyhow!(
+                        "user-groups RG type registration failed (service_unavailable): {detail}"
+                    ));
+                }
+                Err(RegistrationError::DivergentSchema(detail)) => {
+                    return Err(anyhow::anyhow!(
+                        "user-groups RG type registration failed (divergent_schema): {detail}"
+                    ));
+                }
+            }
+        }
+        // @cpt-end:cpt-cf-account-management-flow-user-groups-rg-type-registration:p1:inst-flow-rgreg-invoke-algo
+
+        // FEATURE 2.6 — register the cascade cleanup hook so
+        // tenant hard-delete removes the tenant's user-group subtree
+        // via RG before the `tenants` row is deleted.
+        // @cpt-begin:cpt-cf-account-management-flow-user-groups-cascade-cleanup-trigger:p1:inst-flow-cascade-entry
+        self.register_hard_delete_hook(crate::domain::user_groups::build_cascade_cleanup_hook(
+            Arc::clone(&rg_client),
+        ));
+        // @cpt-end:cpt-cf-account-management-flow-user-groups-cascade-cleanup-trigger:p1:inst-flow-cascade-entry
 
         // Validate bootstrap config (fast, fail-fast) and store
         // params for serve(). The saga itself runs in serve() where
@@ -803,13 +956,54 @@ impl Module for AccountManagementModule {
         // `cpt-cf-account-management-constraint-no-user-storage` the
         // service holds NO storage handles -- every read and write
         // is a live pass-through to the IdP.
-        let user_service = Arc::new(UserService::new(
+        let user_service = Arc::new(
+            UserService::new(
+                Arc::clone(&repo) as Arc<dyn TenantRepo>,
+                Arc::clone(&idp),
+                Arc::clone(&types_registry),
+            )
+            // Wire RG-membership cleanup so `deprovision_user` removes
+            // dangling rows from RG's `resource_group_membership` table
+            // referencing the deleted AM user. Without this, hard-
+            // deleted users leave orphaned `(group_id,
+            // gts.cf.core.rg.type.v1~cf.core.am.user.v1~, user_uuid)`
+            // rows that surface in group-member listings until the
+            // RG-side cleanup pipeline catches up.
+            .with_rg_membership_cleanup(Arc::clone(&rg_client)),
+        );
+
+        // Build the tenant-metadata domain service.
+        //
+        // Three dependencies (per
+        // `domain::metadata::service::MetadataService::new`):
+        // * `Arc<dyn MetadataRepo>` — production `MetadataRepoImpl`
+        //   over the shared `AmDbProvider`.
+        // * `Arc<dyn TenantRepo>` — the same `TenantRepoImpl` already
+        //   built earlier in `init`; the resolve walk-up consults it
+        //   on every ancestor hop.
+        // * `Arc<dyn MetadataSchemaRegistry>` — the new
+        //   `GtsMetadataSchemaRegistry` adapter wrapping the resolved
+        //   `TypesRegistryClient`. Reads `inheritance_policy` from
+        //   `effective_traits()["inheritance_policy"]`; missing /
+        //   non-`"inherit"` values collapse to the documented
+        //   `override_only` default per FEATURE §3.1.
+        //
+        // The `idp.required` policy DOES NOT apply here: the metadata
+        // subsystem depends on `TypesRegistryClient` (already
+        // hard-required up-stream when `types-registry` was resolved),
+        // so the service is always built. There is no fall-back stub
+        // in production — tests construct `MetadataService::new`
+        // directly with a `StubMetadataSchemaRegistry`.
+        let metadata_repo: Arc<dyn MetadataRepo> = Arc::new(MetadataRepoImpl::new(Arc::clone(&db)));
+        let schema_registry: Arc<dyn MetadataSchemaRegistry> =
+            Arc::new(GtsMetadataSchemaRegistry::new(Arc::clone(&types_registry)));
+        let metadata_service = Arc::new(MetadataService::new(
+            metadata_repo,
             Arc::clone(&repo) as Arc<dyn TenantRepo>,
-            Arc::clone(&idp),
-            Arc::clone(&types_registry),
+            schema_registry,
         ));
 
-        // Atomic publish of all three `OnceLock` handles together,
+        // Atomic publish of all four `OnceLock` handles together,
         // ordered so a half-published state is unobservable:
         //
         // 1. Acquire the pre-init hook buffer lock and drain it into
@@ -819,10 +1013,10 @@ impl Module for AccountManagementModule {
         //    or after we publish `self.service` — sees `service.get()
         //    == Some(_)` and forwards directly).
         // 2. Publish primary `self.service` first so any caller that
-        //    observes one of the secondary handles (conversion /
-        //    user) and then probes the primary sees a published
+        //    observes one of the secondary handles (conversion / user /
+        //    metadata) and then probes the primary sees a published
         //    state (or the same `init` failure path on a re-entry).
-        // 3. Publish the two secondary handles after the primary.
+        // 3. Publish the three secondary handles after the primary.
         //    Failure to set any of them (init re-entered) returns
         //    `Err` with no rollback of the already-set primary; the
         //    second `init` is supposed to fail closed anyway per the
@@ -854,6 +1048,14 @@ impl Module for AccountManagementModule {
             .map_err(|_| {
                 anyhow::anyhow!(
                     "{} module already initialized (user service)",
+                    Self::MODULE_NAME
+                )
+            })?;
+        self.metadata_service
+            .set(Arc::clone(&metadata_service))
+            .map_err(|_| {
+                anyhow::anyhow!(
+                    "{} module already initialized (metadata service)",
                     Self::MODULE_NAME
                 )
             })?;

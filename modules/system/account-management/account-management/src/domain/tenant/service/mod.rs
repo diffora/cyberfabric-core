@@ -375,25 +375,41 @@ impl<R: TenantRepo> TenantService<R> {
     /// (a tenant row IS its own scope; the closure's `barrier` bit
     /// sits on `(ancestor, descendant)` pairs, so the PDP must
     /// receive the row's own id to evaluate barrier-clamp on
-    /// self-managed descendants). `RESOURCE_ID` is conveyed via the
-    /// standard `resource_id` argument and does not need to be set
-    /// on the [`AccessRequest`].
+    /// self-managed descendants).
+    ///
+    /// `RESOURCE_ID` is set on the [`AccessRequest`] (when
+    /// `resource_id.is_some()`) **in addition** to flowing through
+    /// the standard `resource_id` argument. The duplication is
+    /// intentional: the standard argument lands on
+    /// `EvaluationRequest::resource.id` per the `AuthZEN` spec, while
+    /// the `resource_property` slot is what the PEP compiler reads
+    /// to bind the `InTenantSubtree(RESOURCE_ID, …)` predicate's
+    /// property value at constraint-compile time. Without the
+    /// property bind, a PDP that returns `InTenantSubtree` on
+    /// `RESOURCE_ID` would compile cleanly but the secure-extension
+    /// would have nothing to clamp against.
     ///
     /// Errors:
     /// - PDP `Denied` → [`DomainError::CrossTenantDenied`] (HTTP 403).
-    /// - PDP transport failure → [`DomainError::ServiceUnavailable`] (HTTP
-    ///   503). DESIGN §4.3 mandates fail-closed; AM does not provide a
-    ///   local authorization fallback.
-    /// - Constraint compile failure → [`DomainError::Internal`] (PEP / PDP
-    ///   integration bug — unsupported constraint shape).
+    /// - PDP transport failure → [`DomainError::ServiceUnavailable`]
+    ///   (HTTP 503). DESIGN §4.3 mandates fail-closed; AM does not
+    ///   provide a local authorization fallback.
+    /// - Constraint compile failure (unsupported predicate shape,
+    ///   empty constraints with `require_constraints=true`, etc.) →
+    ///   [`DomainError::CrossTenantDenied`] (HTTP 403). The
+    ///   `EnforcerError::CompileFailed → CrossTenantDenied` mapping
+    ///   lives in [`crate::domain::error`]; this is **fail-closed**,
+    ///   not a 5xx — a misconfigured policy bundle denies access
+    ///   rather than leaking it via a silent `allow_all`.
     ///
-    /// `require_constraints(false)` is set today because the AM PEP-
-    /// side `in_tenant_subtree` compiler is not yet implemented; once
-    /// the Tenant Resolver Plugin lands, this flips to `true` and the
-    /// compiled scope is plumbed into SQL filters. **Until then, AM
-    /// authorization is single-layer (PDP gate only) — see
-    /// `cyberware-rust#1813` and the crate-level `lib.rs`
-    /// production-readiness note.**
+    /// `require_constraints(true)` — the AM PEP-side
+    /// `InTenantSubtree` compiler is live (cyberware-rust#1813) and
+    /// the `tenants` entity now declares `resource_col = "id"`, so
+    /// the compiled `AccessScope` materialises a subtree-clamp JOIN
+    /// against `tenant_closure` at the database. A PDP that emits
+    /// `decision: true, constraints: []` against `require_constraints
+    /// = true` fails loudly via the `CompileFailed → CrossTenantDenied`
+    /// mapping rather than silently widening the read.
     async fn authorize(
         &self,
         ctx: &SecurityContext,
@@ -401,16 +417,19 @@ impl<R: TenantRepo> TenantService<R> {
         owner_tenant_id: Uuid,
         resource_id: Option<Uuid>,
     ) -> Result<AccessScope, DomainError> {
-        // TODO(cyberware-rust#1813): flip `require_constraints` to
-        // `true` once `InTenantSubtree` lands in the secure-builder
-        // and the AM PEP can compile subtree predicates. Today the
-        // PDP gate is the only enforcement layer; SQL-level subtree
-        // filtering is a no-op because the `tenants` entity is
-        // `no_tenant, no_resource, no_owner, no_type` (see
-        // `TenantRepo` trait doc). This is a pre-production gate.
-        let request = AccessRequest::new()
+        // Pass both `OWNER_TENANT_ID` (the parent / acted-on tenant,
+        // consumed by ownership-style policies) AND `RESOURCE_ID`
+        // (the target tenant id, consumed by the `InTenantSubtree`
+        // predicate on `tenants.id`). `require_constraints(true)`
+        // turns missing-policy / unsupported-constraint shapes into
+        // `CrossTenantDenied` (HTTP 403, fail-closed) rather than a
+        // silent `allow_all`.
+        let mut request = AccessRequest::new()
             .resource_property(pep_properties::OWNER_TENANT_ID, owner_tenant_id)
-            .require_constraints(false);
+            .require_constraints(true);
+        if let Some(rid) = resource_id {
+            request = request.resource_property(pep_properties::RESOURCE_ID, rid);
+        }
         let scope = self
             .enforcer
             .access_scope_with(ctx, &pep::TENANT, action, resource_id, &request)
@@ -1055,32 +1074,25 @@ impl<R: TenantRepo> TenantService<R> {
         ctx: &SecurityContext,
         id: Uuid,
     ) -> Result<TenantInfo, DomainError> {
-        // PEP gate (DESIGN §4.2). The compiled scope is intentionally
-        // discarded for the repo read: the `tenants` entity is
-        // declared `no_tenant, no_resource, no_owner, no_type` (see
-        // `entity/tenants.rs` doc + `TenantRepo` trait doc), so a
-        // PDP-narrowed permit would compile to `WHERE false` at the
-        // secure-extension layer and turn an authorized read into
-        // `NotFound`. Subtree clamp at the database lands once the
-        // `InTenantSubtree` predicate ships; tracked in
-        // cyberware-rust#1813. Until then this matches
-        // `list_children`'s posture: the PDP gate is the single
-        // enforcement layer; the repo read uses `allow_all` to fetch
-        // the row, and the gate above already authorized the caller.
-        // TODO(cyberware-rust#1813): once `InTenantSubtree` is wired,
-        // forward the compiled scope so a PDP-narrowed permit (e.g.
-        // `tenant_id IN subtree(...)`) clamps the row at the database.
-        let _scope = self
+        // PEP gate (DESIGN §4.2) + DB-level subtree clamp (cyberware-rust#1813).
+        // The `tenants` entity now declares `resource_col = "id"`, so
+        // the compiled `AccessScope` materialises a subtree-clamp
+        // JOIN against `tenant_closure` at the database — a caller
+        // whose PDP-narrowed scope clamps to a subtree NOT containing
+        // `id` collapses to `NotFound` even though `authorize`
+        // returned a permit. Defence-in-depth: the gate authorizes
+        // the operation, the SQL JOIN clamps the row.
+        let scope = self
             .authorize(ctx, pep::actions::READ, id, Some(id))
             .await?;
-        let tenant = self
-            .repo
-            .find_by_id(&AccessScope::allow_all(), id)
-            .await?
-            .ok_or_else(|| DomainError::NotFound {
-                detail: format!("tenant {id} not found"),
-                resource: id.to_string(),
-            })?;
+        let tenant =
+            self.repo
+                .find_by_id(&scope, id)
+                .await?
+                .ok_or_else(|| DomainError::NotFound {
+                    detail: format!("tenant {id} not found"),
+                    resource: id.to_string(),
+                })?;
         if !tenant.status.is_sdk_visible() {
             return Err(DomainError::NotFound {
                 detail: format!("tenant {id} not found"),
@@ -1114,38 +1126,22 @@ impl<R: TenantRepo> TenantService<R> {
         ctx: &SecurityContext,
         query: ListChildrenQuery,
     ) -> Result<TenantPage<TenantInfo>, DomainError> {
-        // PEP gate (DESIGN §4.2). For `Tenant.list_children` the
-        // resource owner is the parent tenant whose subtree is being
-        // enumerated; `resource_id` is `None` because the call returns
-        // a collection. Authorization is enforced by this service-level
-        // PDP gate: if the caller is not permitted, `authorize` returns
-        // `CrossTenantDenied` before the repo is consulted. The
-        // compiled `AccessScope` is then forwarded to the repo, but
-        // the `tenants` entity is currently `no_*` (see `TenantRepo`
-        // trait doc) so any narrowed scope would zero-row the read —
-        // callers therefore pass and rely on `allow_all` semantics for
-        // the actual SQL filter (`parent_id = …`). Subtree clamp at
-        // the database lands once the `InTenantSubtree` predicate
-        // ships; tracked in cyberware-rust#1813.
-        // TODO(cyberware-rust#1813): once `InTenantSubtree` is wired,
-        // a PDP-narrowed permit will compile into a JOIN on
-        // `tenant_closure` and clamp the row set at the database.
-        // Authorization runs but the compiled scope is intentionally
-        // discarded until `InTenantSubtree` lands (see comment block
-        // above). The repo call below uses `allow_all()` to match the
-        // documented contract; forwarding a constrained scope here
-        // would zero-row the result given the `tenants` entity's
-        // current `no_*` declaration.
-        self.authorize(ctx, pep::actions::LIST_CHILDREN, query.parent_id, None)
+        // PEP gate (DESIGN §4.2) + DB-level subtree clamp
+        // (cyberware-rust#1813). Authorization for the parent tenant
+        // runs through `authorize`; the compiled scope is forwarded
+        // verbatim into the parent existence check AND the children
+        // listing so a caller whose subtree does not contain
+        // `parent_id` collapses to `NotFound`, and a caller whose
+        // subtree does contain `parent_id` but excludes some
+        // self-managed children sees the listing clamped to their
+        // own subtree at the database. `resource_id` is `None` for
+        // listings because the call returns a collection.
+        let scope = self
+            .authorize(ctx, pep::actions::LIST_CHILDREN, query.parent_id, None)
             .await?;
-        // allow_all: structural existence/status precondition per
-        // DESIGN §4.2 line 1370. The PEP gate above already authorized
-        // the caller; this read only resolves "does the parent exist
-        // and is it SDK-visible?" — disclosure of the children list
-        // flows through the children query further down.
         let parent = self
             .repo
-            .find_by_id(&AccessScope::allow_all(), query.parent_id)
+            .find_by_id(&scope, query.parent_id)
             .await?
             .ok_or_else(|| DomainError::NotFound {
                 detail: format!("tenant {} not found", query.parent_id),
@@ -1157,10 +1153,7 @@ impl<R: TenantRepo> TenantService<R> {
                 resource: query.parent_id.to_string(),
             });
         }
-        let mut page = self
-            .repo
-            .list_children(&AccessScope::allow_all(), &query)
-            .await?;
+        let mut page = self.repo.list_children(&scope, &query).await?;
         // Defense-in-depth: drop any `Provisioning` row that slips
         // through the repo filter before we lower the page to the
         // public shape (where `Provisioning` is unrepresentable).
@@ -1204,19 +1197,15 @@ impl<R: TenantRepo> TenantService<R> {
                 detail: "update patch is empty; at least one field required".into(),
             });
         }
-        // PEP gate (DESIGN §4.2). The compiled scope is intentionally
-        // discarded for both the pre-update read and the mutating
-        // write: the `tenants` entity is `no_tenant, no_resource,
-        // no_owner, no_type`, so a PDP-narrowed permit would compile
-        // to `WHERE false` and turn an authorized update into a
-        // silent `NotFound`. The PDP gate is the single enforcement
-        // layer until `InTenantSubtree` lands
-        // (cyberware-rust#1813); the repo calls below use
-        // `allow_all` to match `list_children` / `read_tenant`.
-        // TODO(cyberware-rust#1813): once `InTenantSubtree` is
-        // wired, forward the compiled scope so a PDP-narrowed permit
-        // clamps the read AND the write at the database.
-        let _scope = self
+        // PEP gate (DESIGN §4.2) + DB-level subtree clamp
+        // (cyberware-rust#1813). The compiled scope flows into the
+        // pre-update load AND the mutating write below; the
+        // secure-extension materialises a `tenants.id IN subtree(...)`
+        // JOIN against `tenant_closure` so a caller scoped to a
+        // subtree that does NOT contain `id` collapses to `NotFound`
+        // on the load (and the write fences inside the SERIALIZABLE
+        // retry catch the same clamp on the UPDATE).
+        let scope = self
             .authorize(ctx, pep::actions::UPDATE, id, Some(id))
             .await?;
         // Load the current row BEFORE any GTS round-trip so an
@@ -1225,14 +1214,14 @@ impl<R: TenantRepo> TenantService<R> {
         // without paying a registry call. A naive ordering that hit
         // GTS first would turn every registry blip into a `503` for
         // PATCH requests that would otherwise be 200 no-ops or 404s.
-        let current = self
-            .repo
-            .find_by_id(&AccessScope::allow_all(), id)
-            .await?
-            .ok_or_else(|| DomainError::NotFound {
-                detail: format!("tenant {id} not found"),
-                resource: id.to_string(),
-            })?;
+        let current =
+            self.repo
+                .find_by_id(&scope, id)
+                .await?
+                .ok_or_else(|| DomainError::NotFound {
+                    detail: format!("tenant {id} not found"),
+                    resource: id.to_string(),
+                })?;
         if !current.status.is_sdk_visible() {
             return Err(DomainError::NotFound {
                 detail: format!("tenant {id} not found"),
@@ -1266,10 +1255,7 @@ impl<R: TenantRepo> TenantService<R> {
         if let Some(new_status) = new_status_internal {
             validate_status_transition(current.status, new_status)?;
         }
-        let updated = self
-            .repo
-            .update_tenant_mutable(&AccessScope::allow_all(), id, &patch)
-            .await?;
+        let updated = self.repo.update_tenant_mutable(&scope, id, &patch).await?;
 
         // Suppress the lifecycle event log on an idempotent no-op
         // (option A — true HTTP PATCH idempotency). The repo skips the
@@ -1327,27 +1313,22 @@ impl<R: TenantRepo> TenantService<R> {
         ctx: &SecurityContext,
         tenant_id: Uuid,
     ) -> Result<TenantInfo, DomainError> {
-        // PEP gate (DESIGN §4.2). The compiled scope is intentionally
-        // discarded for the disclosure read AND the mutating
-        // `schedule_deletion` write: the `tenants` entity is `no_*`,
-        // so a PDP-narrowed permit would compile to `WHERE false` and
-        // turn an authorized soft-delete into a silent `NotFound` /
-        // failed-write. The PDP gate is the single enforcement layer
-        // until `InTenantSubtree` lands (cyberware-rust#1813);
-        // matches `list_children` / `read_tenant` / `update_tenant`.
+        // PEP gate (DESIGN §4.2) + DB-level subtree clamp
+        // (cyberware-rust#1813). The compiled scope flows into the
+        // disclosure read AND the mutating `schedule_deletion` write
+        // so a caller scoped to a subtree that does NOT contain
+        // `tenant_id` collapses to `NotFound` at the database.
         // Structural precondition checks (`count_children`,
-        // `count_ownership_links`) also use `allow_all` — those are
-        // saga-internal guard counts, not data disclosure of the
+        // `count_ownership_links`) stay at `allow_all` — those are
+        // saga-internal guard counts asserting "this row has no
+        // descendants / no resources", not data disclosure of the
         // tenant being acted on.
-        // TODO(cyberware-rust#1813): once `InTenantSubtree` is
-        // wired, forward the compiled scope so a PDP-narrowed permit
-        // clamps both the read and the soft-delete write.
-        let _scope = self
+        let scope = self
             .authorize(ctx, pep::actions::DELETE, tenant_id, Some(tenant_id))
             .await?;
         let tenant = self
             .repo
-            .find_by_id(&AccessScope::allow_all(), tenant_id)
+            .find_by_id(&scope, tenant_id)
             .await?
             .ok_or_else(|| DomainError::NotFound {
                 detail: format!("tenant {tenant_id} not found"),
@@ -1405,7 +1386,7 @@ impl<R: TenantRepo> TenantService<R> {
         };
         let updated = self
             .repo
-            .schedule_deletion(&AccessScope::allow_all(), tenant_id, now, retention)
+            .schedule_deletion(&scope, tenant_id, now, retention)
             .await?;
         // TODO(events): emit AM event when platform event-bus lands.
         tracing::info!(

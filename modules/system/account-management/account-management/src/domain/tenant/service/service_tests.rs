@@ -3231,40 +3231,39 @@ async fn create_child_propagates_gts_timeout_as_service_unavailable() {
 }
 
 // ---------------------------------------------------------------------------
-// Constraint-bearing PDP scope — `tenants`-entity scope-discard contract
+// Constraint-bearing PDP scope — `tenants`-entity subtree-clamp contract
 // ---------------------------------------------------------------------------
 //
-// The `tenants` entity is declared `no_tenant, no_resource, no_owner,
-// no_type` (`entity/tenants.rs`), so a PDP-narrowed permit compiles
-// to `WHERE false` at the secure-extension layer until
-// `InTenantSubtree` lands (cyberware-rust#1813). The service-level
-// PEP gate authorizes the caller, but the **repo** call below it
-// must use `AccessScope::allow_all` — otherwise an authorized
-// read/update/soft-delete silently turns into `NotFound` for any
-// PDP that returns row-level constraints (e.g. the static AuthZ
-// resolver emitting an `OWNER_TENANT_ID` constraint).
+// The `tenants` entity declares `resource_col = "id"` (see
+// `entity/tenants.rs`) so the
+// [`InTenantSubtree`](modkit_security::ScopeFilter::in_tenant_subtree)
+// predicate (cyberware-rust#1813) compiles into
+// `tenants.id IN (SELECT descendant_id FROM tenant_closure
+//   WHERE ancestor_id = :root AND barrier = 0)` at the secure-
+// extension layer. The service forwards the compiled `AccessScope`
+// from the PDP gate verbatim into the repo so authorization runs
+// defence-in-depth: the gate authorizes the operation, the SQL JOIN
+// clamps the row. The tests below pin both sides of the contract:
 //
-// The default `MockAuthZResolver` returns no constraints (compiles
-// to `allow_all`), so it cannot regression-pin this contract. The
-// tests below wire `ConstraintBearingAuthZResolver` (returns one
-// `OWNER_TENANT_ID Eq` constraint) and assert that
-// `read_tenant` / `update_tenant_mutable_fields` / `soft_delete`
-// still observe the row.
+// * Positive — a caller whose PDP-narrowed scope **includes** the
+//   target's tenant in the subtree must still see / update / delete
+//   the row. The pre-#1813 contract was inverted (`scope` MUST be
+//   discarded to avoid `WHERE false`); the post-#1813 contract is
+//   "scope flows in, subtree-clamp lets the descendant through".
+// * Negative — a caller whose PDP-narrowed scope is rooted at a
+//   different ancestor (target NOT in the subtree) collapses to
+//   `NotFound` at the database. This is the cross-tenant-denial
+//   guarantee the previous `allow_all`-passing posture could never
+//   express.
 
 #[tokio::test]
-async fn read_tenant_does_not_deny_all_under_constraint_bearing_pdp() {
-    // Wires the constraint-bearing PDP fake. With the pre-fix code,
-    // `find_by_id(&scope, …)` against the `no_*` `tenants` entity
-    // would compile the synthetic `OWNER_TENANT_ID Eq` constraint to
-    // `WHERE false` AT THE PRODUCTION SECURE-EXTENSION LAYER. The
-    // `FakeTenantRepo` mirror models the constraint as
-    // "visible-id set = {root}", so reading the constrained id
-    // itself would pass under both pre- and post-fix wiring (false
-    // positive). Reading a CHILD id under the constraint forces the
-    // pre-fix wiring into a `None` (child not in {root}) which
-    // makes the test actually distinguish the regression. This
-    // mirrors how `update_tenant` / `soft_delete` regression tests
-    // below already operate on a non-root child by construction.
+async fn read_tenant_clamps_to_subtree_under_constraint_bearing_pdp() {
+    // Wires the constraint-bearing PDP fake rooted at `root`. The
+    // compiled scope is `InTenantSubtree(RESOURCE_ID, root)`; the
+    // `FakeTenantRepo` walks its closure (root self-row + the
+    // `(root, child)` ancestor row stamped by `create_child`'s
+    // saga) to materialise `subtree(root) = {root, child}`. The
+    // child is in the subtree so the read succeeds.
     let root = Uuid::from_u128(0x100);
     let child = Uuid::from_u128(0x501);
     let repo = Arc::new(FakeTenantRepo::with_root(root));
@@ -3283,12 +3282,12 @@ async fn read_tenant_does_not_deny_all_under_constraint_bearing_pdp() {
     let info = svc
         .read_tenant(&ctx_for(root), child)
         .await
-        .expect("authorized read MUST NOT collapse to NotFound under constraint-bearing PDP");
+        .expect("authorized read of a descendant inside the caller's subtree MUST succeed");
     assert_eq!(info.id.0, child);
 }
 
 #[tokio::test]
-async fn update_tenant_does_not_deny_all_under_constraint_bearing_pdp() {
+async fn update_tenant_clamps_to_subtree_under_constraint_bearing_pdp() {
     let root = Uuid::from_u128(0x100);
     let repo = Arc::new(FakeTenantRepo::with_root(root));
     let svc = TenantService::new(
@@ -3304,19 +3303,21 @@ async fn update_tenant_does_not_deny_all_under_constraint_bearing_pdp() {
         .await
         .expect("create child via mock provisioning happy path");
 
-    // Switch the service to the constraint-bearing PDP for the
-    // update step. (The create_child saga above used the same
-    // enforcer; the constraint also applies to UPDATE in the fake.)
+    // Subtree clamp at the secure-extension layer must let an UPDATE
+    // on a descendant inside the caller's subtree through. The
+    // patched name proves the write actually landed (a scope
+    // mishandling that turned the SELECT-fence into a silent
+    // mismatch would short-circuit before the UPDATE).
     let patch = account_management_sdk::TenantUpdate::new().with_name("renamed");
     let updated = svc
         .update_tenant(&ctx_for(root), target, patch)
         .await
-        .expect("authorized update MUST NOT collapse to NotFound under constraint-bearing PDP");
+        .expect("authorized update of a descendant inside the caller's subtree MUST succeed");
     assert_eq!(updated.name, "renamed");
 }
 
 #[tokio::test]
-async fn soft_delete_does_not_deny_all_under_constraint_bearing_pdp() {
+async fn soft_delete_clamps_to_subtree_under_constraint_bearing_pdp() {
     let root = Uuid::from_u128(0x100);
     let repo = Arc::new(FakeTenantRepo::with_root(root));
     let svc = TenantService::new(
@@ -3332,13 +3333,174 @@ async fn soft_delete_does_not_deny_all_under_constraint_bearing_pdp() {
         .await
         .expect("create child via mock provisioning happy path");
 
-    let deleted = svc.soft_delete(&ctx_for(root), target).await.expect(
-        "authorized soft_delete MUST NOT collapse to NotFound under constraint-bearing PDP",
-    );
+    let deleted = svc
+        .soft_delete(&ctx_for(root), target)
+        .await
+        .expect("authorized soft_delete of a descendant inside the caller's subtree MUST succeed");
     assert_eq!(
         deleted.status,
         account_management_sdk::TenantStatus::Deleted
     );
+}
+
+#[tokio::test]
+async fn read_tenant_outside_caller_subtree_returns_not_found() {
+    // Cross-subtree denial: build a tree with root + child, then
+    // wire a `ConstraintBearingAuthZResolver` rooted at `child`
+    // (i.e. the caller's PDP only permits subtree(child) = {child}).
+    // Reading `root` through this service MUST collapse to
+    // `NotFound` — the secure-extension layer's subtree clamp
+    // (`tenants.id IN (SELECT descendant_id FROM tenant_closure
+    //   WHERE ancestor_id = child)`) leaves `root` out of the
+    // descendant set. Pre-#1813 this case would have returned the
+    // `root` row because the repo was called with `allow_all`.
+    let root = Uuid::from_u128(0x100);
+    let child = Uuid::from_u128(0x501);
+    let repo = Arc::new(FakeTenantRepo::with_root(root));
+    // Setup uses `mock_enforcer` so `create_child` operates inside
+    // the caller's own subtree (`subject_tenant_id = root`,
+    // subtree(root) = {root, child}). After the saga, we hand the
+    // repo to a fresh service wired with
+    // `constraint_bearing_enforcer(child)` to model a caller
+    // authorised to a strictly narrower subtree than the operation
+    // it is about to attempt.
+    let setup_svc = TenantService::new(
+        repo.clone(),
+        Arc::new(FakeIdpProvisioner::new(FakeOutcome::Ok)),
+        Arc::new(InertResourceOwnershipChecker),
+        crate::domain::tenant_type::inert_tenant_type_checker(),
+        mock_enforcer(),
+        AccountManagementConfig::default(),
+    );
+    setup_svc
+        .create_child(&ctx_for(root), child_input(child, root))
+        .await
+        .expect("create child via mock provisioning happy path");
+
+    let svc = TenantService::new(
+        repo,
+        Arc::new(FakeIdpProvisioner::new(FakeOutcome::Ok)),
+        Arc::new(InertResourceOwnershipChecker),
+        crate::domain::tenant_type::inert_tenant_type_checker(),
+        constraint_bearing_enforcer(child),
+        AccountManagementConfig::default(),
+    );
+
+    let err = svc
+        .read_tenant(&ctx_for(root), root)
+        .await
+        .expect_err("cross-subtree read MUST collapse to NotFound at the secure-extension layer");
+    match err {
+        DomainError::NotFound { .. } => {}
+        other => panic!("expected NotFound, got {other:?}"),
+    }
+}
+
+/// Helper: build a 2-tenant tree (root + child) via the saga, then
+/// return a fresh service wired with `constraint_bearing_enforcer(child)`
+/// — i.e. a caller authorised to a strictly narrower subtree
+/// (`subtree(child) = {child}`) than the tenant they are about to
+/// touch. Used by the cross-subtree denial regression tests below.
+async fn make_cross_subtree_svc(
+    root: Uuid,
+    child: Uuid,
+) -> (TenantService<FakeTenantRepo>, Arc<FakeTenantRepo>) {
+    let repo = Arc::new(FakeTenantRepo::with_root(root));
+    let setup_svc = TenantService::new(
+        repo.clone(),
+        Arc::new(FakeIdpProvisioner::new(FakeOutcome::Ok)),
+        Arc::new(InertResourceOwnershipChecker),
+        crate::domain::tenant_type::inert_tenant_type_checker(),
+        mock_enforcer(),
+        AccountManagementConfig::default(),
+    );
+    setup_svc
+        .create_child(&ctx_for(root), child_input(child, root))
+        .await
+        .expect("create child via mock provisioning happy path");
+
+    let svc = TenantService::new(
+        repo.clone(),
+        Arc::new(FakeIdpProvisioner::new(FakeOutcome::Ok)),
+        Arc::new(InertResourceOwnershipChecker),
+        crate::domain::tenant_type::inert_tenant_type_checker(),
+        constraint_bearing_enforcer(child),
+        AccountManagementConfig::default(),
+    );
+    (svc, repo)
+}
+
+#[tokio::test]
+async fn update_tenant_outside_caller_subtree_returns_not_found() {
+    // Symmetric to `read_tenant_outside_caller_subtree_returns_not_found`:
+    // an UPDATE on a tenant outside the caller's subtree MUST collapse
+    // to `NotFound` at the database layer. The find_by_id pre-update
+    // load runs under the narrowed scope and the SELECT-fence in
+    // `update_tenant_mutable`'s SERIALIZABLE retry also subtree-clamps
+    // — either is sufficient to defeat the write.
+    let root = Uuid::from_u128(0x100);
+    let child = Uuid::from_u128(0x501);
+    let (svc, _repo) = make_cross_subtree_svc(root, child).await;
+
+    let patch = account_management_sdk::TenantUpdate::new().with_name("renamed");
+    let err = svc
+        .update_tenant(&ctx_for(root), root, patch)
+        .await
+        .expect_err("cross-subtree update MUST collapse to NotFound");
+    match err {
+        DomainError::NotFound { .. } => {}
+        other => panic!("expected NotFound, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn soft_delete_outside_caller_subtree_returns_not_found() {
+    // Symmetric to update: soft-delete on a tenant outside the
+    // caller's subtree must NOT succeed. The find_by_id disclosure
+    // read is gated by the subtree clamp; the schedule_deletion
+    // write would also fence on its own SELECT-then-UPDATE if the
+    // read leaked through.
+    let root = Uuid::from_u128(0x100);
+    let child = Uuid::from_u128(0x501);
+    let (svc, _repo) = make_cross_subtree_svc(root, child).await;
+
+    let err = svc
+        .soft_delete(&ctx_for(root), root)
+        .await
+        .expect_err("cross-subtree soft_delete MUST collapse to NotFound");
+    match err {
+        DomainError::NotFound { .. } => {}
+        // `RootTenantCannotDelete` would mask the scope-clamp signal
+        // -- surface it as a regression if it ever leaks here,
+        // because it would mean the find_by_id read returned the
+        // root row despite the narrowed scope.
+        other => panic!(
+            "expected NotFound from scope-clamped find_by_id, got {other:?} (scope clamp leaked?)"
+        ),
+    }
+}
+
+#[tokio::test]
+async fn list_children_outside_caller_subtree_returns_not_found() {
+    // The parent-existence guard inside `list_children` resolves
+    // `parent_id` under the caller's narrowed scope. When the caller
+    // is scoped to `subtree(child)` and the parent argument is
+    // `root`, the find_by_id returns None → NotFound. Without the
+    // scope plumbing, this would silently return the listing as an
+    // empty page (or `root`'s children list), leaking topology.
+    let root = Uuid::from_u128(0x100);
+    let child = Uuid::from_u128(0x501);
+    let (svc, _repo) = make_cross_subtree_svc(root, child).await;
+
+    let query = ListChildrenQuery::new(root, None, 10, 0).expect("query");
+    let err = svc
+        .list_children(&ctx_for(root), query)
+        .await
+        .expect_err("cross-subtree list_children MUST collapse to NotFound at the parent gate");
+    match err {
+        DomainError::NotFound { .. } => {}
+        other => panic!("expected NotFound, got {other:?}"),
+    }
 }
 
 // ---------------------------------------------------------------------------

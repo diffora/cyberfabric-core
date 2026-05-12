@@ -12,6 +12,7 @@
 pub mod canonical_mapping;
 pub mod error_conv;
 pub mod idp;
+pub mod metrics;
 pub mod rg;
 pub mod storage;
 pub mod types_registry;

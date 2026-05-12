@@ -17,6 +17,12 @@
 //!   `conversion_requests` table backing the managed/self-managed
 //!   dual-consent conversion state machine, with the partial unique
 //!   index that enforces the at-most-one-pending invariant per tenant.
+//! * `m0005_tenant_metadata_indexes` — adds
+//!   `idx_tenant_metadata_schema ON tenant_metadata(schema_uuid)`
+//!   for the FEATURE 2.7 (Tenant Metadata) walk-up resolver and
+//!   future per-schema cross-tenant scans. The `tenant_metadata`
+//!   table itself is owned by `m0001`; this migration only adds the
+//!   secondary index.
 
 use sea_orm_migration::prelude::*;
 
@@ -24,6 +30,7 @@ pub mod m0001_initial_schema;
 pub mod m0002_add_terminal_failure_columns;
 pub mod m0003_create_integrity_check_runs;
 pub mod m0004_create_conversion_requests;
+pub mod m0005_tenant_metadata_indexes;
 
 pub struct Migrator;
 
@@ -35,6 +42,7 @@ impl MigratorTrait for Migrator {
             Box::new(m0002_add_terminal_failure_columns::Migration),
             Box::new(m0003_create_integrity_check_runs::Migration),
             Box::new(m0004_create_conversion_requests::Migration),
+            Box::new(m0005_tenant_metadata_indexes::Migration),
         ]
     }
 }

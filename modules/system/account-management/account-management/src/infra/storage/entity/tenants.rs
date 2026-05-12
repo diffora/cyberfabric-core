@@ -15,28 +15,33 @@ use time::OffsetDateTime;
 use uuid::Uuid;
 
 // @cpt-begin:cpt-cf-account-management-dbtable-tenants:p1:inst-dbtable-tenants-entity
-// `tenants` is declared `no_tenant, no_resource, no_owner, no_type` —
-// no automatic AccessScope filter is applied to its reads or writes.
+// `tenants` is declared `no_tenant, resource_col = "id", no_owner,
+// no_type` — DB-level subtree clamp engages on the row's own primary
+// key via the
+// [`InTenantSubtree`](modkit_security::ScopeFilter::in_tenant_subtree)
+// predicate (cyberware-rust#1813). Compiles to
+// `tenants.id IN (SELECT descendant_id FROM tenant_closure
+//   WHERE ancestor_id = :root_tenant_id AND barrier = 0)`.
 //
-// Why: tenants is a self-owning entity (a tenant's "owner tenant" is
-// itself), which doesn't fit the column-mapping model that Scopable
-// declares. Mapping `tenant_col = "id"` would handle flat `Eq`/`In`
-// PDP narrowing but still gets the semantics wrong (`OWNER_TENANT_ID`
-// = self-id is circular) and never expresses the real cross-tenant
-// authorization shape, which is **subtree clamp** — "caller can see
-// tenants in their own subtree".
+// Why `resource_col = "id"` and not `tenant_col = "id"`:
+// `pep_properties::RESOURCE_ID` is the semantically clean choice
+// because subtree-membership questions on `tenants` are
+// identity-based ("the row about which the request is made"), not
+// ownership-based. `OWNER_TENANT_ID` would be circular here (a
+// tenant's owner tenant is itself); the convention also matches the
+// existing `InGroupSubtree` stack where `resource_groups` uses
+// `resource_col = "id"`.
 //
-// Subtree clamp arrives through a dedicated `InTenantSubtree`
-// predicate type in `authz-resolver-sdk` + `modkit-security` +
-// `modkit-db secure`, mirroring the existing `InGroupSubtree` stack.
-// That work is scoped as a separate PR in this stack (sits between
-// the AM service PR and the Tenant Resolver Plugin PR). Until then,
-// authorization for `tenants` reads is enforced by the PDP gate at
-// the service layer; secure-extension auto-filtering is intentionally
-// off here.
+// Authorization end-to-end is now defence-in-depth: the PDP gate at
+// the service layer (DESIGN §4.2) authorizes the caller, and the
+// compiled `AccessScope` is forwarded into the repo so the
+// secure-extension layer materialises the subtree-clamp JOIN
+// against `tenant_closure`. A caller scoped to T1 reading T2 outside
+// T1's subtree collapses to `NotFound` at the database, not at a
+// hand-rolled in-Rust check.
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Eq, Scopable)]
 #[sea_orm(table_name = "tenants")]
-#[secure(no_tenant, no_resource, no_owner, no_type)]
+#[secure(no_tenant, resource_col = "id", no_owner, no_type)]
 pub struct Model {
     #[sea_orm(primary_key, auto_increment = false)]
     pub id: Uuid,

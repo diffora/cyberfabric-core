@@ -1377,13 +1377,13 @@ impl ConversionService {
     ///
     /// # Authorization
     ///
-    /// The `_scope` parameter is **ignored** until `InTenantSubtree`
-    /// (`cyberfabric-core#1813`) lands — `conversion_requests` is
-    /// declared `Scopable(no_tenant, no_resource)` and retention is a
-    /// system-initiated background sweep, so the parameter is dead
-    /// today. Callers MUST pass `AccessScope::allow_all()` to make
-    /// the no-op explicit; future PRs will plumb a narrowed scope
-    /// without changing this signature.
+    /// The `scope` parameter is **ignored**: this is a system-actor
+    /// method (retention sweep) and `conversion_requests` is declared
+    /// `Scopable(no_tenant, no_resource)` so the
+    /// [`InTenantSubtree`](modkit_security::ScopeFilter::in_tenant_subtree)
+    /// predicate has no resolvable property to clamp against anyway.
+    /// Callers MUST pass [`AccessScope::allow_all`]; the debug-only
+    /// guard below makes that contract executable in tests.
     ///
     /// # Errors
     ///
@@ -1395,23 +1395,29 @@ impl ConversionService {
         retention_window: StdDuration,
         batch_size: u32,
     ) -> Result<u64, DomainError> {
-        // `scope` is accepted on the public API for forward compatibility
-        // with the `InTenantSubtree` (#1813) authz wiring; the repo call
-        // below hardcodes `AccessScope::allow_all()` because retention
-        // is a system-initiated background sweep and `conversion_requests`
-        // has no scope columns. When #1813 lands, the parameter will
-        // plumb a narrowed PDP scope through to the repo without changing
-        // this signature.
+        // System-actor sweep: forward `allow_all` to the repo. The
+        // public `scope` parameter is kept for symmetry with the rest
+        // of the service surface but has no role here —
+        // `conversion_requests` declares no scope columns and the
+        // retention pipeline operates platform-wide as `actor=system`.
         //
-        // Debug-only guard: catch a misuse where a caller passes a
-        // narrowed scope today. In release builds the parameter is
-        // genuinely ignored (the doc contract says so), but in
-        // debug/test the assertion makes the "callers MUST pass
-        // allow_all()" rule executable rather than purely documentary.
-        debug_assert!(
-            scope.is_unconstrained(),
-            "soft_delete_resolved: callers MUST pass AccessScope::allow_all() until #1813 plumbs scope through; got a narrowed scope"
-        );
+        // Runtime guard: a narrowed scope from a system-actor sweep is
+        // always a programming bug. Returning an error in production —
+        // not just `debug_assert!` — keeps the "callers MUST pass
+        // allow_all()" contract executable in release builds, so a
+        // misconfigured caller fails closed instead of silently
+        // proceeding with the platform-wide retention sweep clamped to
+        // an arbitrary subtree (which would either run an
+        // unintentionally narrowed delete or — depending on entity
+        // scopability — accidentally widen back to `allow_all` via the
+        // forwarded `&AccessScope::allow_all()` below, masking the
+        // wrong-scope bug at the call site).
+        if !scope.is_unconstrained() {
+            return Err(DomainError::internal(
+                "soft_delete_resolved: callers MUST pass AccessScope::allow_all() \
+                 (system-actor sweep contract violation)",
+            ));
+        }
         let now = self.now();
         let cutoff = now - retention_window;
         self.repo
@@ -1464,6 +1470,17 @@ impl ConversionService {
         caller: ConversionCaller,
         approver_uuid: Uuid,
     ) -> Result<ConversionRequest, DomainError> {
+        // Fail closed on `Uuid::nil()` for the actor field — mirrors
+        // the guards on `request_conversion` / `cancel` / `reject`
+        // and the repo-side `apply_conversion_approval` defense. A
+        // nil-actor row would land in `am.events` as a structurally
+        // valid audit entry and silently coalesce downstream
+        // `(event, actor_uuid)` aggregations.
+        if approver_uuid.is_nil() {
+            return Err(DomainError::internal(
+                "approve: approver_uuid MUST NOT be Uuid::nil() (service-layer bug)",
+            ));
+        }
         // @cpt-begin:cpt-cf-account-management-dod-managed-self-managed-modes-dual-consent-actor-discipline:p1:inst-dod-dual-consent-actor-discipline-approve
         let row = self
             .repo
@@ -1533,9 +1550,11 @@ impl ConversionService {
         // `AccessScope::allow_all()` on every repo read below —
         // narrowed scopes from callers (e.g. parent-side
         // `for_tenant(parent)`) are accepted as part of the public
-        // API but have no effect until `InTenantSubtree` (#1813)
-        // adds scope columns. Tests deliberately pass narrowed
-        // scopes to verify this widening posture.
+        // API but have no effect on this entity because no scope
+        // columns exist to clamp against; the
+        // [`InTenantSubtree`](modkit_security::ScopeFilter::in_tenant_subtree)
+        // predicate would compile to `WHERE false`. Tests deliberately
+        // pass narrowed scopes to verify this widening posture.
         let _ = scope;
         let tenant = self
             .tenant_repo
@@ -1637,10 +1656,10 @@ impl ConversionService {
     ///
     /// # Authorization
     ///
-    /// The `_scope` parameter is **ignored** until `InTenantSubtree`
-    /// (`cyberfabric-core#1813`) lands — same posture as
-    /// [`Self::soft_delete_resolved`]. Callers MUST pass
-    /// `AccessScope::allow_all()` to make the no-op explicit.
+    /// The `scope` parameter is **ignored**: same system-actor posture
+    /// as [`Self::soft_delete_resolved`]. Callers MUST pass
+    /// [`AccessScope::allow_all`]; the debug-only guard below makes
+    /// that contract executable in tests.
     ///
     /// # Errors
     ///
@@ -1660,21 +1679,23 @@ impl ConversionService {
         scope: &AccessScope,
         batch_size: u32,
     ) -> Result<usize, DomainError> {
-        // `scope` is accepted on the public API for forward compatibility
-        // with the `InTenantSubtree` (#1813) authz wiring; the repo calls
-        // below hardcode `AccessScope::allow_all()` because the expiry
-        // reaper is a system-initiated background sweep and
-        // `conversion_requests` has no scope columns. When #1813 lands,
-        // the parameter will plumb a narrowed PDP scope through to the
-        // repo without changing this signature.
+        // System-actor sweep: forward `allow_all` to the repo. The
+        // public `scope` parameter is kept for symmetry with the rest
+        // of the service surface but has no role here —
+        // `conversion_requests` declares no scope columns and the
+        // expiry reaper operates platform-wide as `actor=system`.
         //
-        // Debug-only guard: same rationale as `soft_delete_resolved` —
-        // the "callers MUST pass allow_all()" contract is executable in
-        // debug/test builds, silent in release.
-        debug_assert!(
-            scope.is_unconstrained(),
-            "expire_pending: callers MUST pass AccessScope::allow_all() until #1813 plumbs scope through; got a narrowed scope"
-        );
+        // Runtime guard: same rationale as `soft_delete_resolved` —
+        // the "callers MUST pass allow_all()" contract is enforced in
+        // release builds as well, so a narrowed scope reaching this
+        // system-actor entry-point fails closed with `Internal` rather
+        // than silently masking the call-site bug.
+        if !scope.is_unconstrained() {
+            return Err(DomainError::internal(
+                "expire_pending: callers MUST pass AccessScope::allow_all() \
+                 (system-actor sweep contract violation)",
+            ));
+        }
         let now = self.now();
         let due = self
             .repo

@@ -62,6 +62,12 @@ fn install_test_meter_provider() -> (SdkMeterProvider, InMemoryMetricExporter) {
         .with_view(|_: &Instrument| Stream::builder().with_cardinality_limit(2000).build().ok())
         .build();
     opentelemetry::global::set_meter_provider(provider.clone());
+    // Bypass-aware: tell modkit's metrics-init helper that a real
+    // provider is now live, so module-side adapters keyed on
+    // `metrics_provider_installed()` (AM's `install_facade_bridge`,
+    // etc.) see the live provider instead of staying dormant on the
+    // no-op fast path.
+    modkit::telemetry::mark_metrics_provider_installed();
     (provider, exporter)
 }
 

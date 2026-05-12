@@ -159,15 +159,18 @@ pub(super) async fn update_tenant_mutable(
                 // no_owner, no_type` (see entity docs). On a `no_*`
                 // entity `scope_with(scope)` compiles to a no-op when
                 // the caller passes `allow_all` and to `WHERE false`
-                // on any narrowed scope — there is no in-between. The
-                // trait contract requires callers to pass `allow_all`
-                // until `InTenantSubtree` lands; we explicitly pass
-                // `allow_all` here so this closure write is unaffected
-                // by any future caller mistake. The `tenants` UPDATE
-                // one statement up forwards the caller's scope
-                // verbatim — that path relies on the same trait
-                // contract. Authorization is enforced upstream at the
-                // PDP gate in the service layer.
+                // on any narrowed scope — there is no in-between
+                // because `tenant_closure` is declared
+                // `no_tenant/no_resource/no_owner/no_type` (the
+                // [`InTenantSubtree`](modkit_security::ScopeFilter::in_tenant_subtree)
+                // predicate has no resolvable property here). The
+                // trait contract requires callers to pass `allow_all`;
+                // we explicitly pass `allow_all` here so this closure
+                // write is unaffected by any caller mistake. The
+                // `tenants` UPDATE one statement up forwards the
+                // caller's scope verbatim — that path relies on the
+                // same trait contract. Authorization is enforced
+                // upstream at the PDP gate in the service layer.
                 if let Some(new_status) = status_to_write {
                     // @cpt-begin:cpt-cf-account-management-algo-tenant-hierarchy-management-closure-maintenance:p1:inst-algo-closmnt-repo-status-update
                     let closure_rows_affected = tenant_closure::Entity::update_many()
@@ -508,12 +511,14 @@ pub(super) async fn schedule_deletion(
                 // `update_tenant_mutable`: closure is
                 // `no_tenant/no_resource/no_owner/no_type`, so a
                 // narrowed scope would collapse to `WHERE false`
-                // here. The `tenants` UPDATE above forwards the
+                // here because `tenant_closure` is property-less for
+                // the [`InTenantSubtree`](modkit_security::ScopeFilter::in_tenant_subtree)
+                // predicate. The `tenants` UPDATE above forwards the
                 // caller's `scope` verbatim — that path is safe only
                 // because the trait contract requires `allow_all`
-                // until `InTenantSubtree` lands (see `repo.rs` trait
-                // doc). Authorization is enforced upstream at the
-                // PDP gate in the service layer.
+                // (see `repo.rs` trait doc). Authorization is
+                // enforced upstream at the PDP gate in the service
+                // layer.
                 // @cpt-begin:cpt-cf-account-management-algo-tenant-hierarchy-management-closure-maintenance:p1:inst-algo-closmnt-repo-soft-delete-status
                 let closure_rows_affected = tenant_closure::Entity::update_many()
                     .col_expr(

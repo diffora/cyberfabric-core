@@ -4,9 +4,15 @@
 //! splits ([`reads`], [`lifecycle`], [`retention`]): every method on the
 //! [`ConversionRepo`] trait is dispatched to a free function in this
 //! module, all DB access goes through `SecureORM` with
-//! [`AccessScope::allow_all`] (until the `InTenantSubtree` predicate
-//! lands), and DB errors are routed through the canonical-mapping
-//! classifier so domain code never sees a raw `DbErr`.
+//! [`AccessScope::allow_all`] (the `conversion_requests` entity is
+//! declared `Scopable(tenant_col = "tenant_id", no_resource, no_owner,
+//! no_type)` as forward-compat for the post-#1813 REST surface, but
+//! dual-consent flows still need barrier penetration on self-managed
+//! children so the repo deliberately passes `allow_all` rather than
+//! the caller's narrowed scope; authorization is enforced one layer
+//! up at the service-level dual-consent role check), and DB errors
+//! are routed through the canonical-mapping classifier so domain code
+//! never sees a raw `DbErr`.
 //!
 //! Two repo-specific behaviours are pinned here:
 //!
@@ -183,17 +189,14 @@ async fn insert_pending(
     let conn = repo.db.conn()?;
     let insert_res = conversion_requests::Entity::insert(am)
         .secure()
-        // The `conversion_requests` entity is declared
-        // `no_tenant, no_resource` (see entity doc), so a narrowed
-        // scope here would compile to `ScopeError::Denied`. This is
-        // the same posture as `tenants` INSERTs use today
-        // (`scope_unchecked` in `repo_impl::lifecycle::insert_provisioning`).
-        // Authorization for the operation as a whole is enforced
-        // upstream at the PDP gate in the service layer; the
-        // `InTenantSubtree` predicate will plumb subtree clamp into AM
-        // reads, not into INSERTs.
-        // TODO(InTenantSubtree): revisit once the predicate lands so
-        // `rg "TODO(InTenantSubtree)"` lists every bypass in one pass.
+        // `conversion_requests` is declared `no_tenant, no_resource`
+        // (see entity doc) so the `InTenantSubtree` predicate has no
+        // resolvable property to clamp on. `scope_unchecked` mirrors
+        // the `tenants` INSERT posture in
+        // `repo_impl::lifecycle::insert_provisioning`. Authorization
+        // for the operation as a whole is enforced upstream at the
+        // PDP gate in the service layer (dual-consent role check on
+        // the caller-supplied `ConversionCaller`).
         .scope_unchecked(scope)
         .map_err(map_scope_err)?
         .exec_with_returning(&conn)
@@ -218,12 +221,11 @@ async fn insert_pending(
             // contract change.
             let existing = conversion_requests::Entity::find()
                 .secure()
-                // Read uses `allow_all` for the same reason the
-                // INSERT bypasses scope: the entity is declared
-                // `no_tenant`/`no_resource`, so a narrowed scope
-                // collapses to `WHERE false` and would silently
-                // mask the conflicting row.
-                // TODO(InTenantSubtree)
+                // Read uses `allow_all` for the same reason the INSERT
+                // uses `scope_unchecked`: the entity is declared
+                // `no_tenant`/`no_resource`, so narrowing has no
+                // resolvable property and would silently mask the
+                // conflicting row.
                 .scope_with(&AccessScope::allow_all())
                 .filter(
                     Condition::all()
@@ -360,8 +362,9 @@ where
             // Re-read with `allow_all` so a narrowed caller scope
             // cannot turn `AlreadyResolved` into a misleading
             // `NotFound`; mirrors the rationale in the
-            // `is_unique_violation` re-read above.
-            // TODO(InTenantSubtree)
+            // `is_unique_violation` re-read above. Permanent posture:
+            // the entity is `no_tenant, no_resource` and the read is
+            // a diagnostic disambiguation on a row we already touched.
             .scope_with(&AccessScope::allow_all())
             .filter(
                 Condition::all()
@@ -389,10 +392,9 @@ where
     // hard-deleted concurrently — operator-action territory).
     let fresh = conversion_requests::Entity::find()
         .secure()
-        // TODO(InTenantSubtree): post-transition re-read uses
-        // `allow_all` so a narrowed caller scope cannot mask a row
-        // we just successfully updated. Mirrors the rationale in the
-        // unique-violation re-read above.
+        // Post-transition re-read uses `allow_all` so a narrowed
+        // caller scope cannot mask a row we just successfully
+        // updated. Same posture as the unique-violation re-read above.
         .scope_with(&AccessScope::allow_all())
         .filter(id_eq_alive(request_id))
         .one(&conn)
@@ -792,9 +794,11 @@ async fn apply_conversion_approval(
                 // multi-MB heap allocation per retry attempt and
                 // widens the SI conflict surface. Replace with a
                 // closure-bounded query (load only tenants on the
-                // strict path of the converted subtree) once
-                // `InTenantSubtree` (#1813) lands and a closure-walk
-                // helper exists. Until then this is the only
+                // strict path of the converted subtree) once a
+                // closure-walk helper exists — the `tenant_closure`
+                // table is the natural anchor (same machinery
+                // [`ScopeFilter::in_tenant_subtree`](modkit_security::ScopeFilter::in_tenant_subtree)
+                // compiles against). Today this is the only
                 // engine-agnostic shape that keeps the barrier
                 // recompute correct for soft-deleted descendants.
                 //
