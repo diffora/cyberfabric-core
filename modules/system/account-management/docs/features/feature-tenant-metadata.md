@@ -40,7 +40,7 @@
 
 ### 1.1 Overview
 
-Owns the extensible tenant-metadata subsystem: GTS-registered metadata schemas, tenant-scoped CRUD keyed by `(tenant_id, schema_uuid)`, direct-on-tenant listing, and barrier-aware effective-value resolution driven by each schema's `inheritance_policy` trait. Encapsulates `MetadataService`, the `tenant_metadata` storage table (one row per directly-written value — inheritance is NEVER materialized per ADR-0002), and the `/api/account-management/v1/tenants/{tenant_id}/metadata` REST family so new metadata categories (branding, billing contacts, future attributes) register as GTS schemas without AM code changes.
+Owns the extensible **public** tenant-metadata subsystem: GTS-registered metadata schemas, tenant-scoped CRUD keyed by `(tenant_id, schema_uuid)`, direct-on-tenant listing, and barrier-aware effective-value resolution driven by each schema's `inheritance_policy` trait. Encapsulates `MetadataService`, the `tenant_metadata` storage table (one row per directly-written value — inheritance is NEVER materialized per ADR-0002), and the `/api/account-management/v1/tenants/{tenant_id}/metadata` REST family so new metadata categories (branding, billing contacts, future attributes) register as GTS schemas without AM code changes. Plugin-private state returned by `IdpPluginClient::provision_tenant` is **out of scope** for this feature — it is persisted opaquely in the separate AM-owned `tenant_idp_metadata` store (DESIGN §3.7 `dbtable-tenant-idp-metadata`), bypassing GTS validation, namespacing, and inheritance, and is never readable through this feature's REST surface.
 
 ### 1.2 Purpose
 

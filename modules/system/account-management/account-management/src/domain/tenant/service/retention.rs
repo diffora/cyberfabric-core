@@ -1,7 +1,7 @@
 //! Retention pipeline tick on `TenantService` — `hard_delete_batch`
 //! and the per-row `process_single_hard_delete` state machine that
 //! invokes cascade hooks, calls
-//! [`IdpTenantProvisionerClient::deprovision_tenant`], and performs the
+//! [`IdpPluginClient::deprovision_tenant`], and performs the
 //! transactional DB teardown.
 //!
 //! Lives in its own submodule so the dispatch / failure-classification
@@ -18,7 +18,7 @@ use modkit_security::AccessScope;
 use time::OffsetDateTime;
 use tracing::warn;
 
-use account_management_sdk::{DeprovisionFailure, DeprovisionRequest};
+use account_management_sdk::{DeprovisionFailure, DeprovisionTenantRequest};
 
 use crate::domain::metrics::{AM_DEPENDENCY_HEALTH, AM_TENANT_RETENTION, MetricKind, emit_metric};
 use crate::domain::tenant::hooks::{HookError, TenantHardDeleteHook};
@@ -33,7 +33,7 @@ impl<R: TenantRepo> TenantService<R> {
     /// Implements FEATURE `Hard-Delete Cleanup Sweep`.
     ///
     /// Scans retention-due rows (leaf-first), invokes registered
-    /// cascade hooks, calls [`IdpTenantProvisionerClient::deprovision_tenant`],
+    /// cascade hooks, calls [`IdpPluginClient::deprovision_tenant`],
     /// and performs the transactional DB teardown via
     /// [`TenantRepo::hard_delete_one`].
     // @cpt-begin:cpt-cf-account-management-algo-tenant-hierarchy-management-hard-delete-leaf-first-scheduler:p1:inst-algo-hdel-service
@@ -317,7 +317,7 @@ impl<R: TenantRepo> TenantService<R> {
         //    effect runs. Without this gate, a row that is in fact
         //    deferred (parent with live child, status drifted, claim
         //    lost) would still trigger an irreversible
-        //    `IdpTenantProvisionerClient::deprovision_tenant` call —
+        //    `IdpPluginClient::deprovision_tenant` call —
         //    leaving IdP-side state torn down while AM keeps the row.
         //    The check is read-only and racy; `hard_delete_one`'s
         //    in-tx defense-in-depth still catches a lost race, and
@@ -421,9 +421,31 @@ impl<R: TenantRepo> TenantService<R> {
         // no-op". Without this propagation the variant docstring
         // (`reported only after a successful teardown and counts
         // toward is_cleaned`) would be unreachable.
+        let tenant_context = match self.load_tenant_context(row.id).await {
+            Ok(ctx) => ctx,
+            Err(err) => {
+                // Could not assemble the context (registry blip or
+                // tenant row vanished mid-tick). The plugin contract
+                // requires a typed `tenant_type` on every call, so
+                // we cannot proceed; the IdP step is effectively
+                // blocked on an upstream dependency. `IdpRetryable`
+                // is the closest documented outcome — same metric
+                // family the retention loop already alerts on for
+                // "IdP step needs another tick", and it routes
+                // through the existing `is_deferred` accounting so
+                // the claim releases cleanly.
+                warn!(
+                    target: "am.retention",
+                    tenant_id = %row.id,
+                    error = %err,
+                    "hard_delete deferred: failed to assemble TenantContext for deprovision_tenant"
+                );
+                return HardDeleteOutcome::IdpRetryable;
+            }
+        };
         let idp_skipped = match self
             .idp
-            .deprovision_tenant(&DeprovisionRequest { tenant_id: row.id })
+            .deprovision_tenant(&DeprovisionTenantRequest::new(tenant_context))
             .await
         {
             Ok(()) => {
@@ -484,7 +506,7 @@ impl<R: TenantRepo> TenantService<R> {
                         // treat as "skip IdP, continue local teardown"
                         // when the deployment has explicitly opted
                         // out of an IdP (`cfg.idp.required = false` →
-                        // wired to `NoopProvisioner`). When a real
+                        // wired to `NoopIdpProvider`). When a real
                         // plugin returns this, the vendor is
                         // signalling that it does not support
                         // deprovision but external state may exist —

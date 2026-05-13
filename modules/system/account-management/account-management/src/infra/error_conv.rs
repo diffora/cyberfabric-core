@@ -37,6 +37,92 @@ pub(crate) fn is_serialization_failure(err: &DbErr) -> bool {
         || is_retryable_contention(DbBackend::Sqlite, err)
 }
 
+/// Returns `true` iff `err` represents a `CHECK` constraint violation
+/// on either AM-supported backend.
+///
+/// AM's storage layer pins several invariants via `CHECK` constraints:
+/// `length(name) BETWEEN 1 AND 255` on `tenants` (`m0001`) and
+/// `conversion_requests.child_tenant_name` (`m0004`), the lifecycle
+/// status enum bounds on `conversion_requests.status` (`m0004`), the
+/// per-status actor invariant on `conversion_requests` (`m0004`), and
+/// the `ck_tenants_root_depth` rule for the single platform root
+/// (`m0001`). Without this classification, every such DB-side rejection
+/// falls through `classify_db_err_to_domain` into the unclassified
+/// arm and becomes `DomainError::Internal` (HTTP 500) — a 400→500
+/// regression for any payload the service layer was meant to reject
+/// upstream but admitted through a degraded-mode short-circuit (e.g.
+/// `validate_tenant_name_via_gts` returning `Ok(())` when the schema
+/// is not yet registered).
+///
+/// `sea_orm::SqlErr` does not currently expose a typed
+/// `CheckConstraintViolation` discriminant the way it does for unique
+/// and FK violations, so classification is string-based against the
+/// driver-emitted message, mirroring the fallback arm of
+/// [`modkit_db::secure::is_unique_violation`]. Recognised patterns:
+/// * **Postgres** SQLSTATE `23514` — "violates check constraint" /
+///   "`check_violation`".
+/// * **`SQLite`** extended code `275` (`SQLITE_CONSTRAINT_CHECK`) —
+///   "`CHECK constraint failed`" (the default driver text). Some
+///   connection proxies / `sqlx` versions strip the text and surface
+///   the symbolic name or the numeric code alone; cover those
+///   defensively so a stripped message still routes to `Validation`
+///   (HTTP 400) and not `Internal` (HTTP 500).
+///
+/// # Anchoring
+///
+/// Both numeric-code arms are **anchored** rather than free
+/// substring searches: a naked `msg.contains("23514")` /
+/// `msg.contains("275")` would mis-classify unrelated `DbErr`
+/// payloads whose `Display` text contains those digits (byte
+/// offsets, port numbers, timestamps in ms, retry counts) as CHECK
+/// violations. Each numeric token is therefore required to appear
+/// inside a SQLSTATE / extended-code shape (`"SQLSTATE 23514"`,
+/// `"code 23514"`, `"23514:"`, `"(23514)"` for Postgres; the
+/// existing `"sqlite"`-context plus `"code 275"` / `"(275)"` /
+/// `"275:"` for `SQLite`).
+pub(crate) fn is_check_violation(err: &DbErr) -> bool {
+    let msg = err.to_string().to_lowercase();
+    msg.contains("check constraint")
+        || msg.contains("check_violation")
+        || msg.contains("sqlite_constraint_check")
+        || contains_anchored_pg_check_sqlstate(&msg)
+        || (msg.contains("sqlite") && contains_anchored_sqlite_check_code(&msg))
+}
+
+/// Postgres `23514` SQLSTATE detector. Anchors the numeric token so
+/// an unrelated `DbErr` (timeout in ms, byte offset, port number,
+/// retry counter) whose `Display` happens to contain `"23514"`
+/// cannot be misclassified.
+fn contains_anchored_pg_check_sqlstate(msg: &str) -> bool {
+    msg.contains("sqlstate 23514")
+        || msg.contains("sqlstate: 23514")
+        || msg.contains("sqlstate=23514")
+        || msg.contains("code 23514")
+        || msg.contains("code: 23514")
+        || msg.contains("(23514)")
+        || msg.contains("(23514:")
+        // `"23514: new row for relation ..."` — the colon distinguishes
+        // a leading SQLSTATE prefix from an arbitrary occurrence of
+        // the digits inside free-form text.
+        || msg.starts_with("23514:")
+        || msg.contains(" 23514:")
+}
+
+/// `SQLite` extended-code `275` detector. The caller already requires
+/// `"sqlite"` to appear in the message; the helper additionally
+/// anchors the digits inside an extended-code shape so a `SQLite`
+/// error whose body happens to contain `"275"` in another role
+/// (`"line 275"`, `"connection 275 closed"`) is not classified as a
+/// CHECK violation.
+fn contains_anchored_sqlite_check_code(msg: &str) -> bool {
+    msg.contains("code 275")
+        || msg.contains("code: 275")
+        || msg.contains("(275)")
+        || msg.contains("(275:")
+        || msg.starts_with("275:")
+        || msg.contains(" 275:")
+}
+
 /// Returns `true` iff `err` is a typed database connectivity / outage
 /// signal — pool acquire timeout, connection closed, connection-level
 /// runtime error, or a raw `std::io::Error` surfaced through

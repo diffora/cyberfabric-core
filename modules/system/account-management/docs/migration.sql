@@ -140,6 +140,35 @@ COMMENT ON COLUMN tenant_metadata.schema_uuid
 COMMENT ON COLUMN tenant_metadata.value
     IS 'Opaque JSON payload validated in AM against the registered schema identified by schema_id.';
 
+-- ── Tenant IdP metadata ──────────────────────────────────────────────────────
+--
+-- AM-owned plugin-private per-tenant state isolated from the public
+-- `tenant_metadata` table. AM persists the opaque blob returned by
+-- `IdpPluginClient::provision_tenant` (`ProvisionResult::metadata`) keyed
+-- by `tenant_id` (PK — at most one row per tenant) and replays it on every
+-- subsequent IdP call via `TenantContext::metadata` /
+-- `DeprovisionTenantRequest::tenant_context`. AM does NOT validate,
+-- namespace, or interpret the JSON — the plugin owns the shape entirely.
+-- No `plugin_id` column today: AM resolves at most one `IdpPluginClient`
+-- per deployment; a multi-plugin disambiguator can land later together
+-- with a backfill migration.
+
+CREATE TABLE tenant_idp_metadata (
+    tenant_id UUID PRIMARY KEY,
+    metadata JSONB NULL,
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT fk_tenant_idp_metadata_tenant
+        FOREIGN KEY (tenant_id)
+        REFERENCES tenants(id)
+        ON UPDATE CASCADE
+        ON DELETE CASCADE
+);
+
+COMMENT ON TABLE tenant_idp_metadata
+    IS 'Plugin-private per-tenant state owned by the resolved `IdpPluginClient`. AM persists the opaque `ProvisionResult::metadata` blob at provisioning finalization and replays it to the plugin on every subsequent IdP call via `TenantContext::metadata` / `DeprovisionTenantRequest::tenant_context`. AM never inspects, namespaces, or validates the JSON — the plugin owns the shape end-to-end. Size is capped at the AM service boundary by `MAX_IDP_METADATA_BYTES`. Lifecycle-bound to the owning tenant via `ON DELETE CASCADE` (Postgres); the SQLite migration variant relies on an explicit `delete_many` from `TenantRepoImpl::hard_delete_one` because `modkit-db` does not enable `PRAGMA foreign_keys`.';
+COMMENT ON COLUMN tenant_idp_metadata.metadata
+    IS 'Opaque JSON blob shaped by the IdP plugin. `NULL` means the plugin returned no per-tenant state.';
+
 -- ── Conversion requests ──────────────────────────────────────────────────────
 
 CREATE TABLE conversion_requests (

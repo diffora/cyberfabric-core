@@ -20,28 +20,34 @@
 //! can leave the slot `None` without polluting the rest of the module
 //! configuration with optional fields.
 
+use std::time::Duration;
+
 use modkit_macros::domain_model;
 use serde::Deserialize;
 use serde_json::Value;
 use uuid::Uuid;
 
-/// Operational upper bound on `idp_wait_timeout_secs` (24 hours).
+/// Operational upper bound on `idp_wait_timeout` (1 hour).
 ///
-/// Caps `idp_wait_timeout_secs` so that:
+/// Caps `idp_wait_timeout` so that:
 ///
-/// 1. `Instant::now() + Duration::from_secs(value)` cannot overflow
-///    the platform's `Instant` representation (any value past the
+/// 1. `Instant::now() + idp_wait_timeout` cannot overflow the
+///    platform's `Instant` representation (any value past the
 ///    `Instant::checked_add` ceiling is operationally meaningless --
 ///    the bootstrap saga is a sub-second-to-minutes operation, not a
 ///    multi-day wait), and
-/// 2. `i64::try_from(value * 2)` for the FEATURE-§3 stuck-threshold
-///    (`2 × idp_wait_timeout_secs`) cannot saturate to `i64::MAX`,
+/// 2. `i64::try_from(secs * 2)` for the FEATURE-§3 stuck-threshold
+///    (`2 × idp_wait_timeout.as_secs()`) cannot saturate to `i64::MAX`,
 ///    which would silently disable the stuck-row branch in
 ///    `step_loop_classify` for the entire platform.
 ///
-/// 24h is far above any operationally meaningful bootstrap wait and
-/// keeps the cast `value * 2 -> i64` trivially in range.
-pub const MAX_IDP_WAIT_TIMEOUT_SECS: u64 = 86_400;
+/// Tightened from the previous 24h ceiling because no operationally
+/// meaningful bootstrap path waits longer than minutes — a wait
+/// pushing past an hour means something else is wrong (`IdP` down,
+/// types-registry stalled, network partition) and the platform
+/// should fail loud rather than spin silently. 1h still keeps the
+/// `secs * 2 -> i64` cast trivially in range.
+pub const MAX_IDP_WAIT_TIMEOUT: Duration = Duration::from_hours(1);
 
 /// Bootstrap-feature configuration.
 ///
@@ -66,7 +72,7 @@ pub struct BootstrapConfig {
     /// Chained GTS tenant-type identifier (e.g.
     /// `gts.cf.core.am.tenant_type.v1~cf.core.am.platform.v1~`) forwarded
     /// to the `IdP` plugin in
-    /// [`crate::domain::idp::provisioner::ProvisionRequest::tenant_type`].
+    /// [`account_management_sdk::ProvisionTenantRequest::tenant_type`].
     /// `serde::Deserialize` lifts the configured string into the typed
     /// wrapper at config-load time so downstream consumers do not
     /// re-parse on every saga step. The `tenants.tenant_type_uuid`
@@ -86,20 +92,30 @@ pub struct BootstrapConfig {
     /// `check_availability` probe and the saga retry loop on
     /// `IdpUnavailable` raised during step 2 (`provision_tenant`).
     ///
-    /// Bounded by [`MAX_IDP_WAIT_TIMEOUT_SECS`] in
+    /// Bounded by [`MAX_IDP_WAIT_TIMEOUT`] in
     /// [`BootstrapConfig::validate`] so neither
-    /// `Instant::now() + Duration::from_secs(value)` nor
-    /// `i64::try_from(value * 2)` (used for the FEATURE-§3 stuck
-    /// threshold) can overflow on a misconfiguration.
-    pub idp_wait_timeout_secs: u64,
+    /// `Instant::now() + idp_wait_timeout` nor
+    /// `i64::try_from(idp_wait_timeout.as_secs() * 2)` (used for the
+    /// FEATURE-§3 stuck threshold) can overflow on a misconfiguration.
+    ///
+    /// Wire shape is a humantime-style duration string (e.g.
+    /// `"5m"`, `"300s"`, `"1h"`). The strongly typed in-memory
+    /// `Duration` replaces the prior `u64` seconds field so call-
+    /// sites do not need to wrap with `Duration::from_secs(...)`.
+    #[serde(with = "modkit_utils::humantime_serde")]
+    pub idp_wait_timeout: Duration,
 
     /// Initial sleep between `IdP`-availability retries (FEATURE §3
-    /// `idp_retry_backoff_initial`, default 2s).
-    pub idp_retry_backoff_initial_secs: u64,
+    /// `idp_retry_backoff_initial`, default 2s). Wire shape is a
+    /// humantime-style duration string (e.g. `"2s"`).
+    #[serde(with = "modkit_utils::humantime_serde")]
+    pub idp_retry_backoff_initial: Duration,
 
     /// Cap on the doubled backoff (FEATURE §3 `idp_retry_backoff_max`,
-    /// default 30s).
-    pub idp_retry_backoff_max_secs: u64,
+    /// default 30s). Wire shape is a humantime-style duration string
+    /// (e.g. `"30s"`).
+    #[serde(with = "modkit_utils::humantime_serde")]
+    pub idp_retry_backoff_max: Duration,
 
     /// Strict-mode flag. When `true`, a bootstrap failure aborts module
     /// `init` (lifecycle-fatal). When `false`, the failure is logged
@@ -120,9 +136,9 @@ impl Default for BootstrapConfig {
             root_name: "platform-root".to_owned(),
             root_tenant_type: gts::GtsSchemaId::new(""),
             root_tenant_metadata: None,
-            idp_wait_timeout_secs: 300,
-            idp_retry_backoff_initial_secs: 2,
-            idp_retry_backoff_max_secs: 30,
+            idp_wait_timeout: Duration::from_mins(5),
+            idp_retry_backoff_initial: Duration::from_secs(2),
+            idp_retry_backoff_max: Duration::from_secs(30),
             strict: false,
         }
     }
@@ -160,22 +176,22 @@ impl BootstrapConfig {
         if self.root_name.trim().is_empty() {
             missing.push("root_name");
         }
-        if self.idp_wait_timeout_secs == 0 {
-            missing.push("idp_wait_timeout_secs (must be > 0)");
+        if self.idp_wait_timeout.is_zero() {
+            missing.push("idp_wait_timeout (must be > 0)");
         }
-        // Cap at `MAX_IDP_WAIT_TIMEOUT_SECS` so the deadline math
-        // (`Instant::now() + Duration::from_secs(value)` in
+        // Cap at `MAX_IDP_WAIT_TIMEOUT` so the deadline math
+        // (`Instant::now() + idp_wait_timeout` in
         // `BootstrapService::run`) and the stuck-threshold cast
-        // (`i64::try_from(value * 2)`) are both safe by construction.
-        // See `MAX_IDP_WAIT_TIMEOUT_SECS` for rationale.
-        if self.idp_wait_timeout_secs > MAX_IDP_WAIT_TIMEOUT_SECS {
-            missing.push("idp_wait_timeout_secs (must be <= 86400)");
+        // (`i64::try_from(idp_wait_timeout.as_secs() * 2)`) are both
+        // safe by construction. See `MAX_IDP_WAIT_TIMEOUT` for rationale.
+        if self.idp_wait_timeout > MAX_IDP_WAIT_TIMEOUT {
+            missing.push("idp_wait_timeout (must be <= 1h)");
         }
-        if self.idp_retry_backoff_initial_secs == 0 {
-            missing.push("idp_retry_backoff_initial_secs (must be > 0)");
+        if self.idp_retry_backoff_initial.is_zero() {
+            missing.push("idp_retry_backoff_initial (must be > 0)");
         }
-        if self.idp_retry_backoff_max_secs < self.idp_retry_backoff_initial_secs {
-            missing.push("idp_retry_backoff_max_secs (must be >= initial)");
+        if self.idp_retry_backoff_max < self.idp_retry_backoff_initial {
+            missing.push("idp_retry_backoff_max (must be >= initial)");
         }
         if missing.is_empty() {
             Ok(())

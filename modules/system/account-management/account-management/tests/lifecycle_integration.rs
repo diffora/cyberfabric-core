@@ -94,7 +94,7 @@ async fn create_active_child(
         &ancestor_chain,
     );
     h.repo
-        .activate_tenant(&allow_all(), tenant_id, &closure_rows, &[])
+        .activate_tenant(&allow_all(), tenant_id, &closure_rows, None)
         .await
         .expect("activate_tenant");
 }
@@ -366,10 +366,7 @@ async fn update_tenant_mutable_status_flip_rewrites_closure_descendant_status() 
     }
 
     // Flip mid -> Suspended.
-    let patch = TenantUpdate {
-        name: None,
-        status: Some(SdkTenantStatus::Suspended),
-    };
+    let patch = TenantUpdate::new().with_status(SdkTenantStatus::Suspended);
     h.repo
         .update_tenant_mutable(&allow_all(), mid, &patch)
         .await
@@ -408,10 +405,7 @@ async fn update_tenant_mutable_status_flip_rewrites_closure_descendant_status() 
     }
 
     // Round-trip back to Active.
-    let patch_back = TenantUpdate {
-        name: None,
-        status: Some(SdkTenantStatus::Active),
-    };
+    let patch_back = TenantUpdate::new().with_status(SdkTenantStatus::Active);
     h.repo
         .update_tenant_mutable(&allow_all(), mid, &patch_back)
         .await

@@ -15,10 +15,10 @@
 //!    `check_availability` probes before saga state is written. A
 //!    `ProvisionFailure::CleanFailure` during the actual provision call
 //!    while the deadline still has budget reschedules the saga after
-//!    compensating; the bootstrap deadline (`idp_wait_timeout_secs`) is
+//!    compensating; the bootstrap deadline (`idp_wait_timeout`) is
 //!    the wall-clock cap. Backoff doubles from
-//!    `idp_retry_backoff_initial_secs` up to
-//!    `idp_retry_backoff_max_secs` per FEATURE §3.
+//!    `idp_retry_backoff_initial` up to
+//!    `idp_retry_backoff_max` per FEATURE §3.
 //! 3. **Finalization** — single short transaction that flips the root
 //!    row from `Provisioning` to `Active` and writes the self-row in
 //!    `tenant_closure` via `TenantRepo::activate_tenant` (closure
@@ -44,9 +44,10 @@ use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 
 use account_management_sdk::{
-    DeprovisionFailure, DeprovisionRequest, IdpTenantProvisionerClient, ProvisionFailure,
-    ProvisionMetadataEntry, ProvisionRequest,
+    DeprovisionFailure, DeprovisionTenantRequest, IdpPluginClient, ProvisionFailure,
+    ProvisionTenantRequest, TenantContext,
 };
+use serde_json::Value;
 
 use crate::domain::bootstrap::config::BootstrapConfig;
 use crate::domain::error::DomainError;
@@ -76,7 +77,7 @@ enum BootstrapClassification {
     /// instead it falls through to the retry loop (no preflight, no
     /// availability wait) so a peer replica currently mid-saga can
     /// finalize its own attempt and we observe the outcome. If the
-    /// row's age exceeds `2 × idp_wait_timeout_secs` (the FEATURE-§3
+    /// row's age exceeds `2 × idp_wait_timeout` (the FEATURE-§3
     /// stuck threshold) the branch surfaces `Internal` and defers
     /// cleanup to the provisioning reaper; if the bootstrap deadline
     /// expires while waiting, the branch surfaces `IdpUnavailable`.
@@ -239,7 +240,7 @@ struct RunCtx {
 #[domain_model]
 pub struct BootstrapService<R: TenantRepo> {
     repo: Arc<R>,
-    idp: Arc<dyn IdpTenantProvisionerClient>,
+    idp: Arc<dyn IdpPluginClient>,
     types_registry: Option<Arc<dyn TypesRegistryClient>>,
     cfg: BootstrapConfig,
     /// Mirrors `cfg.idp.required` from the parent
@@ -294,11 +295,7 @@ impl<R: TenantRepo> BootstrapService<R> {
     /// honored at every call site (production path is honored by
     /// `module.rs::init`).
     #[must_use]
-    pub fn new(
-        repo: Arc<R>,
-        idp: Arc<dyn IdpTenantProvisionerClient>,
-        cfg: BootstrapConfig,
-    ) -> Self {
+    pub fn new(repo: Arc<R>, idp: Arc<dyn IdpPluginClient>, cfg: BootstrapConfig) -> Self {
         // Single `validate()` call so the assertion message and the
         // boolean predicate cannot disagree (a previous shape called
         // `validate()` twice and could in principle produce different
@@ -338,7 +335,7 @@ impl<R: TenantRepo> BootstrapService<R> {
     /// uses: refuse to delete the local row when a real plugin returns
     /// Unsupported under `idp.required = true`, because vendor-side
     /// state may exist that AM cannot reach. Module wiring sets this;
-    /// tests that operate against `NoopProvisioner` (or that don't care
+    /// tests that operate against `NoopIdpProvider` (or that don't care
     /// about the orphan-prevention path) can omit it and inherit the
     /// `idp.required = false` default.
     #[must_use]
@@ -394,43 +391,43 @@ impl<R: TenantRepo> BootstrapService<R> {
         // `Terminal` first or transits through
         // `InitialPreflightAndWait` / `TakeoverPreflightAndWait`.
         //
-        // `BootstrapConfig::validate` caps `idp_wait_timeout_secs` at
-        // `MAX_IDP_WAIT_TIMEOUT_SECS` (24h), so both
-        // `Instant::checked_add` and the `i64::try_from(value * 2)`
+        // `BootstrapConfig::validate` caps `idp_wait_timeout` at
+        // `MAX_IDP_WAIT_TIMEOUT` (1h), so both
+        // `Instant::checked_add` and the `i64::try_from(secs * 2)`
         // cast below are safe by construction. The `Err` arms here
         // are defensive: they surface a clean `Internal` if the
         // validate-before-construct contract was violated rather
         // than panicking on a misconfiguration.
         let deadline = Instant::now()
-            .checked_add(Duration::from_secs(self.cfg.idp_wait_timeout_secs))
+            .checked_add(self.cfg.idp_wait_timeout)
             .ok_or_else(|| DomainError::Internal {
                 diagnostic: format!(
-                    "bootstrap deadline overflow: Instant::now() + {}s exceeds platform Instant range; idp_wait_timeout_secs must be validated <= {}",
-                    self.cfg.idp_wait_timeout_secs,
-                    crate::domain::bootstrap::config::MAX_IDP_WAIT_TIMEOUT_SECS,
+                    "bootstrap deadline overflow: Instant::now() + {:?} exceeds platform Instant range; idp_wait_timeout must be validated <= {:?}",
+                    self.cfg.idp_wait_timeout,
+                    crate::domain::bootstrap::config::MAX_IDP_WAIT_TIMEOUT,
                 ),
                 cause: None,
             })?;
-        // `2 × idp_wait_timeout_secs` is the FEATURE-§3 stuck
-        // threshold for distinguishing a crashed previous attempt
-        // from one currently mid-saga on a peer replica (the
-        // peer's saga budget is bounded by `idp_wait_timeout_secs`,
-        // so anything older than 2x is by definition not in flight).
-        let stuck_secs = i64::try_from(self.cfg.idp_wait_timeout_secs.saturating_mul(2))
+        // `2 × idp_wait_timeout` is the FEATURE-§3 stuck threshold
+        // for distinguishing a crashed previous attempt from one
+        // currently mid-saga on a peer replica (the peer's saga
+        // budget is bounded by `idp_wait_timeout`, so anything
+        // older than 2x is by definition not in flight).
+        let stuck_secs = i64::try_from(self.cfg.idp_wait_timeout.as_secs().saturating_mul(2))
             .map_err(|_| DomainError::Internal {
                 diagnostic: format!(
-                    "bootstrap stuck-threshold overflow: 2 * {}s does not fit in i64; idp_wait_timeout_secs must be validated <= {}",
-                    self.cfg.idp_wait_timeout_secs,
-                    crate::domain::bootstrap::config::MAX_IDP_WAIT_TIMEOUT_SECS,
+                    "bootstrap stuck-threshold overflow: 2 * {:?} does not fit in i64; idp_wait_timeout must be validated <= {:?}",
+                    self.cfg.idp_wait_timeout,
+                    crate::domain::bootstrap::config::MAX_IDP_WAIT_TIMEOUT,
                 ),
                 cause: None,
             })?;
         let mut ctx = RunCtx {
             scope: AccessScope::allow_all(),
             deadline,
-            cap: Duration::from_secs(self.cfg.idp_retry_backoff_max_secs.max(1)),
+            cap: self.cfg.idp_retry_backoff_max,
             stuck_threshold: time::Duration::seconds(stuck_secs),
-            backoff: Duration::from_secs(self.cfg.idp_retry_backoff_initial_secs.max(1)),
+            backoff: self.cfg.idp_retry_backoff_initial,
             // `pending_takeover_precheck` defers the preflight +
             // IdP-wait pair when we enter the loop via
             // `ProvisioningRootResume`. The peer-mid-saga branch
@@ -538,12 +535,19 @@ impl<R: TenantRepo> BootstrapService<R> {
         if let Err(e) = self.preflight_root_tenant_type(ctx.deadline).await {
             return BootstrapState::Terminal(Err(e));
         }
+        // Registry-backed config validation for `root_name` /
+        // `root_tenant_metadata` MUST run here, BEFORE
+        // `wait_for_idp_availability`. Otherwise a bad bootstrap
+        // config would burn the full `idp_wait_timeout` budget
+        // before surfacing a deterministic `Validation` error.
+        if let Err(e) = self.preflight_root_gts_config(ctx.deadline).await {
+            return BootstrapState::Terminal(Err(e));
+        }
         // Saga path: each retryable phase (precheck, peer wait,
         // provision_tenant retry) gets its own backoff accumulator
         // so a long precheck does not elevate the first saga retry's
         // sleep.
-        let mut precheck_backoff =
-            Duration::from_secs(self.cfg.idp_retry_backoff_initial_secs.max(1));
+        let mut precheck_backoff = self.cfg.idp_retry_backoff_initial;
         if let Err(e) = self
             .wait_for_idp_availability(ctx.deadline, &mut precheck_backoff, ctx.cap)
             .await
@@ -643,8 +647,10 @@ impl<R: TenantRepo> BootstrapService<R> {
         if let Err(e) = self.preflight_root_tenant_type(ctx.deadline).await {
             return BootstrapState::Terminal(Err(e));
         }
-        let mut precheck_backoff =
-            Duration::from_secs(self.cfg.idp_retry_backoff_initial_secs.max(1));
+        if let Err(e) = self.preflight_root_gts_config(ctx.deadline).await {
+            return BootstrapState::Terminal(Err(e));
+        }
+        let mut precheck_backoff = self.cfg.idp_retry_backoff_initial;
         if let Err(e) = self
             .wait_for_idp_availability(ctx.deadline, &mut precheck_backoff, ctx.cap)
             .await
@@ -809,7 +815,7 @@ impl<R: TenantRepo> BootstrapService<R> {
     // probe `IdP::check_availability` with exponential backoff
     // (`idp_retry_backoff_initial` doubling up to
     // `idp_retry_backoff_max`) against an `idp_retry_timeout` (=
-    // `idp_wait_timeout_secs`) deadline. The same deadline + backoff
+    // `idp_wait_timeout`) deadline. The same deadline + backoff
     // envelope is reused by the saga retry loop in `run()` for
     // `IdpUnavailable` raised during step 2 (provision_tenant) — both
     // surfaces emit on `AM_BOOTSTRAP_LIFECYCLE`; the pre-saga probe
@@ -1052,12 +1058,77 @@ impl<R: TenantRepo> BootstrapService<R> {
     // @cpt-end:cpt-cf-account-management-dod-platform-bootstrap-idempotency:p1:inst-dod-bootstrap-idempotency-classify
     // @cpt-end:cpt-cf-account-management-algo-platform-bootstrap-idempotency-detection:p1:inst-algo-idem-classify-root
 
+    /// Registry-backed validation of the operator-configured root
+    /// tenant metadata. Runs in the preflight phase (BEFORE
+    /// `wait_for_idp_availability`) so a bad `root_name` or
+    /// `root_tenant_metadata` fails fast as `Validation` instead of
+    /// burning the full `idp_wait_timeout` budget.
+    ///
+    /// Mirrors the call sites in `TenantService::create_child` (and
+    /// the `cf-resource-group::validate_metadata_via_gts` posture):
+    /// when the registry has the schema the JSON-Schema bounds
+    /// (`minLength`, `maxLength`) gate the call; when the schema is
+    /// not yet registered the helper short-circuits to `Ok(())` and
+    /// the DB `CHECK (length(name) BETWEEN 1 AND 255)` constraint
+    /// serves as the last-line guard for `root_name`. Without these
+    /// checks running at preflight, a misconfigured `root_name`
+    /// would land in `tenants.name` after passing only the
+    /// trim-non-empty check in [`BootstrapConfig::validate`].
+    ///
+    /// # Deadline contract
+    ///
+    /// Both calls are live registry calls — a stalled types-registry
+    /// would otherwise hang the bootstrap saga past
+    /// `idp_wait_timeout`. Each await is wrapped in
+    /// `tokio::time::timeout_at(deadline, …)` so the saga's
+    /// deadline-bound contract (already enforced for
+    /// `preflight_root_tenant_type`, `check_availability`, and
+    /// `provision_tenant`) extends to these too. A timeout maps to
+    /// `service_unavailable` and the bootstrap retry loop handles it
+    /// the same way as a transient registry error.
+    async fn preflight_root_gts_config(&self, deadline: Instant) -> Result<(), DomainError> {
+        let Some(registry) = self.types_registry.as_ref() else {
+            return Ok(());
+        };
+        match tokio::time::timeout_at(
+            deadline,
+            crate::domain::gts_validation::validate_tenant_name_via_gts(
+                &self.cfg.root_name,
+                registry.as_ref(),
+            ),
+        )
+        .await
+        {
+            Ok(Ok(())) => {}
+            Ok(Err(err)) => return Err(err),
+            Err(_elapsed) => {
+                return Err(DomainError::service_unavailable(
+                    "bootstrap: validate_tenant_name_via_gts timed out against types-registry",
+                ));
+            }
+        }
+        // No plugin-input metadata pre-validation here: the IdP
+        // plugin owns its own `provisioning_metadata` shape end-to-
+        // end (AM treats the value as opaque per the IdP-metadata
+        // isolation contract). A misshaped payload surfaces as a
+        // downstream plugin error during `provision_tenant`, which
+        // the saga classifies via the standard `ProvisionFailure`
+        // ladder; no AM-side fast-fail on the request shape.
+        Ok(())
+    }
+
     /// Saga step 1 — insert the root row in `provisioning` status.
     // @cpt-begin:cpt-cf-account-management-dod-platform-bootstrap-root-creation:p1:inst-dod-bootstrap-root-insert
     async fn insert_root_provisioning(
         &self,
         scope: &AccessScope,
     ) -> Result<TenantModel, DomainError> {
+        // GTS-config validation runs in the preflight phase
+        // (`preflight_root_gts_config`) so a bad `root_name` /
+        // `root_tenant_metadata` fails BEFORE the IdP availability
+        // wait. By the time we reach this method the configured
+        // values have already been gated.
+        //
         // The repo enforces the per-id uniqueness invariant; we accept
         // its `Conflict` mapping if a concurrent replica beat us to it.
         // Root tenants are the unique row with `parent_id = None` per
@@ -1080,7 +1151,7 @@ impl<R: TenantRepo> BootstrapService<R> {
                 ),
             })?
             .to_uuid();
-        let new_root = NewTenant {
+        let root_tenant = NewTenant {
             id: self.cfg.root_id,
             parent_id: None,
             name: self.cfg.root_name.clone(),
@@ -1088,7 +1159,7 @@ impl<R: TenantRepo> BootstrapService<R> {
             tenant_type_uuid,
             depth: 0,
         };
-        let inserted = self.repo.insert_provisioning(scope, &new_root).await?;
+        let inserted = self.repo.insert_provisioning(scope, &root_tenant).await?;
         // Emit the success counter only after the insert returned
         // `Ok(_)`; emitting before the await would record a phantom
         // success on every `AlreadyExists` race-loser pass.
@@ -1116,26 +1187,29 @@ impl<R: TenantRepo> BootstrapService<R> {
         // `Ok`; emitting it here would record a success on every IdP
         // call attempt regardless of outcome.
 
-        let req = ProvisionRequest {
-            tenant_id: provisioning_root.id,
-            // Root tenants have no `parent_id` per
-            // `dod-platform-bootstrap-root-creation`. The IdP contract
-            // accepts an `Option<Uuid>` for exactly this reason.
-            parent_id: None,
-            name: self.cfg.root_name.clone(),
-            tenant_type: self.cfg.root_tenant_type.clone(),
-            metadata: self.cfg.root_tenant_metadata.clone(),
-        };
+        // Root tenants are the canonical bootstrap target per
+        // `dod-platform-bootstrap-root-creation` — the SDK enum
+        // names this branch explicitly so plugin authors see
+        // "this is the root, not a missing parent".
+        let mut req = ProvisionTenantRequest::for_root(
+            provisioning_root.id,
+            self.cfg.root_name.clone(),
+            self.cfg.root_tenant_type.clone(),
+        );
+        if let Some(meta) = self.cfg.root_tenant_metadata.clone() {
+            req = req.with_metadata(meta);
+        }
         // Cap the IdP call at the bootstrap deadline so a hung
         // provider cannot stretch `module::init` past
-        // `idp_wait_timeout_secs`. Treat a timeout as
+        // `idp_wait_timeout`. Treat a timeout as
         // `IdpUnavailable` after compensating the row — the saga
         // retry loop handles that variant the same way it handles a
         // `CleanFailure`.
         match tokio::time::timeout_at(deadline, self.idp.provision_tenant(&req)).await {
             Ok(Ok(result)) => {
+                let metadata = result.metadata;
                 match self
-                    .handle_provision_success(scope, provisioning_root.id, &result.metadata_entries)
+                    .handle_provision_success(scope, provisioning_root.id, metadata.as_ref())
                     .await
                 {
                     Ok(activated) => Ok(activated),
@@ -1152,8 +1226,17 @@ impl<R: TenantRepo> BootstrapService<R> {
                         // locally while the vendor tenant is still
                         // alive turns step-3 rollback into an external
                         // orphan with no AM-side handle to clean it up.
-                        self.compensate_step3_failure(scope, provisioning_root.id, deadline)
-                            .await;
+                        //
+                        // Forward the IdP-returned metadata into the
+                        // deprovision call so the plugin sees its own
+                        // per-tenant state for vendor-side teardown.
+                        self.compensate_step3_failure(
+                            scope,
+                            provisioning_root.id,
+                            metadata.as_ref(),
+                            deadline,
+                        )
+                        .await;
                         Err(err)
                     }
                 }
@@ -1203,19 +1286,26 @@ impl<R: TenantRepo> BootstrapService<R> {
         &self,
         scope: &AccessScope,
         root_id: uuid::Uuid,
-        metadata_entries: &[ProvisionMetadataEntry],
+        idp_metadata: Option<&Value>,
     ) -> Result<TenantModel, DomainError> {
         emit_metric(
             AM_BOOTSTRAP_LIFECYCLE,
             MetricKind::Counter,
             &[("phase", "idp_provisioning"), ("outcome", "success")],
         );
+        // No AM-side schema validation of the IdP-returned blob —
+        // the plugin owns its shape end-to-end per the IdP-metadata
+        // isolation contract. The value is opaque to AM; whatever
+        // the plugin produced is persisted verbatim in
+        // `tenant_idp_metadata` and replayed via
+        // `TenantContext::metadata` on every subsequent IdP call.
+        //
         // Root tenant has no strict ancestors; closure rows
         // collapse to the self-row.
         let closure_rows = build_activation_rows(root_id, TenantStatus::Active, false, &[]);
         let activated = self
             .repo
-            .activate_tenant(scope, root_id, &closure_rows, metadata_entries)
+            .activate_tenant(scope, root_id, &closure_rows, idp_metadata)
             .await?;
         emit_metric(
             AM_BOOTSTRAP_LIFECYCLE,
@@ -1372,9 +1462,22 @@ impl<R: TenantRepo> BootstrapService<R> {
         &self,
         scope: &AccessScope,
         root_id: uuid::Uuid,
+        idp_metadata: Option<&Value>,
         deadline: Instant,
     ) {
-        let req = DeprovisionRequest { tenant_id: root_id };
+        // Build the `TenantContext` from the saga's in-scope facts:
+        // `root_id`, the configured root name/type, and whatever the
+        // plugin returned from `provision_tenant` (we just got it in
+        // `finalize`). `cfg.root_tenant_type` is the typed
+        // `GtsSchemaId` the saga already passed into the provision
+        // call, so we forward the same value here without re-parsing.
+        let tenant_context = TenantContext::new(
+            root_id,
+            self.cfg.root_name.clone(),
+            self.cfg.root_tenant_type.clone(),
+            idp_metadata.cloned(),
+        );
+        let req = DeprovisionTenantRequest::new(tenant_context);
         let idp_clean = match tokio::time::timeout_at(deadline, self.idp.deprovision_tenant(&req))
             .await
         {
@@ -1389,7 +1492,7 @@ impl<R: TenantRepo> BootstrapService<R> {
                 // "no IdP-side state retained" when the deployment
                 // explicitly opted out of an `IdP` via
                 // `cfg.idp.required = false` (the wired-in
-                // `NoopProvisioner` path). A real plugin returning
+                // `NoopIdpProvider` path). A real plugin returning
                 // this variant under `idp.required = true` signals
                 // that vendor-side state may exist but the plugin
                 // can't deprovision it — deleting the local row
@@ -1533,7 +1636,7 @@ fn handle_skip(root: TenantModel) -> TenantModel {
 
 // @cpt-begin:cpt-cf-account-management-dod-platform-bootstrap-idempotency:p1:inst-dod-bootstrap-defer-reaper
 // @cpt-begin:cpt-cf-account-management-dod-platform-bootstrap-audit-and-metrics:p1:inst-dod-bootstrap-defer-telemetry
-/// Surface a `Provisioning` root older than `2 × idp_wait_timeout_secs`
+/// Surface a `Provisioning` root older than `2 × idp_wait_timeout`
 /// (the FEATURE-§3 stuck threshold) as a non-success signal: the
 /// previous attempt crashed mid-saga, the provisioning reaper will
 /// compensate, and module init is NOT complete. Returning an error

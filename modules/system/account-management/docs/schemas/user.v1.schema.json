@@ -26,10 +26,6 @@
       "minLength": 1,
       "maxLength": 255
     },
-    "avatar_url": {
-      "type": "string",
-      "format": "uri"
-    },
     "attributes": {
       "type": "object",
       "additionalProperties": true,

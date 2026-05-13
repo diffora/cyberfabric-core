@@ -4,7 +4,7 @@
 //! invariants, retention pipeline types, the `TenantService` saga
 //! orchestrator, hard-delete cascade hooks, and the `ResourceOwnership`
 //! checker abstraction. Public input/output shapes
-//! ([`account_management_sdk::CreateChildInput`],
+//! ([`account_management_sdk::CreateTenantRequest`],
 //! [`account_management_sdk::TenantUpdate`],
 //! [`account_management_sdk::ListChildrenQuery`],
 //! [`account_management_sdk::TenantPage`],

@@ -205,22 +205,17 @@ pub fn validate_status_transition(
 }
 // @cpt-end:cpt-cf-account-management-dod-tenant-hierarchy-management-status-change-non-cascading:p1:inst-dod-status-transition-guard
 
-/// Validate that `name`, if present, falls within the `OpenAPI`
-/// `minLength: 1, maxLength: 255` bounds.
-///
-/// # Errors
-///
-/// Returns [`DomainError::Validation`] when the name is shorter than 1
-/// or longer than 255 characters (by `char` count, not byte length).
-pub fn validate_tenant_name(name: &str) -> Result<(), DomainError> {
-    let len = name.chars().count();
-    if !(1..=255).contains(&len) {
-        return Err(DomainError::Validation {
-            detail: format!("name length {len} out of range [1,255]"),
-        });
-    }
-    Ok(())
-}
+// `validate_tenant_name` was a synchronous, hardcoded `[1, 255]`
+// length check that duplicated the published `gts.cf.core.am.tenant.v1~`
+// schema. The runtime validation has moved to
+// [`crate::domain::gts_validation::validate_tenant_name_via_gts`],
+// which fetches the schema from the Types Registry at the call site
+// and runs `jsonschema::validator_for` (mirroring the
+// `cf-resource-group::validate_metadata_via_gts` pattern). Per
+// `validate_metadata_via_gts` semantics, a missing schema short-
+// circuits to `Ok(())` and the database `CHECK (length(name) BETWEEN
+// 1 AND 255)` constraint serves as the last-line guard for the
+// underlying column.
 
 /// Lift a SDK [`account_management_sdk::TenantStatus`] (3-variant,
 /// public surface) into the AM-internal 4-variant

@@ -43,5 +43,23 @@ gts = { workspace = true }
 # resolver and AM speak the same vocabulary on the public boundary.
 tenant-resolver-sdk = { workspace = true }
 
+# `IdpPluginClient::list_users` returns `modkit_odata::Page<User>` —
+# the same cursor-based pagination envelope already used by RG and
+# tenant-resolver SDKs. AM is a transparent forwarder of the
+# `Option<String>` cursor; the IdP plugin owns the cursor format
+# (filter-hash consistency, sort-key stability — see
+# `libs/modkit-odata/src/pagination.rs`) or wraps a native vendor
+# cursor (e.g. Zitadel `next_token`).
+modkit-odata = { workspace = true }
+
+# `gts-macros::struct_to_gts_schema` powers compile-time validation
+# for the `IdpPluginSpecV1` plugin-discovery type (mirrors
+# `AuthNResolverPluginSpecV1` in `authn-resolver-sdk/src/gts.rs`).
+# `modkit` ships `BaseModkitPluginV1<P>`; `schemars` is the runtime
+# JSON-Schema reflection backend the macro generates code against.
+gts-macros = { workspace = true }
+modkit = { workspace = true }
+schemars = { workspace = true }
+
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt"] }

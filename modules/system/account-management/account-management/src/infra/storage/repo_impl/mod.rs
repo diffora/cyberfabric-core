@@ -5,6 +5,7 @@
 //! [`TenantRepo`] trait dispatches to a `pub(super)` free function in
 //! the matching submodule.
 
+pub mod conversion;
 mod helpers;
 mod integrity;
 mod lifecycle;
@@ -12,16 +13,17 @@ mod reads;
 mod retention;
 mod updates;
 
+pub use conversion::ConversionRepoImpl;
+
 use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
 use modkit_db::DBProvider;
 use modkit_security::AccessScope;
+use serde_json::Value;
 use time::OffsetDateTime;
 use uuid::Uuid;
-
-use account_management_sdk::ProvisionMetadataEntry;
 
 use account_management_sdk::{ListChildrenQuery, TenantPage, TenantUpdate};
 
@@ -59,6 +61,14 @@ impl TenantRepo for TenantRepoImpl {
         reads::find_by_id(self, scope, id).await
     }
 
+    async fn find_many(
+        &self,
+        scope: &AccessScope,
+        ids: &[Uuid],
+    ) -> Result<Vec<TenantModel>, DomainError> {
+        reads::find_many(self, scope, ids).await
+    }
+
     async fn list_children(
         &self,
         scope: &AccessScope,
@@ -80,9 +90,17 @@ impl TenantRepo for TenantRepoImpl {
         scope: &AccessScope,
         tenant_id: Uuid,
         closure_rows: &[ClosureRow],
-        metadata_entries: &[ProvisionMetadataEntry],
+        idp_metadata: Option<&Value>,
     ) -> Result<TenantModel, DomainError> {
-        lifecycle::activate_tenant(self, scope, tenant_id, closure_rows, metadata_entries).await
+        lifecycle::activate_tenant(self, scope, tenant_id, closure_rows, idp_metadata).await
+    }
+
+    async fn find_idp_metadata(
+        &self,
+        scope: &AccessScope,
+        tenant_id: Uuid,
+    ) -> Result<Option<Value>, DomainError> {
+        reads::find_idp_metadata(self, scope, tenant_id).await
     }
 
     async fn compensate_provisioning(

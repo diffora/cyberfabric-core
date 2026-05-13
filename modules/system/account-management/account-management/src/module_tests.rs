@@ -14,7 +14,7 @@ use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
-use account_management_sdk::IdpTenantProvisionerClient;
+use account_management_sdk::IdpPluginClient;
 
 use crate::config::{AccountManagementConfig, ReaperConfig, RetentionConfig};
 use crate::domain::bootstrap::BootstrapConfig;
@@ -40,7 +40,7 @@ async fn run_bootstrap_phase<R: TenantRepo + 'static>(
     bootstrap: Option<BootstrapConfig>,
     idp_required: bool,
     repo: Arc<R>,
-    idp: Arc<dyn IdpTenantProvisionerClient>,
+    idp: Arc<dyn IdpPluginClient>,
     types_registry: Arc<dyn types_registry_sdk::TypesRegistryClient>,
 ) -> anyhow::Result<()> {
     let Some(boot_cfg) = bootstrap else {
@@ -81,12 +81,21 @@ async fn run_bootstrap_phase<R: TenantRepo + 'static>(
     }
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn stateful_task_shuts_down_on_cancel() {
     // Run the equivalent of `serve` (retention + reaper as two
     // independent `tokio::spawn` tasks under child tokens) and
     // prove that cancelling the root token shuts down both
     // children promptly.
+    //
+    // `start_paused = true` switches `tokio::time` to a virtual
+    // clock: `interval.tick()`, `sleep(...)`, and `timeout(...)`
+    // below all advance against virtual time. The runtime
+    // auto-advances when no task is runnable, so the "wait a
+    // couple of ticks" step is deterministic and does not consume
+    // real wall-clock time. Without the pause, the previous shape
+    // burned ~80ms of real time per test run and made the test
+    // sensitive to a slow CI runner under load.
     let root = uuid::Uuid::from_u128(0x100);
     let repo = Arc::new(FakeTenantRepo::with_root(root));
     let svc = Arc::new(TenantService::new(
@@ -195,9 +204,9 @@ fn valid_bootstrap_cfg(strict: bool) -> BootstrapConfig {
         root_name: "platform-root".into(),
         root_tenant_type: gts::GtsSchemaId::new(ROOT_TENANT_TYPE),
         root_tenant_metadata: None,
-        idp_wait_timeout_secs: 1,
-        idp_retry_backoff_initial_secs: 1,
-        idp_retry_backoff_max_secs: 1,
+        idp_wait_timeout: std::time::Duration::from_secs(1),
+        idp_retry_backoff_initial: std::time::Duration::from_secs(1),
+        idp_retry_backoff_max: std::time::Duration::from_secs(1),
         strict,
     }
 }
@@ -223,7 +232,7 @@ async fn run_bootstrap_phase_none_skips_saga() {
         None,
         false,
         repo,
-        idp.clone() as Arc<dyn IdpTenantProvisionerClient>,
+        idp.clone() as Arc<dyn IdpPluginClient>,
         registry,
     )
     .await
@@ -244,7 +253,7 @@ async fn run_bootstrap_phase_strict_invalid_config_returns_error() {
         Some(invalid_bootstrap_cfg(true)),
         false,
         repo,
-        idp.clone() as Arc<dyn IdpTenantProvisionerClient>,
+        idp.clone() as Arc<dyn IdpPluginClient>,
         registry,
     )
     .await
@@ -270,7 +279,7 @@ async fn run_bootstrap_phase_nonstrict_invalid_config_proceeds() {
         Some(invalid_bootstrap_cfg(false)),
         false,
         repo,
-        idp.clone() as Arc<dyn IdpTenantProvisionerClient>,
+        idp.clone() as Arc<dyn IdpPluginClient>,
         registry,
     )
     .await
@@ -292,7 +301,7 @@ async fn run_bootstrap_phase_valid_with_active_root_succeeds() {
         Some(valid_bootstrap_cfg(true)),
         false,
         repo,
-        idp.clone() as Arc<dyn IdpTenantProvisionerClient>,
+        idp.clone() as Arc<dyn IdpPluginClient>,
         registry,
     )
     .await
@@ -316,7 +325,7 @@ async fn run_bootstrap_phase_strict_run_failure_returns_error() {
         Some(valid_bootstrap_cfg(true)),
         false,
         repo,
-        idp.clone() as Arc<dyn IdpTenantProvisionerClient>,
+        idp.clone() as Arc<dyn IdpPluginClient>,
         registry,
     )
     .await
@@ -338,7 +347,7 @@ async fn run_bootstrap_phase_nonstrict_run_failure_proceeds() {
         Some(valid_bootstrap_cfg(false)),
         false,
         repo,
-        idp.clone() as Arc<dyn IdpTenantProvisionerClient>,
+        idp.clone() as Arc<dyn IdpPluginClient>,
         registry,
     )
     .await
@@ -394,15 +403,30 @@ fn stub_types_registry() -> Arc<dyn types_registry_sdk::TypesRegistryClient> {
         }
         async fn get_type_schema(
             &self,
-            _type_id: &str,
+            type_id: &str,
         ) -> Result<GtsTypeSchema, TypesRegistryError> {
-            Ok(GtsTypeSchema::try_new(
-                GtsTypeId::new("gts.cf.core.am.tenant_type.v1~"),
-                serde_json::json!({}),
-                None,
-                None,
-            )
-            .expect("canned root schema must construct"))
+            // Route per-id so the bootstrap-time GTS validation seam
+            // does not short-circuit before the IdP retry-loop branch
+            // these tests are designed to exercise. The AM tenant
+            // schema MUST advertise a `name` property; without it,
+            // `validate_tenant_name_via_gts` rejects `root_name` and
+            // the "valid config + CleanFailure" path never reaches
+            // `FakeOutcome::CleanFailure`.
+            let (id, body) = if type_id == "gts.cf.core.am.tenant.v1~" {
+                (
+                    "gts.cf.core.am.tenant.v1~",
+                    serde_json::json!({
+                        "type": "object",
+                        "properties": {
+                            "name": { "type": "string", "minLength": 1, "maxLength": 255 }
+                        }
+                    }),
+                )
+            } else {
+                ("gts.cf.core.am.tenant_type.v1~", serde_json::json!({}))
+            };
+            Ok(GtsTypeSchema::try_new(GtsTypeId::new(id), body, None, None)
+                .expect("canned root schema must construct"))
         }
         async fn get_type_schema_by_uuid(
             &self,

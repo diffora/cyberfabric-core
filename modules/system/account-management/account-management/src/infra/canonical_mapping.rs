@@ -40,7 +40,7 @@ use tracing::warn;
 
 use crate::domain::error::DomainError;
 use crate::infra::error_conv::{
-    is_db_availability_error, is_serialization_failure, redacted_db_diagnostic,
+    is_check_violation, is_db_availability_error, is_serialization_failure, redacted_db_diagnostic,
 };
 
 // ---------------------------------------------------------------------------
@@ -73,6 +73,13 @@ pub(crate) struct ConversionRequestResource;
 ///   `reason = "SERIALIZATION_CONFLICT"`.
 /// - Unique-violation (`23505` / `SQLite` `2067`) →
 ///   [`DomainError::AlreadyExists`].
+/// - Check-violation (`23514` / `SQLite` `275`) →
+///   [`DomainError::Validation`]. The DB-side `CHECK` predicates are
+///   the last line of defence behind the service-layer validators
+///   (which can short-circuit in degraded mode when the GTS schema
+///   is not yet registered); routing these to `Validation` keeps the
+///   public envelope at HTTP 400 instead of collapsing to a 500 the
+///   client cannot retry-correct.
 /// - Typed availability signal (pool timeout, transport drop) →
 ///   [`DomainError::ServiceUnavailable`].
 /// - Anything else → [`DomainError::Internal`] with a
@@ -101,6 +108,23 @@ pub(crate) fn classify_db_err_to_domain(db_err: DbErr) -> DomainError {
         );
         return DomainError::AlreadyExists {
             detail: "request conflicts with existing state".to_owned(),
+        };
+    }
+    if is_check_violation(&db_err) {
+        // The driver-emitted constraint name can carry schema-internal
+        // structure (`ck_tenants_root_depth`,
+        // `ck_conversion_requests_actor_invariant`) so we log it on
+        // `am.db` for operator correlation but keep the public
+        // `Validation` detail generic — the canonical-errors boundary
+        // ships `Validation::detail` straight into the public
+        // `Problem.detail` field via `with_field_violation`.
+        warn!(
+            target: "am.db",
+            error = %db_err,
+            "check-constraint violation mapped to DomainError::Validation"
+        );
+        return DomainError::Validation {
+            detail: "request violates a server-side validation constraint".to_owned(),
         };
     }
     let wrapped = DbError::Sea(db_err);

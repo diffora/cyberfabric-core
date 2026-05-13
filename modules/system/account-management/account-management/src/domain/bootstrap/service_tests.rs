@@ -57,9 +57,9 @@ fn bootstrap_cfg() -> BootstrapConfig {
         root_name: "platform-root".into(),
         root_tenant_type: gts::GtsSchemaId::new(ROOT_TENANT_TYPE),
         root_tenant_metadata: None,
-        idp_wait_timeout_secs: 1,
-        idp_retry_backoff_initial_secs: 1,
-        idp_retry_backoff_max_secs: 1,
+        idp_wait_timeout: std::time::Duration::from_secs(1),
+        idp_retry_backoff_initial: std::time::Duration::from_secs(1),
+        idp_retry_backoff_max: std::time::Duration::from_secs(1),
         strict: false,
     }
 }
@@ -87,7 +87,7 @@ fn make_bootstrap(
     let idp = Arc::new(FakeIdpProvisioner::new(outcome));
     let svc = BootstrapService::new(
         repo,
-        idp.clone() as Arc<dyn IdpTenantProvisionerClient>,
+        idp.clone() as Arc<dyn IdpPluginClient>,
         bootstrap_cfg(),
     );
     (idp, svc)
@@ -121,6 +121,31 @@ impl StubTypesRegistry {
         )
         .expect("canned root schema must construct")
     }
+
+    /// Canned `gts.cf.core.am.tenant.v1~` projection schema. Pins the
+    /// `name` field bounds (`minLength: 1, maxLength: 255`) so
+    /// [`crate::domain::gts_validation::validate_tenant_name_via_gts`]
+    /// — called from `insert_root_provisioning` — has a registered
+    /// schema to validate `cfg.root_name` against. Without this the
+    /// helper would short-circuit on `GtsTypeSchemaNotFound` and the
+    /// bounds would not gate the saga in tests.
+    fn canned_tenant_schema() -> GtsTypeSchema {
+        GtsTypeSchema::try_new(
+            GtsTypeId::new("gts.cf.core.am.tenant.v1~"),
+            serde_json::json!({
+                "type": "object",
+                "required": ["id", "name"],
+                "properties": {
+                    "id": { "type": "string", "format": "uuid" },
+                    "name": { "type": "string", "minLength": 1, "maxLength": 255 },
+                    "parent_id": { "type": ["string", "null"], "format": "uuid" },
+                },
+            }),
+            None,
+            None,
+        )
+        .expect("canned tenant schema must construct")
+    }
 }
 
 #[async_trait]
@@ -138,15 +163,21 @@ impl TypesRegistryClient for StubTypesRegistry {
         unreachable!("not exercised by bootstrap")
     }
     async fn get_type_schema(&self, type_id: &str) -> Result<GtsTypeSchema, TypesRegistryError> {
-        // Pin the requested id so a wiring regression that queries a
-        // different `root_tenant_type` than the configured one fails
-        // here loudly instead of silently passing the canned schema
-        // for an arbitrary input.
-        assert_eq!(
-            type_id, ROOT_TENANT_TYPE,
-            "bootstrap preflight must query the configured root_tenant_type"
-        );
-        Ok(Self::canned_schema())
+        // Dispatch by the two ids bootstrap consults:
+        //   * `ROOT_TENANT_TYPE` — preflight tenant-type eligibility
+        //     (`preflight_root_tenant_type`).
+        //   * `gts.cf.core.am.tenant.v1~` — `root_name` structural
+        //     validation in `insert_root_provisioning` mirroring the
+        //     `create_child` site. Any other id is a wiring regression
+        //     and trips a loud panic, same posture as the previous
+        //     single-id assertion.
+        match type_id {
+            ROOT_TENANT_TYPE => Ok(Self::canned_schema()),
+            "gts.cf.core.am.tenant.v1~" => Ok(Self::canned_tenant_schema()),
+            other => panic!(
+                "bootstrap queried unexpected type_id `{other}` (expected `{ROOT_TENANT_TYPE}` or `gts.cf.core.am.tenant.v1~`)"
+            ),
+        }
     }
     async fn get_type_schema_by_uuid(
         &self,
@@ -446,8 +477,8 @@ async fn run_exhausts_deadline_and_returns_idp_unavailable() {
     // NoRoot path: classify -> preflight -> wait -> loop. Every saga
     // attempt finishes with CleanFailure -> compensate -> IdpUnavailable.
     // tokio::time::pause() makes the per-iteration backoff sleep
-    // advance virtual time. With `idp_wait_timeout_secs = 1` and
-    // `idp_retry_backoff_initial_secs = 1`, the deadline check at
+    // advance virtual time. With `idp_wait_timeout = 1` and
+    // `idp_retry_backoff_initial = 1`, the deadline check at
     // the start of the second iteration trips immediately after the
     // first sleep completes.
     let repo = Arc::new(FakeTenantRepo::new());
@@ -505,7 +536,7 @@ async fn run_with_provision_tenant_timeout_does_not_compensate() {
     provision_entered.notified().await;
 
     // Advance virtual time past the bootstrap deadline. With
-    // `idp_wait_timeout_secs = 1` the deadline trips at 1s after
+    // `idp_wait_timeout = 1` the deadline trips at 1s after
     // run() entry; 5s is a comfortable cushion that also exceeds
     // the per-iteration backoff so any retry loop re-entry would
     // also re-trip the deadline rather than mask the timeout.
@@ -621,6 +652,58 @@ async fn run_returns_active_root_on_clean_noroot_path() {
     );
 }
 
+#[tokio::test]
+async fn run_rejects_root_name_violating_tenant_v1_schema_via_gts() {
+    // Pin the validate-before-insert fence in
+    // `insert_root_provisioning`: a configured `root_name` that
+    // violates the published `gts.cf.core.am.tenant.v1~` schema
+    // (>255 chars per the canned stub schema, mirroring the live
+    // bounds) MUST fail saga step 1 with `Validation` BEFORE any
+    // `tenants` row is written. Mirror site for
+    // `TenantService::create_child`'s GTS-name gate — without this
+    // fence the only guard for `root_name` would be the DB CHECK
+    // constraint, which leaks the bounds duplication the GTS-runtime
+    // validation pattern was introduced to eliminate.
+    let repo = Arc::new(FakeTenantRepo::new());
+    let repo_for_assert = Arc::clone(&repo);
+    let idp = Arc::new(FakeIdpProvisioner::new(FakeOutcome::Ok));
+    let mut cfg = bootstrap_cfg();
+    cfg.root_name = "x".repeat(256);
+    let svc = BootstrapService::new(repo, idp.clone() as Arc<dyn IdpPluginClient>, cfg)
+        .with_types_registry(StubTypesRegistry::arc());
+
+    let err = svc
+        .run()
+        .await
+        .expect_err("oversized root_name MUST fail GTS validation in insert step");
+
+    match &err {
+        DomainError::Validation { detail } => {
+            assert!(
+                detail.contains("name") && detail.contains("gts.cf.core.am.tenant.v1~"),
+                "Validation must name the offending field and schema, got: {detail}"
+            );
+        }
+        other => panic!("expected DomainError::Validation, got {other:?}"),
+    }
+
+    // Repo state contract: validation runs BEFORE `insert_provisioning`,
+    // so no `tenants` row materializes on the failure path.
+    assert!(
+        repo_for_assert.find_by_id_unchecked(root_id()).is_none(),
+        "GTS validation MUST gate the insert; no row may land in repo"
+    );
+
+    // IdP contract: `provision_tenant` is a saga-step-2 call that
+    // only runs after a successful step-1 insert. A validation
+    // failure at step 1 must not advance to step 2.
+    assert_eq!(
+        idp.provision_call_count(),
+        0,
+        "name-validation failure at step 1 MUST NOT advance to provision_tenant"
+    );
+}
+
 // ---------------------------------------------------------------------
 // run() ProvisioningRootResume — stuck (>2x timeout) is fail-fast,
 // in-flight (<=2x timeout) waits for the deadline.
@@ -651,7 +734,7 @@ fn seed_root_with_age(repo: &FakeTenantRepo, age_secs: i64) {
 
 #[tokio::test]
 async fn run_with_stuck_provisioning_root_fails_fast_without_idp() {
-    // `idp_wait_timeout_secs = 1` (cfg), so `stuck_threshold = 2s`.
+    // `idp_wait_timeout = 1` (cfg), so `stuck_threshold = 2s`.
     // Age = 10s > 2s → stuck branch fires.
     let repo = Arc::new(FakeTenantRepo::new());
     seed_root_with_age(&repo, 10);
@@ -681,7 +764,7 @@ async fn run_with_stuck_provisioning_root_fails_fast_without_idp() {
 
 #[tokio::test(start_paused = true)]
 async fn run_with_in_flight_provisioning_root_waits_until_deadline() {
-    // `idp_wait_timeout_secs = 1` → stuck_threshold = 2s. Age = 0
+    // `idp_wait_timeout = 1` → stuck_threshold = 2s. Age = 0
     // (just inserted) → in-flight branch. Peer never finalizes, so
     // we hit the deadline and surface IdpUnavailable.
     let repo = Arc::new(FakeTenantRepo::new());
@@ -742,10 +825,10 @@ async fn run_with_in_flight_provisioning_root_skips_when_peer_finalizes() {
     });
 
     // Advance virtual time past the in-flight branch's per-iteration
-    // sleep (1s @ `idp_retry_backoff_initial_secs`) so the next
+    // sleep (1s @ `idp_retry_backoff_initial`) so the next
     // `classify` runs and observes the now-Active row.
     //
-    // Note: 2s also breaches the 1s `idp_wait_timeout_secs` deadline
+    // Note: 2s also breaches the 1s `idp_wait_timeout` deadline
     // captured at `run()` entry. This test passes only because the
     // `ActiveRootExists` arm short-circuits with `Ok` BEFORE the
     // deadline check on the `ProvisioningRootResume` arm fires (see
@@ -806,7 +889,7 @@ async fn run_takes_over_when_peer_compensates_mid_resume_wait() {
     let idp = Arc::new(FakeIdpProvisioner::new(FakeOutcome::Ok));
     let svc = BootstrapService::new(
         repo_for_saga,
-        idp.clone() as Arc<dyn IdpTenantProvisionerClient>,
+        idp.clone() as Arc<dyn IdpPluginClient>,
         bootstrap_cfg_long_deadline(),
     )
     .with_types_registry(StubTypesRegistry::arc());
@@ -870,9 +953,9 @@ fn bootstrap_cfg_long_deadline() -> BootstrapConfig {
         root_name: "platform-root".into(),
         root_tenant_type: gts::GtsSchemaId::new(ROOT_TENANT_TYPE),
         root_tenant_metadata: None,
-        idp_wait_timeout_secs: 30,
-        idp_retry_backoff_initial_secs: 1,
-        idp_retry_backoff_max_secs: 1,
+        idp_wait_timeout: std::time::Duration::from_secs(30),
+        idp_retry_backoff_initial: std::time::Duration::from_secs(1),
+        idp_retry_backoff_max: std::time::Duration::from_secs(1),
         strict: false,
     }
 }
@@ -905,7 +988,7 @@ async fn run_aborts_after_max_already_exists_streak_when_root_id_drifts() {
     let idp = Arc::new(FakeIdpProvisioner::new(FakeOutcome::Ok));
     let svc = BootstrapService::new(
         Arc::clone(&repo),
-        idp.clone() as Arc<dyn IdpTenantProvisionerClient>,
+        idp.clone() as Arc<dyn IdpPluginClient>,
         bootstrap_cfg_long_deadline(),
     );
     let svc = svc.with_types_registry(StubTypesRegistry::arc());
@@ -952,7 +1035,7 @@ async fn step3_failure_under_idp_required_keeps_provisioning_row_on_unsupported_
 
     let svc = BootstrapService::new(
         Arc::clone(&repo),
-        idp.clone() as Arc<dyn IdpTenantProvisionerClient>,
+        idp.clone() as Arc<dyn IdpPluginClient>,
         bootstrap_cfg(),
     );
     let svc = svc

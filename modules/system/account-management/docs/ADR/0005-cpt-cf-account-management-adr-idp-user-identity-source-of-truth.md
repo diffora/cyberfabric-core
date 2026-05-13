@@ -42,7 +42,7 @@ The Cyber Ware platform uses a pluggable IdP integration model (see `cpt-cf-acco
 
 ## Considered Options
 
-1. **IdP as sole source of truth — no local user table**: AM stores no user identity data. All user existence checks, profile lookups, and tenant-scoped queries are delegated to the IdP via the `IdpProviderPluginClient` contract at operation time. User identifiers appear in AM only as IdP-issued UUID references in audit logs and as arguments passed to Resource Group.
+1. **IdP as sole source of truth — no local user table**: AM stores no user identity data. All user existence checks, profile lookups, and tenant-scoped queries are delegated to the IdP via the `IdpPluginClient` contract at operation time. User identifiers appear in AM only as IdP-issued UUID references in audit logs and as arguments passed to Resource Group.
 2. **Local user table synchronized from IdP**: AM maintains a local projection of user records (identity, profile, tenant binding) synchronized from the IdP via periodic polling or event-driven updates. The IdP remains the primary store; AM's table is a read-optimized cache.
 3. **Local user table as primary store with IdP for authentication only**: AM owns user identity data in its own database. The IdP is used solely for credential validation and token issuance. AM provisions users locally and pushes credential setup to the IdP.
 
@@ -54,7 +54,7 @@ AM references users exclusively by IdP-issued UUID user identifiers. It does not
 
 ### Consequences
 
-* AM has no `users` table and no user-related database entities. User-facing operations (provision, deprovision, list) are pure pass-through to the `IdpProviderPluginClient` contract, reducing AM's schema surface and migration burden.
+* AM has no `users` table and no user-related database entities. User-facing operations (provision, deprovision, list) are pure pass-through to the `IdpPluginClient` contract, reducing AM's schema surface and migration burden.
 * User operations are unavailable when the IdP is unreachable. The platform accepts this trade-off: tenant hierarchy reads and non-IdP-dependent admin operations (tenant CRUD, metadata resolution, children queries, status changes) continue to function during IdP outages.
 * No synchronization protocol is required between AM and the IdP. This eliminates eventual consistency windows, missed-event recovery, and provider-specific sync adapters — critical for maintaining IdP-agnostic portability.
 * GDPR data processor obligations at the AM module level are minimal: AM processes identity-linked payloads transiently during API calls but does not persist them. Right-to-erasure requests are handled entirely by the IdP.
@@ -99,7 +99,7 @@ AM references users exclusively by IdP-issued UUID user identifiers. It does not
 
 ## More Information
 
-The IdP-agnostic principle (`cpt-cf-account-management-principle-idp-agnostic`) and the IdP contract separation decision (`cpt-cf-account-management-adr-idp-contract-separation`) establish the architectural context for this ADR. The `IdpProviderPluginClient` trait defines the boundary through which AM interacts with user identity — `create_user`, `delete_user`, `list_users` are the only user data access paths.
+The IdP-agnostic principle (`cpt-cf-account-management-principle-idp-agnostic`) and the IdP contract separation decision (`cpt-cf-account-management-adr-idp-contract-separation`) establish the architectural context for this ADR. The `IdpPluginClient` trait defines the boundary through which AM interacts with user identity — `provision_user`, `deprovision_user`, `list_users` are the only user data access paths.
 
 PRD Section 3.4 (User Data Ownership) defines the ownership boundaries that this ADR formalizes as an architectural decision.
 

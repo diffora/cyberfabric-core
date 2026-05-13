@@ -7,14 +7,16 @@
     reason = "test helpers"
 )]
 
+use std::time::Duration;
+
 use super::*;
 
 #[test]
 fn deserialize_empty_table_yields_defaults() {
     let cfg: BootstrapConfig = serde_json::from_str("{}").expect("ok");
-    assert_eq!(cfg.idp_wait_timeout_secs, 300);
-    assert_eq!(cfg.idp_retry_backoff_initial_secs, 2);
-    assert_eq!(cfg.idp_retry_backoff_max_secs, 30);
+    assert_eq!(cfg.idp_wait_timeout, Duration::from_mins(5));
+    assert_eq!(cfg.idp_retry_backoff_initial, Duration::from_secs(2));
+    assert_eq!(cfg.idp_retry_backoff_max, Duration::from_secs(30));
     assert!(!cfg.strict);
 }
 
@@ -49,9 +51,9 @@ fn validate_accepts_fully_specified_config() {
             "gts.cf.core.am.tenant_type.v1~cf.core.am.platform.v1~",
         ),
         root_tenant_metadata: None,
-        idp_wait_timeout_secs: 300,
-        idp_retry_backoff_initial_secs: 2,
-        idp_retry_backoff_max_secs: 30,
+        idp_wait_timeout: Duration::from_mins(5),
+        idp_retry_backoff_initial: Duration::from_secs(2),
+        idp_retry_backoff_max: Duration::from_secs(30),
         strict: true,
     };
     cfg.validate().expect("fully-specified config is valid");
@@ -66,15 +68,15 @@ fn validate_rejects_zero_idp_wait_timeout() {
             "gts.cf.core.am.tenant_type.v1~cf.core.am.platform.v1~",
         ),
         root_tenant_metadata: None,
-        idp_wait_timeout_secs: 0,
-        idp_retry_backoff_initial_secs: 2,
-        idp_retry_backoff_max_secs: 30,
+        idp_wait_timeout: Duration::ZERO,
+        idp_retry_backoff_initial: Duration::from_secs(2),
+        idp_retry_backoff_max: Duration::from_secs(30),
         strict: true,
     };
     let err = cfg
         .validate()
-        .expect_err("zero idp_wait_timeout_secs must reject");
-    assert!(err.contains("idp_wait_timeout_secs"), "got: {err}");
+        .expect_err("zero idp_wait_timeout must reject");
+    assert!(err.contains("idp_wait_timeout"), "got: {err}");
     assert!(err.contains("> 0"), "got: {err}");
 }
 
@@ -88,19 +90,18 @@ fn validate_rejects_idp_wait_timeout_above_cap() {
         ),
         root_tenant_metadata: None,
         // One past the documented cap; with no upper bound the
-        // deadline math `Instant::now() + Duration::from_secs(value)`
-        // and the cast `i64::try_from(value * 2)` would both go
-        // unchecked.
-        idp_wait_timeout_secs: MAX_IDP_WAIT_TIMEOUT_SECS + 1,
-        idp_retry_backoff_initial_secs: 2,
-        idp_retry_backoff_max_secs: 30,
+        // deadline math `Instant::now() + idp_wait_timeout` and the
+        // cast `i64::try_from(secs * 2)` would both go unchecked.
+        idp_wait_timeout: MAX_IDP_WAIT_TIMEOUT + Duration::from_secs(1),
+        idp_retry_backoff_initial: Duration::from_secs(2),
+        idp_retry_backoff_max: Duration::from_secs(30),
         strict: true,
     };
     let err = cfg
         .validate()
-        .expect_err("idp_wait_timeout_secs above cap must reject");
-    assert!(err.contains("idp_wait_timeout_secs"), "got: {err}");
-    assert!(err.contains("<= 86400"), "got: {err}");
+        .expect_err("idp_wait_timeout above cap must reject");
+    assert!(err.contains("idp_wait_timeout"), "got: {err}");
+    assert!(err.contains("<= 1h"), "got: {err}");
 }
 
 #[test]
@@ -112,9 +113,9 @@ fn validate_accepts_idp_wait_timeout_at_cap() {
             "gts.cf.core.am.tenant_type.v1~cf.core.am.platform.v1~",
         ),
         root_tenant_metadata: None,
-        idp_wait_timeout_secs: MAX_IDP_WAIT_TIMEOUT_SECS,
-        idp_retry_backoff_initial_secs: 2,
-        idp_retry_backoff_max_secs: 30,
+        idp_wait_timeout: MAX_IDP_WAIT_TIMEOUT,
+        idp_retry_backoff_initial: Duration::from_secs(2),
+        idp_retry_backoff_max: Duration::from_secs(30),
         strict: true,
     };
     cfg.validate().expect("value at cap must be accepted");
@@ -129,11 +130,11 @@ fn validate_rejects_inverted_backoff_envelope() {
             "gts.cf.core.am.tenant_type.v1~cf.core.am.platform.v1~",
         ),
         root_tenant_metadata: None,
-        idp_wait_timeout_secs: 300,
-        idp_retry_backoff_initial_secs: 60,
-        idp_retry_backoff_max_secs: 30,
+        idp_wait_timeout: Duration::from_mins(5),
+        idp_retry_backoff_initial: Duration::from_mins(1),
+        idp_retry_backoff_max: Duration::from_secs(30),
         strict: true,
     };
     let err = cfg.validate().expect_err("max < initial must reject");
-    assert!(err.contains("idp_retry_backoff_max_secs"), "got: {err}");
+    assert!(err.contains("idp_retry_backoff_max"), "got: {err}");
 }

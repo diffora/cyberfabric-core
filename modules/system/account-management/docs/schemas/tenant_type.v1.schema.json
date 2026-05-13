@@ -14,7 +14,7 @@
         "default": []
       },
       "idp_provisioning": {
-        "description": "Whether tenants of this type typically require dedicated IdP-side resources. Account Management still calls IdpProviderPluginClient::provision_tenant and deprovision_tenant; provider implementations may use this trait to decide whether to create resources or complete as a no-op.",
+        "description": "Whether tenants of this type typically require dedicated IdP-side resources. Account Management still calls IdpPluginClient::provision_tenant and deprovision_tenant; provider implementations may use this trait to decide whether to create resources or complete as a no-op.",
         "type": "boolean",
         "default": false
       }

@@ -25,10 +25,11 @@ use std::time::Duration;
 use async_trait::async_trait;
 use modkit_macros::domain_model;
 use modkit_security::AccessScope;
+use serde_json::Value;
 use time::OffsetDateTime;
 use uuid::Uuid;
 
-use account_management_sdk::{ListChildrenQuery, ProvisionMetadataEntry, TenantPage, TenantUpdate};
+use account_management_sdk::{ListChildrenQuery, TenantPage, TenantUpdate};
 
 use crate::domain::error::DomainError;
 use crate::domain::tenant::closure::ClosureRow;
@@ -79,7 +80,12 @@ pub enum NextAuditOutcome {
 pub struct RepoState {
     pub tenants: HashMap<Uuid, TenantModel>,
     pub closure: Vec<ClosureRow>,
-    pub metadata: Vec<(Uuid, ProvisionMetadataEntry)>,
+    /// Mirror of `tenant_idp_metadata` — one entry per activated
+    /// tenant; the value is `None` when the `IdP` plugin returned no
+    /// per-tenant state from `ProvisionResult::metadata`. Tests that
+    /// drive the user-ops path can seed entries directly to script
+    /// the blob `TenantContext::metadata` carries on each `IdP` call.
+    pub idp_metadata: HashMap<Uuid, Option<Value>>,
     /// Phase 3 — per-tenant retention metadata mirroring the columns
     /// added in migration `0002_add_retention_columns.sql`.
     pub retention: HashMap<Uuid, (OffsetDateTime, Option<Duration>)>,
@@ -165,6 +171,29 @@ impl FakeTenantRepo {
 
     pub fn snapshot_closure(&self) -> Vec<ClosureRow> {
         self.state.lock().expect("lock").closure.clone()
+    }
+
+    /// Push one [`ClosureRow`] directly into the fake's closure
+    /// storage. Used by tests that seed a hand-built tree to assert
+    /// closure-mutating service paths (conversion approval, status
+    /// flips) without going through the production saga that would
+    /// otherwise materialize closure rows. Mirrors `insert_tenant_raw`
+    /// in shape — bypasses the production write path on purpose so
+    /// tests can stage state that wouldn't be reachable through the
+    /// repo's regular trait surface.
+    pub fn seed_closure(
+        &self,
+        ancestor_id: Uuid,
+        descendant_id: Uuid,
+        barrier: i16,
+        descendant_status: TenantStatus,
+    ) {
+        self.state.lock().expect("lock").closure.push(ClosureRow {
+            ancestor_id,
+            descendant_id,
+            barrier,
+            descendant_status: descendant_status.as_smallint(),
+        });
     }
 
     /// Direct row lookup that bypasses the `AccessScope` visibility
@@ -433,6 +462,44 @@ impl TenantRepo for FakeTenantRepo {
         Ok(state.tenants.get(&id).cloned())
     }
 
+    async fn find_many(
+        &self,
+        scope: &AccessScope,
+        ids: &[Uuid],
+    ) -> Result<Vec<TenantModel>, DomainError> {
+        if ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        // Mirror the production de-dup: a caller-supplied id slice
+        // with duplicates collapses to one row per unique id.
+        let mut deduped: Vec<Uuid> = ids.to_vec();
+        deduped.sort_unstable();
+        deduped.dedup();
+
+        let state = self.state.lock().expect("lock");
+        let visible = visible_ids_for(&state, scope);
+        let mut out = Vec::with_capacity(deduped.len());
+        for id in deduped {
+            if let Some(ref vis) = visible
+                && !vis.contains(&id)
+            {
+                continue;
+            }
+            // Mirror the production `find_many`'s `deleted_at IS NULL`
+            // filter — a soft-deleted row MUST NOT surface through the
+            // batch lookup so the parent listing's live-name fallback
+            // path stays exercised in tests. `find_by_id` is
+            // intentionally broader (it returns soft-deleted rows too)
+            // and that asymmetry is documented on the trait.
+            if let Some(t) = state.tenants.get(&id)
+                && t.deleted_at.is_none()
+            {
+                out.push(t.clone());
+            }
+        }
+        Ok(out)
+    }
+
     async fn list_children(
         &self,
         scope: &AccessScope,
@@ -465,12 +532,7 @@ impl TenantRepo for FakeTenantRepo {
         let skip = usize::try_from(query.skip).unwrap_or(usize::MAX);
         let top = usize::try_from(query.top()).unwrap_or(usize::MAX);
         let paged: Vec<TenantModel> = items.into_iter().skip(skip).take(top).collect();
-        Ok(TenantPage {
-            items: paged,
-            top: query.top(),
-            skip: query.skip,
-            total: Some(total),
-        })
+        Ok(TenantPage::new(paged, query.top(), query.skip, Some(total)))
     }
 
     async fn insert_provisioning(
@@ -535,7 +597,7 @@ impl TenantRepo for FakeTenantRepo {
         _scope: &AccessScope,
         tenant_id: Uuid,
         closure_rows: &[ClosureRow],
-        metadata_entries: &[ProvisionMetadataEntry],
+        idp_metadata: Option<&Value>,
     ) -> Result<TenantModel, DomainError> {
         let mut state = self.state.lock().expect("lock");
         // F3 — finalization-TX failure injection: consume the typed
@@ -590,13 +652,17 @@ impl TenantRepo for FakeTenantRepo {
         tenant.status = TenantStatus::Active;
         let activated = tenant.clone();
         state.closure.extend(closure_rows.iter().cloned());
-        state.metadata.extend(
-            metadata_entries
-                .iter()
-                .cloned()
-                .map(|entry| (tenant_id, entry)),
-        );
+        state.idp_metadata.insert(tenant_id, idp_metadata.cloned());
         Ok(activated)
+    }
+
+    async fn find_idp_metadata(
+        &self,
+        _scope: &AccessScope,
+        tenant_id: Uuid,
+    ) -> Result<Option<Value>, DomainError> {
+        let state = self.state.lock().expect("lock");
+        Ok(state.idp_metadata.get(&tenant_id).cloned().flatten())
     }
 
     async fn compensate_provisioning(
@@ -1068,7 +1134,7 @@ impl TenantRepo for FakeTenantRepo {
         state
             .closure
             .retain(|r| r.ancestor_id != id && r.descendant_id != id);
-        state.metadata.retain(|(tid, _)| *tid != id);
+        state.idp_metadata.remove(&id);
         state.tenants.remove(&id);
         state.retention.remove(&id);
         state.claims.remove(&id);
@@ -1398,7 +1464,7 @@ mod repo_contract_tests {
         let closure_rows = build_activation_rows(child, TenantStatus::Active, false, &[root_model]);
 
         let err = repo
-            .activate_tenant(&AccessScope::allow_all(), child, &closure_rows, &[])
+            .activate_tenant(&AccessScope::allow_all(), child, &closure_rows, None)
             .await
             .expect_err("activation must reject reaper-claimed row");
         assert!(
@@ -1446,7 +1512,7 @@ mod repo_contract_tests {
         let closure_rows = build_activation_rows(child, TenantStatus::Active, false, &[root_model]);
 
         let err = repo
-            .activate_tenant(&AccessScope::allow_all(), child, &closure_rows, &[])
+            .activate_tenant(&AccessScope::allow_all(), child, &closure_rows, None)
             .await
             .expect_err("activation must reject terminal-stamped row");
         assert!(

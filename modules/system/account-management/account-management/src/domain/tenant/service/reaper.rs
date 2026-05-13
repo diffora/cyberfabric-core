@@ -1,7 +1,7 @@
 //! Provisioning-reaper tick on `TenantService` —
 //! `reap_stuck_provisioning`. Cleanup is performed **directly**
 //! against the `tenants` row: a successful (or success-equivalent)
-//! `IdpTenantProvisionerClient::deprovision_tenant` call is followed
+//! `IdpPluginClient::deprovision_tenant` call is followed
 //! by an immediate hard-delete via `repo.compensate_provisioning()`,
 //! bypassing the soft-delete + retention pipeline entirely (see
 //! `compensate_provisioning_row`). This keeps stuck-`Provisioning`
@@ -22,7 +22,7 @@
 //! crash recovery, stale claim takeover).
 //!
 //! Retry / backoff / circuit-breaker policy is owned by the
-//! [`account_management_sdk::IdpTenantProvisionerClient`]
+//! [`account_management_sdk::IdpPluginClient`]
 //! implementation — a `Retryable` return signals that the plugin
 //! has exhausted its own retry budget for that call, and AM simply
 //! defers the row to the next reaper tick (default 30 s).
@@ -35,7 +35,7 @@ use modkit_security::AccessScope;
 use time::OffsetDateTime;
 use tracing::warn;
 
-use account_management_sdk::{DeprovisionFailure, DeprovisionRequest};
+use account_management_sdk::{DeprovisionFailure, DeprovisionTenantRequest};
 
 use crate::domain::metrics::{AM_TENANT_RETENTION, MetricKind, emit_metric};
 use crate::domain::tenant::repo::TenantRepo;
@@ -255,9 +255,36 @@ impl<R: TenantRepo> TenantService<R> {
         reason = "DeprovisionFailure is #[non_exhaustive]; the wildcard guards against future SDK variants"
     )]
     async fn classify_deprovision(&self, tenant_id: uuid::Uuid) -> ReaperOutcome {
+        let tenant_context = match self.load_tenant_context(tenant_id).await {
+            Ok(ctx) => ctx,
+            Err(err) => {
+                // Could not assemble the context — typically a
+                // types-registry blip or a missing row.
+                // Deprovision_tenant cannot proceed without a typed
+                // tenant_type per the SDK contract, so defer the
+                // row to the next tick and release the claim. A
+                // peer (or this worker on retry) will try again
+                // once the registry recovers.
+                warn!(
+                    target: "am.retention",
+                    tenant_id = %tenant_id,
+                    error = %err,
+                    "reaper: failed to assemble TenantContext for deprovision_tenant; deferring row"
+                );
+                emit_metric(
+                    AM_TENANT_RETENTION,
+                    MetricKind::Counter,
+                    &[
+                        ("job", "provisioning_reaper"),
+                        ("outcome", "context_load_failed"),
+                    ],
+                );
+                return ReaperOutcome::Defer;
+            }
+        };
         match self
             .idp
-            .deprovision_tenant(&DeprovisionRequest { tenant_id })
+            .deprovision_tenant(&DeprovisionTenantRequest::new(tenant_context))
             .await
         {
             Ok(()) => ReaperOutcome::Compensable("compensated"),
@@ -265,7 +292,7 @@ impl<R: TenantRepo> TenantService<R> {
                 // `UnsupportedOperation` is only safe to treat as
                 // compensable when the deployment opted out of an
                 // IdP entirely (`cfg.idp.required = false` → wired
-                // to `NoopProvisioner`). A real plugin returning
+                // to `NoopIdpProvider`). A real plugin returning
                 // this is signalling that it cannot perform
                 // deprovision but external state may exist — hard-
                 // deleting the AM row would orphan that vendor-side

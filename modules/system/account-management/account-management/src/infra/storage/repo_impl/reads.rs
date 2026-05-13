@@ -8,13 +8,14 @@
 use modkit_db::secure::SecureEntityExt;
 use modkit_security::AccessScope;
 use sea_orm::{ColumnTrait, Condition, EntityTrait, Order};
+use serde_json::Value;
 use uuid::Uuid;
 
 use account_management_sdk::{ListChildrenQuery, TenantPage};
 
 use crate::domain::error::DomainError;
 use crate::domain::tenant::model::{ChildCountFilter, TenantModel, TenantStatus};
-use crate::infra::storage::entity::{tenant_closure, tenants};
+use crate::infra::storage::entity::{tenant_closure, tenant_idp_metadata, tenants};
 
 use super::TenantRepoImpl;
 use super::helpers::{entity_to_model, id_eq, map_scope_err};
@@ -36,6 +37,69 @@ pub(super) async fn find_by_id(
         Some(r) => Ok(Some(entity_to_model(r)?)),
         None => Ok(None),
     }
+}
+
+/// Load the opaque plugin-private metadata blob AM stamped at
+/// `activate_tenant` time. Returns `None` when no row exists for
+/// `tenant_id`, or when the row's `metadata` column is SQL NULL
+/// (plugin reported no per-tenant state).
+///
+/// AM never interprets the JSON shape; the value flows straight
+/// into [`account_management_sdk::TenantContext::metadata`] on the
+/// next `IdP` call for this tenant.
+pub(super) async fn find_idp_metadata(
+    repo: &TenantRepoImpl,
+    scope: &AccessScope,
+    tenant_id: Uuid,
+) -> Result<Option<Value>, DomainError> {
+    let conn = repo.db.conn()?;
+    let row = tenant_idp_metadata::Entity::find()
+        .secure()
+        .scope_with(scope)
+        .filter(Condition::all().add(tenant_idp_metadata::Column::TenantId.eq(tenant_id)))
+        .one(&conn)
+        .await
+        .map_err(map_scope_err)?;
+    Ok(row.and_then(|r| r.metadata))
+}
+
+pub(super) async fn find_many(
+    repo: &TenantRepoImpl,
+    scope: &AccessScope,
+    ids: &[Uuid],
+) -> Result<Vec<TenantModel>, DomainError> {
+    if ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    // Deduplicate caller-supplied ids so the resulting `IN (...)` clause
+    // does not re-query the same row on its behalf.
+    let mut deduped: Vec<Uuid> = ids.to_vec();
+    deduped.sort_unstable();
+    deduped.dedup();
+
+    let conn = repo.db.conn()?;
+    let rows = tenants::Entity::find()
+        .secure()
+        .scope_with(scope)
+        .filter(
+            Condition::all()
+                .add(tenants::Column::Id.is_in(deduped))
+                .add(tenants::Column::DeletedAt.is_null()),
+        )
+        // Stable id-asc ordering so the returned Vec matches the
+        // already-sorted-deduped `deduped` input layout. Without an
+        // explicit `ORDER BY`, callers that zip / pair against the
+        // sorted input (or that rely on deterministic test output)
+        // see engine-dependent row order on Postgres.
+        .order_by(tenants::Column::Id, Order::Asc)
+        .all(&conn)
+        .await
+        .map_err(map_scope_err)?;
+    let mut out = Vec::with_capacity(rows.len());
+    for r in rows {
+        out.push(entity_to_model(r)?);
+    }
+    Ok(out)
 }
 
 pub(super) async fn list_children(
@@ -101,12 +165,7 @@ pub(super) async fn list_children(
         items.push(entity_to_model(r)?);
     }
 
-    Ok(TenantPage {
-        items,
-        top: query.top(),
-        skip: query.skip,
-        total: Some(total),
-    })
+    Ok(TenantPage::new(items, query.top(), query.skip, Some(total)))
 }
 
 pub(super) async fn count_children(

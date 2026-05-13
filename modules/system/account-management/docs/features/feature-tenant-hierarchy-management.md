@@ -255,7 +255,7 @@ Provides the core tenant CRUD surface the platform is built around: the hierarch
 6. [ ] - `p1` - **IF** depth evaluation returned strict-reject - `inst-algo-saga-depth-reject`
    1. [ ] - `p1` - **RETURN** `CanonicalError::FailedPrecondition` (HTTP 400) with `reason=TENANT_DEPTH_EXCEEDED` - `inst-algo-saga-depth-return`
 7. [ ] - `p1` - **Saga step 1 (short TX)** — insert the tenant row with `status=provisioning`, `parent_id`, `tenant_type`, `self_managed`, `depth = parent.depth + 1`; commit. NO `tenant_closure` rows are written at this step - `inst-algo-saga-step1-insert-provisioning`
-8. [ ] - `p1` - **Saga step 2 (no open TX)** — invoke `IdpProviderPluginClient::provision_tenant(child_id, name, type, parent_id, metadata)` - `inst-algo-saga-step2-idp-call`
+8. [ ] - `p1` - **Saga step 2 (no open TX)** — invoke `IdpPluginClient::provision_tenant(child_id, name, type, parent_id, metadata)` - `inst-algo-saga-step2-idp-call`
 9. [ ] - `p1` - **IF** step 2 returned a clean provider failure (AM can prove no IdP-side state retained) - `inst-algo-saga-step2-clean-fail`
    1. [ ] - `p1` - **Compensating TX** — delete the `provisioning` row for `{child_id}` (guard on `status=provisioning` to avoid racing an unrelated row); NO closure cleanup because no closure rows were written; commit - `inst-algo-saga-compensate-clean`
    2. [ ] - `p1` - **RETURN** compensated-idp-failure (`idp_unavailable`) per `fr-idp-tenant-provision-failure` - `inst-algo-saga-compensate-return`
@@ -345,7 +345,7 @@ Provides the core tenant CRUD surface the platform is built around: the hierarch
 
 1. [ ] - `p1` - Scan `dbtable-tenants` for rows with `status=deleted` whose soft-delete timestamp + retention period ≤ now - `inst-algo-hdel-scan-due`
 2. [ ] - `p1` - **FOR EACH** due tenant, ordered by `depth DESC` (leaf-first) - `inst-algo-hdel-for-each`
-   1. [ ] - `p1` - Invoke `IdpProviderPluginClient::deprovision_tenant({tenant_id})` per `fr-idp-tenant-deprovision`; treat already-absent as success - `inst-algo-hdel-idp-deprovision`
+   1. [ ] - `p1` - Invoke `IdpPluginClient::deprovision_tenant({tenant_id})` per `fr-idp-tenant-deprovision`; treat already-absent as success - `inst-algo-hdel-idp-deprovision`
    2. [ ] - `p1` - **IF** deprovision returned a terminal failure - `inst-algo-hdel-idp-fail`
       1. [ ] - `p1` - Emit `dependency_health` metric increment with `target=idp` and `op=deprovision_tenant`; emit `actor=system` audit via `errors-observability` `algo-audit-emission`; defer to next tick (do not proceed to DB delete on this tenant) - `inst-algo-hdel-idp-defer`
    3. [ ] - `p1` - **ELSE** begin transaction and re-check whether any child row still references this tenant as its parent under the same write isolation used for the delete - `inst-algo-hdel-child-guard`
@@ -366,7 +366,7 @@ Provides the core tenant CRUD surface the platform is built around: the hierarch
 
 1. [ ] - `p1` - Scan `dbtable-tenants` for rows with `status=provisioning` whose provisioning-start timestamp + provisioning-timeout ≤ now - `inst-algo-reap-scan`
 2. [ ] - `p1` - **FOR EACH** stale provisioning tenant - `inst-algo-reap-for-each`
-   1. [ ] - `p1` - Invoke `IdpProviderPluginClient::deprovision_tenant({tenant_id})`; idempotent (already-absent is success) per `fr-idp-tenant-deprovision` - `inst-algo-reap-idp-deprovision`
+   1. [ ] - `p1` - Invoke `IdpPluginClient::deprovision_tenant({tenant_id})`; idempotent (already-absent is success) per `fr-idp-tenant-deprovision` - `inst-algo-reap-idp-deprovision`
    2. [ ] - `p1` - **IF** deprovision returns retryable or terminal failure - `inst-algo-reap-idp-fail`
       1. [ ] - `p1` - Retain the `provisioning` row, emit `dependency_health` and `tenant_retention` telemetry, and defer this tenant to the next tick or operator remediation. The `actor=system` audit emission required by `cpt-cf-account-management-nfr-audit-completeness` is **deferred to a follow-up** pending the platform append-only audit sink; until then, a structured log on the `am.events` target stands in for the audit envelope - `inst-algo-reap-defer`
    3. [ ] - `p1` - **ELSE** deprovision succeeded or found already-absent state - `inst-algo-reap-idp-ok`
@@ -428,7 +428,7 @@ Provides the core tenant CRUD surface the platform is built around: the hierarch
 
 - [x] `p1` - **ID**: `cpt-cf-account-management-dod-tenant-hierarchy-management-create-child-tenant-saga`
 
-The module **MUST** implement child-tenant creation as a three-step saga exactly matching DESIGN `seq-create-child`: (1) short TX inserting the tenant row with `status=provisioning` and NO `tenant_closure` rows; (2) `IdpProviderPluginClient::provision_tenant` call outside any open transaction; (3) short finalization TX persisting any provider-returned metadata, updating `tenants.status=active`, and inserting closure rows via `algo-closure-maintenance` activation branch. IdP failures classified as clean compensable (`idp_unavailable`) **MUST** trigger a compensating TX that deletes the `provisioning` row. Finalization failures after IdP success **MUST** leave the `provisioning` row for the reaper; AM **MUST NOT** retry finalization. `POST /tenants` remains intentionally non-idempotent: only the compensated-`idp_unavailable` path is retry-safe.
+The module **MUST** implement child-tenant creation as a three-step saga exactly matching DESIGN `seq-create-child`: (1) short TX inserting the tenant row with `status=provisioning` and NO `tenant_closure` rows; (2) `IdpPluginClient::provision_tenant` call outside any open transaction; (3) short finalization TX persisting any provider-returned metadata, updating `tenants.status=active`, and inserting closure rows via `algo-closure-maintenance` activation branch. IdP failures classified as clean compensable (`idp_unavailable`) **MUST** trigger a compensating TX that deletes the `provisioning` row. Finalization failures after IdP success **MUST** leave the `provisioning` row for the reaper; AM **MUST NOT** retry finalization. `POST /tenants` remains intentionally non-idempotent: only the compensated-`idp_unavailable` path is retry-safe.
 
 **Implements**:
 
@@ -440,7 +440,7 @@ The module **MUST** implement child-tenant creation as a three-step saga exactly
 - Component: `cpt-cf-account-management-component-tenant-service`
 - DB: `cpt-cf-account-management-dbtable-tenants`, `cpt-cf-account-management-dbtable-tenant-closure`
 - API: `POST /api/account-management/v1/tenants` (`createTenant`)
-- IdP contract: `IdpProviderPluginClient::provision_tenant`
+- IdP contract: `IdpPluginClient::provision_tenant`
 - Sequence: `cpt-cf-account-management-seq-create-child`
 
 ### Closure-Table Invariants
@@ -538,7 +538,7 @@ The DELETE flow **MUST** reject root-tenant deletion with `CanonicalError::Inval
 
 - [x] `p1` - **ID**: `cpt-cf-account-management-dod-tenant-hierarchy-management-hard-delete-leaf-first`
 
-Hard-deletion **MUST** run after the configurable retention period (default 90 days) via a background job that processes due tenants in `depth DESC` order so a parent is never hard-deleted while it still has `tenants` children (avoids FK violation and orphan rows). Each tenant **MUST** have `IdpProviderPluginClient::deprovision_tenant` invoked before its `tenants` row is removed; an IdP terminal failure **MUST** defer the DB delete to the next tick, emit the `dependency_health` metric, and emit `actor=system` audit. On success, the `tenant_closure` rows where this tenant is descendant **MUST** be removed atomically with the `tenants` row.
+Hard-deletion **MUST** run after the configurable retention period (default 90 days) via a background job that processes due tenants in `depth DESC` order so a parent is never hard-deleted while it still has `tenants` children (avoids FK violation and orphan rows). Each tenant **MUST** have `IdpPluginClient::deprovision_tenant` invoked before its `tenants` row is removed; an IdP terminal failure **MUST** defer the DB delete to the next tick, emit the `dependency_health` metric, and emit `actor=system` audit. On success, the `tenant_closure` rows where this tenant is descendant **MUST** be removed atomically with the `tenants` row.
 
 **Implements**:
 
@@ -546,7 +546,7 @@ Hard-deletion **MUST** run after the configurable retention period (default 90 d
 
 **Touches**:
 
-- IdP contract: `IdpProviderPluginClient::deprovision_tenant`
+- IdP contract: `IdpPluginClient::deprovision_tenant`
 - DB: `cpt-cf-account-management-dbtable-tenants`, `cpt-cf-account-management-dbtable-tenant-closure`
 - Metric families: `dependency_health`, `tenant_retention` (catalog owned by `errors-observability`)
 
@@ -585,7 +585,7 @@ GET `/tenants/{tenant_id}/children` **MUST** return direct children (single-leve
 
 - [x] `p1` - **ID**: `cpt-cf-account-management-dod-tenant-hierarchy-management-idp-tenant-provision`
 
-Every successful tenant creation **MUST** invoke `IdpProviderPluginClient::provision_tenant` (saga step 2) with the tenant identity and deployment-supplied provisioning context; providers **MUST NOT** silently no-op on this mutating operation. Any provider-returned metadata entries **MUST** be persisted into `dbtable-tenant-metadata` inside the finalization TX (saga step 3).
+Every successful tenant creation **MUST** invoke `IdpPluginClient::provision_tenant` (saga step 2) with the tenant identity and deployment-supplied provisioning context; providers **MUST NOT** silently no-op on this mutating operation. Any provider-returned metadata entries **MUST** be persisted into `dbtable-tenant-metadata` inside the finalization TX (saga step 3).
 
 **Implements**:
 
@@ -593,7 +593,7 @@ Every successful tenant creation **MUST** invoke `IdpProviderPluginClient::provi
 
 **Touches**:
 
-- IdP contract: `IdpProviderPluginClient::provision_tenant`
+- IdP contract: `IdpPluginClient::provision_tenant`
 - DB: `cpt-cf-account-management-dbtable-tenant-metadata` (persist only; schema owned by `tenant-metadata`)
 
 ### IdP Tenant-Provisioning-Failure Contract
@@ -609,14 +609,14 @@ Provisioning failures **MUST** surface as one of two deterministic categories pe
 
 **Touches**:
 
-- IdP contract: `IdpProviderPluginClient::provision_tenant` / `deprovision_tenant`
+- IdP contract: `IdpPluginClient::provision_tenant` / `deprovision_tenant`
 - Error taxonomy: `errors-observability` `idp_unavailable` + `internal` categories
 
 ### IdP Tenant-Deprovision Contract
 
 - [x] `p1` - **ID**: `cpt-cf-account-management-dod-tenant-hierarchy-management-idp-tenant-deprovision`
 
-Hard-delete **MUST** invoke `IdpProviderPluginClient::deprovision_tenant` before removing the `tenants` row; already-absent is treated as success. The provisioning reaper **MUST** also invoke `deprovision_tenant` when compensating stuck `provisioning` rows. Deprovisioning **MUST NOT** run at soft-delete time — IdP resources remain available throughout the retention window to permit recovery flows.
+Hard-delete **MUST** invoke `IdpPluginClient::deprovision_tenant` before removing the `tenants` row; already-absent is treated as success. The provisioning reaper **MUST** also invoke `deprovision_tenant` when compensating stuck `provisioning` rows. Deprovisioning **MUST NOT** run at soft-delete time — IdP resources remain available throughout the retention window to permit recovery flows.
 
 **Implements**:
 
@@ -625,7 +625,7 @@ Hard-delete **MUST** invoke `IdpProviderPluginClient::deprovision_tenant` before
 
 **Touches**:
 
-- IdP contract: `IdpProviderPluginClient::deprovision_tenant`
+- IdP contract: `IdpPluginClient::deprovision_tenant`
 
 ### Hierarchy-Integrity Diagnostics
 
@@ -686,7 +686,7 @@ Tenant end-of-life **MUST** flow soft-delete → retention window → leaf-first
 **Touches**:
 
 - DB: `cpt-cf-account-management-dbtable-tenants`, `cpt-cf-account-management-dbtable-tenant-closure`, `dbtable-tenant-metadata` (cascade)
-- IdP contract: `IdpProviderPluginClient::deprovision_tenant`
+- IdP contract: `IdpPluginClient::deprovision_tenant`
 
 ### Production Scale Envelope
 
@@ -735,7 +735,7 @@ Hierarchy-mutating operations on overlapping scopes **MUST** resolve with determ
 - [ ] **Post-service-wiring target**: DELETE on the root tenant returns `CanonicalError::InvalidArgument` (HTTP 400) with `reason=ROOT_TENANT_CANNOT_DELETE`; DELETE on a tenant with a non-deleted child returns `CanonicalError::FailedPrecondition` (HTTP 400) with `reason=TENANT_HAS_CHILDREN`; DELETE on a tenant with remaining Resource-Group-owned resources returns `CanonicalError::FailedPrecondition` (HTTP 400) with `reason=TENANT_HAS_RESOURCES`; DELETE on a childless, resource-free non-root tenant transitions `tenants.status=deleted` and rewrites `tenant_closure.descendant_status=deleted` atomically. *Current behavior*: the `TENANT_HAS_RESOURCES` arm fires once the AM module entry-point binds `RgResourceOwnershipChecker` via `ClientHub` (the `#1626` filter whitelist has shipped) — see the §5 DoD note for details.
 - [ ] GET `/tenants/{id}` for a tenant in internal `provisioning` state returns `CanonicalError::NotFound` (HTTP 404); GET for an SDK-visible tenant returns `200` with `tenant_type` re-hydrated to the public chained identifier.
 - [ ] GET `/tenants/{id}/children` returns direct children only (no transitive descendants), paginated with a next-cursor, filtered by the optional `status` parameter, and never surfaces `provisioning` rows.
-- [ ] After retention expiry, the hard-delete background job processes due tenants in `depth DESC` order; a parent is not hard-deleted while any `tenants` child still exists; `IdpProviderPluginClient::deprovision_tenant` is invoked exactly once per tenant before its `tenants` row is removed; closure rows where `descendant_id = tenant_id` are deleted in the same transaction as the `tenants` row delete.
+- [ ] After retention expiry, the hard-delete background job processes due tenants in `depth DESC` order; a parent is not hard-deleted while any `tenants` child still exists; `IdpPluginClient::deprovision_tenant` is invoked exactly once per tenant before its `tenants` row is removed; closure rows where `descendant_id = tenant_id` are deleted in the same transaction as the `tenants` row delete.
 - [ ] A synthetic IdP `deprovision_tenant` terminal failure during hard-delete leaves the `tenants` row intact, emits a `dependency_health` metric increment labeled `target=idp, op=deprovision_tenant`, emits an `actor=system` audit via `errors-observability`, and retries on the next scheduler tick.
 - [ ] A retention tick where a due child is deferred because `deprovision_tenant` failed and the parent is also due keeps the parent `tenants` row intact because the in-transaction child-existence guard observes the remaining child; the parent emits deferred-cleanup telemetry and is retried on a later tick.
 - [ ] A synthetic IdP `deprovision_tenant` retryable or terminal failure during provisioning-reaper compensation retains the `status=provisioning` row, emits `dependency_health` and `tenant_retention` telemetry, and retries or requires operator remediation without deleting AM's compensating state. The full `actor=system` audit via `errors-observability` is **deferred to a follow-up** pending the platform append-only audit sink; the v1 stand-in is the structured `am.events` log emitted from the defer path (see `inst-algo-reap-defer`).

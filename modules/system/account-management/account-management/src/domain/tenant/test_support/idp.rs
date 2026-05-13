@@ -1,4 +1,4 @@
-//! Test stub for the [`IdpTenantProvisionerClient`] contract. Pairs
+//! Test stub for the [`IdpPluginClient`] contract. Pairs
 //! with the four-outcome enums [`FakeOutcome`] /
 //! [`FakeDeprovisionOutcome`] that drive the provision / deprovision
 //! branches independently so tests can exercise both compensable and
@@ -14,11 +14,12 @@
 use std::sync::{Arc, Mutex};
 
 use account_management_sdk::{
-    CheckAvailabilityFailure, DeprovisionFailure, DeprovisionRequest, IdpTenantProvisionerClient,
-    ProvisionFailure, ProvisionMetadataEntry, ProvisionRequest, ProvisionResult,
+    CheckAvailabilityFailure, DeprovisionFailure, DeprovisionTenantRequest, IdpPluginClient,
+    ProvisionFailure, ProvisionResult, ProvisionTenantRequest,
 };
 use async_trait::async_trait;
 use modkit_macros::domain_model;
+use serde_json::Value;
 use tokio::sync::Notify;
 use uuid::Uuid;
 
@@ -55,7 +56,13 @@ pub enum FakeDeprovisionOutcome {
 pub struct FakeIdpProvisioner {
     pub outcome: Mutex<FakeOutcome>,
     pub deprovision_outcome: Mutex<FakeDeprovisionOutcome>,
-    pub metadata_entries: Mutex<Vec<ProvisionMetadataEntry>>,
+    /// Opaque plugin-private metadata blob the fake returns from
+    /// [`IdpPluginClient::provision_tenant`] on the `FakeOutcome::Ok`
+    /// path. `None` (default) models the "plugin owns no per-tenant
+    /// state" case; `Some` lets a test pin the exact JSON the
+    /// production code will later replay via
+    /// [`account_management_sdk::TenantContext::metadata`].
+    pub metadata: Mutex<Option<Value>>,
     pub availability_failures: Mutex<u32>,
     pub availability_calls: Mutex<u32>,
     pub calls: Mutex<Vec<Uuid>>,
@@ -73,7 +80,7 @@ impl FakeIdpProvisioner {
         Self {
             outcome: Mutex::new(outcome),
             deprovision_outcome: Mutex::new(FakeDeprovisionOutcome::Ok),
-            metadata_entries: Mutex::new(Vec::new()),
+            metadata: Mutex::new(None),
             availability_failures: Mutex::new(0),
             availability_calls: Mutex::new(0),
             calls: Mutex::new(Vec::new()),
@@ -86,8 +93,11 @@ impl FakeIdpProvisioner {
         *self.deprovision_outcome.lock().expect("lock") = oc;
     }
 
-    pub fn set_metadata_entries(&self, entries: Vec<ProvisionMetadataEntry>) {
-        *self.metadata_entries.lock().expect("lock") = entries;
+    /// Pin the opaque metadata blob returned on the next
+    /// `FakeOutcome::Ok` provision call. `None` resets the fake to
+    /// the "plugin returns no per-tenant state" default.
+    pub fn set_metadata(&self, metadata: Option<Value>) {
+        *self.metadata.lock().expect("lock") = metadata;
     }
 
     pub fn fail_availability_times(&self, failures: u32) {
@@ -118,22 +128,22 @@ impl FakeIdpProvisioner {
 }
 
 #[async_trait]
-impl IdpTenantProvisionerClient for FakeIdpProvisioner {
+impl IdpPluginClient for FakeIdpProvisioner {
     async fn check_availability(&self) -> Result<(), CheckAvailabilityFailure> {
         *self.availability_calls.lock().expect("lock") += 1;
         let mut failures = self.availability_failures.lock().expect("lock");
         if *failures > 0 {
             *failures -= 1;
-            return Err(CheckAvailabilityFailure::TransientError(
-                "fake availability failure".into(),
-            ));
+            return Err(CheckAvailabilityFailure::TransientError {
+                detail: "fake availability failure".to_owned(),
+            });
         }
         Ok(())
     }
 
     async fn provision_tenant(
         &self,
-        req: &ProvisionRequest,
+        req: &ProvisionTenantRequest,
     ) -> Result<ProvisionResult, ProvisionFailure> {
         self.calls.lock().expect("lock").push(req.tenant_id);
         // Signal that the saga has reached `provision_tenant`
@@ -143,9 +153,9 @@ impl IdpTenantProvisionerClient for FakeIdpProvisioner {
         self.provision_entered.notify_one();
         let oc = self.outcome.lock().expect("lock").clone();
         match oc {
-            FakeOutcome::Ok => Ok(ProvisionResult {
-                metadata_entries: self.metadata_entries.lock().expect("lock").clone(),
-            }),
+            FakeOutcome::Ok => Ok(ProvisionResult::new(
+                self.metadata.lock().expect("lock").clone(),
+            )),
             FakeOutcome::CleanFailure => Err(ProvisionFailure::CleanFailure {
                 detail: "fake clean".into(),
             }),
@@ -162,11 +172,14 @@ impl IdpTenantProvisionerClient for FakeIdpProvisioner {
         }
     }
 
-    async fn deprovision_tenant(&self, req: &DeprovisionRequest) -> Result<(), DeprovisionFailure> {
+    async fn deprovision_tenant(
+        &self,
+        req: &DeprovisionTenantRequest,
+    ) -> Result<(), DeprovisionFailure> {
         self.deprovision_calls
             .lock()
             .expect("lock")
-            .push(req.tenant_id);
+            .push(req.tenant_context.tenant_id);
         let oc = self.deprovision_outcome.lock().expect("lock").clone();
         match oc {
             FakeDeprovisionOutcome::Ok => Ok(()),

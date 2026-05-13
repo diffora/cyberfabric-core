@@ -46,18 +46,33 @@
 
 pub mod gts;
 pub mod idp;
+pub mod idp_user;
 pub mod tenant;
 
 pub use gts::{
-    CONVERSION_REQUEST_RESOURCE_TYPE, TENANT_METADATA_RESOURCE_TYPE, TENANT_RESOURCE_TYPE,
+    CONVERSION_REQUEST_RESOURCE_TYPE, IdpPluginSpecV1, TENANT_METADATA_RESOURCE_TYPE,
+    TENANT_RESOURCE_TYPE, USER_RESOURCE_TYPE,
 };
 pub use idp::{
-    CheckAvailabilityFailure, DeprovisionFailure, DeprovisionRequest, IdpTenantProvisionerClient,
-    ProvisionFailure, ProvisionMetadataEntry, ProvisionRequest, ProvisionResult,
+    CheckAvailabilityFailure, DeprovisionFailure, DeprovisionTenantRequest, IdpPluginClient,
+    ProvisionFailure, ProvisionResult, ProvisionTarget, ProvisionTenantRequest,
+};
+pub use idp_user::{
+    DeprovisionUserRequest, ListUsersRequest, NewUser, ProvisionUserRequest, TenantContext, User,
+    UserAttributes, UserOperationFailure, UserPagination, UserPaginationError,
 };
 pub use modkit_canonical_errors::CanonicalError as AccountManagementError;
-pub use modkit_canonical_errors::{self, CanonicalError, Problem};
+// Narrow re-export: only the two types AM SDK consumers actually
+// need to construct or pattern-match on. The previous `pub use
+// modkit_canonical_errors::{self, ...}` re-exported the entire
+// `modkit_canonical_errors` crate as
+// `account_management_sdk::modkit_canonical_errors`, which would
+// have leaked any `modkit_canonical_errors` major-version bump as
+// a breaking change for AM SDK consumers — even ones that do not
+// touch the canonical-errors surface. Keeping the specific item
+// re-exports decouples AM SDK SemVer from upstream churn.
+pub use modkit_canonical_errors::{CanonicalError, Problem};
 pub use tenant::{
-    CreateChildInput, ListChildrenQuery, ListChildrenQueryError, TenantId, TenantInfo, TenantPage,
-    TenantStatus, TenantUpdate,
+    CreateTenantRequest, ListChildrenQuery, ListChildrenQueryError, TenantId, TenantInfo,
+    TenantPage, TenantStatus, TenantUpdate,
 };

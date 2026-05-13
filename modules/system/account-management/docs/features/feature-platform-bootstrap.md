@@ -39,7 +39,7 @@ AM automatically creates the initial root tenant on first platform start, links 
 
 ### 1.2 Purpose
 
-Implements PRD §5.1 Platform Bootstrap — the foundation FR group without which no tenant hierarchy can exist. The feature owns the one-time wiring moment at `AccountManagementModule` lifecycle entry: idempotency detection against the existing `tenants` table, IdP availability wait with exponential backoff, and a three-step saga. The **overall saga is not atomic**: step 1 (insert the `provisioning` tenant row) and step 3 (flip `status → active` and add the closure self-row) are each their own short DB transaction, but step 2 — `IdpProviderPluginClient::provision_tenant` — runs **outside** any DB transaction and is the compensating boundary. A clean step-2 failure deletes the `provisioning` row in a compensating TX and surfaces `CanonicalError::ServiceUnavailable` (HTTP 503); an ambiguous step-2 outcome leaves the row for the Provisioning Reaper. Only step 3's status flip + closure self-row insert commit atomically together.
+Implements PRD §5.1 Platform Bootstrap — the foundation FR group without which no tenant hierarchy can exist. The feature owns the one-time wiring moment at `AccountManagementModule` lifecycle entry: idempotency detection against the existing `tenants` table, IdP availability wait with exponential backoff, and a three-step saga. The **overall saga is not atomic**: step 1 (insert the `provisioning` tenant row) and step 3 (flip `status → active` and add the closure self-row) are each their own short DB transaction, but step 2 — `IdpPluginClient::provision_tenant` — runs **outside** any DB transaction and is the compensating boundary. A clean step-2 failure deletes the `provisioning` row in a compensating TX and surfaces `CanonicalError::ServiceUnavailable` (HTTP 503); an ambiguous step-2 outcome leaves the row for the Provisioning Reaper. Only step 3's status flip + closure self-row insert commit atomically together.
 
 **Requirements**: `cpt-cf-account-management-fr-root-tenant-creation`, `cpt-cf-account-management-fr-root-tenant-idp-link`, `cpt-cf-account-management-fr-bootstrap-idempotency`, `cpt-cf-account-management-fr-bootstrap-ordering`
 
@@ -52,7 +52,7 @@ Implements PRD §5.1 Platform Bootstrap — the foundation FR group without whic
 | Actor | Role in Feature |
 |-------|-----------------|
 | `cpt-cf-account-management-actor-platform-admin` | Configures bootstrap parameters (`root_tenant_type`, `root_tenant_name`, `root_tenant_metadata`, IdP retry/timeout values) before platform start; observes bootstrap outcome via audit + metrics. |
-| `cpt-cf-account-management-actor-idp` | Receives `provision_tenant(root_id, ...)` during the saga; returns provisioning metadata that AM persists as `tenant_metadata` entries. |
+| `cpt-cf-account-management-actor-idp` | Receives `provision_tenant(ProvisionTenantRequest{ tenant_id=root_id, ... })` during the saga; returns an optional opaque `ProvisionResult::metadata` blob that AM persists into `tenant_idp_metadata` (one row per tenant, plugin-owned shape). |
 
 ### 1.4 References
 
@@ -155,7 +155,7 @@ Bootstrap is triggered by the `AccountManagementModule` lifecycle rather than an
 
 1. [ ] - `p1` - Initialize `current_backoff = idp_retry_backoff_initial`; `elapsed = 0` - `inst-algo-wait-init`
 2. [ ] - `p1` - Record start timestamp for elapsed-time calculation - `inst-algo-wait-start-timer`
-3. [ ] - `p1` - **TRY** `IdpProviderPluginClient::check_availability()` using the configured timeout budget - `inst-algo-wait-try-probe`
+3. [ ] - `p1` - **TRY** `IdpPluginClient::check_availability()` using the configured timeout budget - `inst-algo-wait-try-probe`
    1. [ ] - `p1` - **IF** IdP reports available - `inst-algo-wait-probe-ok`
       1. [ ] - `p1` - Emit metric `bootstrap.idp_wait.duration` with observed `elapsed` - `inst-algo-wait-metric-ok`
       2. [ ] - `p1` - **RETURN** `available` - `inst-algo-wait-return-ok`
@@ -192,17 +192,17 @@ Bootstrap is triggered by the `AccountManagementModule` lifecycle rather than an
 6. [ ] - `p1` - **CATCH** saga step 1 error - `inst-algo-saga-step-1-catch`
    1. [ ] - `p1` - **RETURN** `clean_failure` (no row persisted; no cleanup needed) - `inst-algo-saga-return-step-1-fail`
 7. [ ] - `p1` - **TRY** saga step 2 (IdP call, no open TX) - `inst-algo-saga-step-2`
-   1. [ ] - `p1` - IdP: `provision_tenant(root_id, root_tenant_name, root_tenant_type, root_tenant_metadata)` - `inst-algo-saga-idp-call`
-   2. [ ] - `p1` - Receive `ProvisionResult` (may include zero or more provider-supplied metadata entries) - `inst-algo-saga-receive-result`
+   1. [ ] - `p1` - IdP: `provision_tenant(ProvisionTenantRequest{ tenant_id=root_id, tenant_name=root_tenant_name, tenant_type=root_tenant_type, parent_id=None, tenant_metadata=root_tenant_metadata })` - `inst-algo-saga-idp-call`
+   2. [ ] - `p1` - Receive `ProvisionResult { metadata: Option<opaque JSON blob> }` — AM does not inspect or validate the blob - `inst-algo-saga-receive-result`
 8. [ ] - `p1` - **CATCH** saga step 2 error - `inst-algo-saga-step-2-catch`
    1. [ ] - `p1` - **IF** the provider result proves no IdP-side root state was retained - `inst-algo-saga-step-2-clean-branch`
       1. [ ] - `p1` - TenantService: delete the `provisioning` root row in a short compensating transaction; **RETURN** `clean_failure` mapped to `CanonicalError::ServiceUnavailable` (HTTP 503) with safe retry semantics - `inst-algo-saga-return-step-2-clean`
    2. [ ] - `p1` - **ELSE** the external outcome is ambiguous or may already be retained by the IdP - `inst-algo-saga-step-2-ambiguous-branch`
       1. [ ] - `p1` - **RETURN** `ambiguous_failure` (provisioning row left for reaper to compensate per seq-bootstrap; caller must reconcile before blind retry) - `inst-algo-saga-return-step-2-ambiguous`
 9. [ ] - `p1` - **TRY** saga step 3 (finalize, short TX, TenantService-owned) - `inst-algo-saga-step-3`
-   1. [ ] - `p1` - TenantService: persist each provider-returned `ProvisionResult` metadata entry (GTS-validated), transition root status to `active`, and insert the root's self-row in `tenant_closure` (`ancestor = descendant = root_id`, barrier = 0, descendant_status = active) — all in a single transaction - `inst-algo-saga-finalize`
+   1. [ ] - `p1` - TenantService: upsert the opaque `ProvisionResult::metadata` blob (if `Some`) into `tenant_idp_metadata` keyed by `tenant_id`, transition root status to `active`, and insert the root's self-row in `tenant_closure` (`ancestor = descendant = root_id`, barrier = 0, descendant_status = active) — all in a single transaction - `inst-algo-saga-finalize`
    2. [ ] - `p1` - **RETURN** `success` - `inst-algo-saga-return-success`
-10. [ ] - `p1` - **CATCH** saga step 3 error (e.g. metadata schema not registered, constraint violation) - `inst-algo-saga-step-3-catch`
+10. [ ] - `p1` - **CATCH** saga step 3 error (e.g. DB unavailable, constraint violation) - `inst-algo-saga-step-3-catch`
    1. [ ] - `p1` - **RETURN** `ambiguous_failure` (provisioning row left for reaper; IdP-side provisioning will be compensated via `deprovision_tenant` by the reaper) - `inst-algo-saga-return-step-3-fail`
 
 ## 4. States (CDSL)
@@ -246,14 +246,14 @@ The system **MUST** create exactly one root tenant row (`parent_id IS NULL`) dur
 
 **Touches**:
 
-- DB: `tenants`, `tenant_closure`, `tenant_metadata`
+- DB: `tenants`, `tenant_closure`, `tenant_idp_metadata`
 - Entities: `Tenant`, `TenantClosure`
 
 ### Implement Root Tenant IdP Linking
 
 - [x] `p1` - **ID**: `cpt-cf-account-management-dod-platform-bootstrap-idp-linking`
 
-The system **MUST** invoke the IdP provider's `provision_tenant(root_id, root_tenant_name, root_tenant_type, root_tenant_metadata)` exactly once during a successful bootstrap and persist every metadata entry returned in `ProvisionResult` as a `tenant_metadata` row (validated against registered GTS schemas). Bootstrap **MUST NOT** validate or interpret `root_tenant_metadata` content — it is a pass-through forwarded as-is.
+The system **MUST** invoke the IdP provider's `provision_tenant(ProvisionTenantRequest{ tenant_id=root_id, tenant_name=root_tenant_name, tenant_type=root_tenant_type, parent_id=None, tenant_metadata=root_tenant_metadata })` exactly once during a successful bootstrap and **MUST** upsert the opaque `ProvisionResult::metadata` blob returned by the plugin (if any) into `tenant_idp_metadata` keyed by `tenant_id` in the finalization transaction. Bootstrap **MUST NOT** semantically interpret, namespace, or validate `root_tenant_metadata` or the returned blob — both sides are forwarded as-is between the deployer config and the plugin (the plugin owns the JSON shape end-to-end). When the plugin returns no metadata, bootstrap **MUST NOT** write a `tenant_idp_metadata` row.
 
 **Implements**:
 
@@ -263,8 +263,8 @@ The system **MUST** invoke the IdP provider's `provision_tenant(root_id, root_te
 
 **Touches**:
 
-- DB: `tenant_metadata`
-- Entities: `Tenant`, `TenantMetadataEntry`
+- DB: `tenant_idp_metadata`
+- Entities: `Tenant`
 
 ### Implement Bootstrap Idempotency
 
@@ -286,7 +286,7 @@ The system **MUST** detect an existing active root tenant on platform restart or
 
 - [x] `p1` - **ID**: `cpt-cf-account-management-dod-platform-bootstrap-idp-wait-ordering`
 
-The system **MUST** block bootstrap at `IdpProviderPluginClient::check_availability()` until the IdP reports available, using exponential backoff with the configured `idp_retry_backoff_initial` (default 2s), capped at `idp_retry_backoff_max` (default 30s), and bounded by `idp_retry_timeout` (default 5min). On timeout, bootstrap **MUST** return `CanonicalError::ServiceUnavailable` (HTTP 503) and leave no partial `provisioning` row behind.
+The system **MUST** block bootstrap at `IdpPluginClient::check_availability()` until the IdP reports available, using exponential backoff with the configured `idp_retry_backoff_initial` (default 2s), capped at `idp_retry_backoff_max` (default 30s), and bounded by `idp_retry_timeout` (default 5min). On timeout, bootstrap **MUST** return `CanonicalError::ServiceUnavailable` (HTTP 503) and leave no partial `provisioning` row behind.
 
 **Implements**:
 
@@ -333,6 +333,6 @@ The following concerns are explicitly **not** addressed by this FEATURE. Each is
 
 - **UX / usability** — *Not applicable.* Bootstrap is a system-internal lifecycle operation triggered by ModKit module startup; it has no user-facing interface, no user input, and no interaction surface. Observability for operators (audit + metrics) is covered by §5.5 and delegated to `errors-observability`.
 - **Regulatory compliance / data-subject rights** — *Not applicable.* Bootstrap creates no user data, collects no consent, and has no retention or data-subject-rights surface. The only data written is AM-internal structural rows (root tenant, closure self-row, optional provider metadata).
-- **Data privacy (PII)** — *Not applicable.* `root_tenant_metadata` is an opaque deployment-configuration blob that AM forwards as-is to the IdP provider plugin without interpretation, and any `ProvisionResult` metadata entries AM persists are provider-returned and validated against GTS-registered schemas — AM neither introspects nor normalizes them, which keeps bootstrap out of any PII-handling boundary.
+- **Data privacy (PII)** — *Not applicable.* `root_tenant_metadata` is an opaque deployment-configuration blob that AM forwards as-is to the IdP provider plugin without interpretation, and the optional `ProvisionResult::metadata` blob AM persists into `tenant_idp_metadata` is plugin-private state whose JSON shape is owned entirely by the plugin — AM neither introspects nor normalizes either side, which keeps bootstrap out of any PII-handling boundary.
 - **Concrete metric names and audit-event schemas** — *Owned by `errors-observability`.* This FEATURE references the `bootstrap.*` metric family and `bootstrap.*` audit-event names by stable label but does not define their carrier schema, cardinality limits, or retention; those contracts live in the errors-observability FEATURE's metric catalog and audit-event registry.
 - **Conforming IdP plugin implementations** — *Out of scope.* The pluggable IdP contract is referenced via `provision_tenant` but the individual provider plugins (Keycloak, custom IdPs, etc.) are separate crates owned by the `idp-user-operations-contract` feature; this FEATURE tests only that the contract is invoked correctly and the ProvisionResult is persisted.

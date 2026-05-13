@@ -6,7 +6,6 @@
 
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::LazyLock;
 use std::time::Duration;
 
 use modkit_db::DbError;
@@ -135,19 +134,6 @@ pub(super) fn entity_to_model(row: tenants::Model) -> Result<TenantModel, Domain
 /// `Condition` parameter accepted by `SecureSelect::filter`.
 pub(super) fn id_eq(id: Uuid) -> Condition {
     Condition::all().add(tenants::Column::Id.eq(id))
-}
-
-static GTS_NAMESPACE: LazyLock<Uuid> = LazyLock::new(|| Uuid::new_v5(&Uuid::NAMESPACE_URL, b"gts"));
-
-/// Derive the storage `schema_uuid` foreign-key value from a GTS
-/// type identifier. Deterministic V5 UUID; same algorithm as
-/// `gts::GtsID::to_uuid()` (`Uuid::new_v5(&NAMESPACE_URL[gts], id)`).
-/// Used by the metadata-projection layer where the input is a
-/// pre-validated GTS string from the registry — domain entry points
-/// (bootstrap, `create_child`) call `gts::GtsID::new(...)?.to_uuid()`
-/// directly so the chain-shape validation runs at the boundary.
-pub(super) fn schema_uuid_from_gts_id(gts_id: &str) -> Uuid {
-    Uuid::new_v5(&GTS_NAMESPACE, gts_id.as_bytes())
 }
 
 /// Maximum number of attempts for a SERIALIZABLE transaction before the

@@ -115,6 +115,13 @@ pub enum DomainError {
         caller_side: String,
     },
 
+    // TODO(cyberfabric-core#1813-followup): when the conversion REST
+    // surface lands, extend `AlreadyResolved` with an optional
+    // terminal-status payload (`current_status: Option<String>`,
+    // matching the lowercase ASCII `ConversionStatus::as_str` labels)
+    // so the canonical-error envelope can surface the resolved state
+    // to the API caller without a follow-up GET. Deferred here because
+    // the payload only has a consumer once the REST handlers exist.
     #[error("conversion request already resolved")]
     AlreadyResolved,
 
@@ -167,7 +174,7 @@ pub enum DomainError {
     /// the generic [`Self::ServiceUnavailable`] variant because the
     /// bootstrap saga retry loop pattern-matches on this variant
     /// specifically to decide whether to keep waiting on the
-    /// `idp_wait_timeout_secs` budget vs. surfacing a fatal failure.
+    /// `idp_wait_timeout` budget vs. surfacing a fatal failure.
     /// Maps to the same AIP-193 `ServiceUnavailable` (HTTP 503) at the
     /// boundary as [`Self::ServiceUnavailable`].
     #[error("idp unavailable: {detail}")]

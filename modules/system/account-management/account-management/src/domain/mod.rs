@@ -17,10 +17,13 @@
 //! reintroduced without touching the call sites that already log.
 
 pub mod bootstrap;
+pub mod conversion;
 pub mod error;
+pub mod gts_validation;
 pub mod idp;
 pub mod integrity_check;
 pub mod metrics;
 pub mod tenant;
 pub mod tenant_type;
+pub mod user;
 pub mod util;
